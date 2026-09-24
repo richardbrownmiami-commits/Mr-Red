@@ -5,14 +5,18 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.1'
+        classpath 'com.android.tools.build:gradle:8.2.2'
     }
 }
 
-// Dependency repositories are configured centrally in settings.gradle.
-// Do not declare project repositories here because settings.gradle uses
-// RepositoriesMode.FAIL_ON_PROJECT_REPOS.
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+}
 
 tasks.register('clean', Delete) {
-    delete rootProject.layout.buildDirectory
+    delete rootProject.buildDir
 }
