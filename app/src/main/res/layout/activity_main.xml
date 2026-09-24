@@ -3,14 +3,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#1a1a2e">
+    android:background="#000000">
 
-    <!-- Header -->
+    <!-- Header - minimal like ChatGPT -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:orientation="horizontal"
-        android:background="#16213e"
+        android:background="#121212"
         android:gravity="center_vertical"
         android:paddingStart="12dp"
         android:paddingEnd="12dp">
@@ -19,9 +19,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🧠 AIBot"
-            android:textColor="#e94560"
-            android:textSize="20sp"
+            android:text="AIBot"
+            android:textColor="#ffffff"
+            android:textSize="18sp"
             android:textStyle="bold"/>
 
         <ImageButton
@@ -30,53 +30,47 @@
             android:layout_height="40dp"
             android:src="@android:drawable/ic_menu_more"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="#e94560"/>
+            android:tint="#9e9e9e"/>
     </LinearLayout>
 
-    <!-- Status bar -->
+    <!-- Status - very subtle -->
     <TextView
         android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#0f3460"
-        android:textColor="#a0a0b0"
+        android:background="#0f0f0f"
+        android:textColor="#8e8e8e"
         android:textSize="11sp"
+        android:padding="5dp"
         android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp"
-        android:text="Initializing..."
+        android:text="Offline model • Ready • Private on-device"
         android:singleLine="true"
         android:ellipsize="end"/>
 
-    <!-- Progress bar -->
     <ProgressBar
         android:id="@+id/progressBar"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="3dp"
-        android:progressTint="#e94560"
+        android:layout_height="2dp"
+        android:progressTint="#ffffff"
         android:visibility="gone"/>
 
-    <!-- Chat messages -->
+    <!-- Chat -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/chatRecycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp"
+        android:padding="12dp"
         android:clipToPadding="false"/>
 
-    <!-- Input area -->
+    <!-- Input - pill shape like ChatGPT -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:background="#16213e"
-        android:padding="8dp"
+        android:background="#000000"
+        android:padding="12dp"
         android:gravity="center_vertical">
 
         <EditText
@@ -84,27 +78,28 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="Type a message or !help for commands..."
-            android:hintTextColor="#666680"
+            android:hint="Ask AIBot..."
+            android:textColorHint="#6e6e6e"
             android:textColor="#ffffff"
-            android:background="@drawable/input_background"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp"
-            android:maxLines="4"
+            android:background="@android:drawable/editbox_background"
+            android:backgroundTint="#1e1e1e"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:maxLines="5"
             android:inputType="textMultiLine"
-            android:textSize="14sp"/>
+            android:textSize="15sp"/>
 
         <ImageButton
             android:id="@+id/sendButton"
-            android:layout_width="46dp"
-            android:layout_height="46dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="10dp"
             android:src="@android:drawable/ic_menu_send"
-            android:background="@drawable/send_button_bg"
-            android:tint="#ffffff"
+            android:background="@android:drawable/btn_default"
+            android:backgroundTint="#ffffff"
+            android:tint="#000000"
             android:padding="10dp"/>
     </LinearLayout>
-
 </LinearLayout>
