@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#1a1a2e">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:background="#16213e"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="🧠 AIBot"
+            android:textColor="#e94560"
+            android:textSize="20sp"
+            android:textStyle="bold"/>
+
+        <ImageButton
+            android:id="@+id/menuButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_more"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#e94560"/>
+    </LinearLayout>
+
+    <!-- Status bar -->
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#0f3460"
+        android:textColor="#a0a0b0"
+        android:textSize="11sp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:text="Initializing..."
+        android:singleLine="true"
+        android:ellipsize="end"/>
+
+    <!-- Progress bar -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:progressTint="#e94560"
+        android:visibility="gone"/>
+
+    <!-- Chat messages -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/chatRecycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:clipToPadding="false"/>
+
+    <!-- Input area -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#16213e"
+        android:padding="8dp"
+        android:gravity="center_vertical">
+
+        <EditText
+            android:id="@+id/inputField"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Type a message or !help for commands..."
+            android:hintTextColor="#666680"
+            android:textColor="#ffffff"
+            android:background="@drawable/input_background"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:maxLines="4"
+            android:inputType="textMultiLine"
+            android:textSize="14sp"/>
+
+        <ImageButton
+            android:id="@+id/sendButton"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_marginStart="8dp"
+            android:src="@android:drawable/ic_menu_send"
+            android:background="@drawable/send_button_bg"
+            android:tint="#ffffff"
+            android:padding="10dp"/>
+    </LinearLayout>
+
+</LinearLayout>
