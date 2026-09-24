@@ -1,9 +1,7 @@
-name: Build AIBot APK (ARMv7a)
+name: Build AIBot APK - ARMv7a 32bit Android 11+
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
@@ -12,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -22,56 +20,27 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
-      - name: Install NDK for ARMv7a
+      - name: Install NDK
         run: |
           echo "y" | sdkmanager "ndk;25.2.9519653"
-          echo "y" | sdkmanager "cmake;3.22.1"
-          echo "y" | sdkmanager "platforms;android-33"
-          echo "y" | sdkmanager "build-tools;33.0.2"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
 
-      - name: Grant execute permission for gradlew
+      - name: Grant permission
         run: chmod +x gradlew
 
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+      - name: Build Normal APK (ARMv7a)
+        run: ./gradlew assembleDebug --stacktrace -Pabi=armeabi-v7a
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Rename to Normal APK
+        run: |
+          mkdir -p out/
+          cp app/build/outputs/apk/debug/*.apk out/AIBot-armv7a-Android11.apk
+          ls -lh out/
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace
-
-      - name: Upload Debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AIBot-debug-armv7a
-          path: app/build/outputs/apk/debug/*.apk
-          retention-days: 30
-
-      - name: Upload Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: AIBot-release-armv7a
-          path: app/build/outputs/apk/release/*.apk
-          retention-days: 30
-
-      - name: Create Release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ github.run_number }}
-          name: AIBot Build ${{ github.run_number }}
-          files: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: AIBot-armv7a-32
