@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'com.aibot'
-    compileSdk 33
+    compileSdk 30
 
     defaultConfig {
         applicationId "com.aibot"
-        minSdk 21   // ONNX Runtime requires API 21 minimum (was 19 - unsafe with ONNX dependency)
-        targetSdk 30 // Android 11 — avoids stricter API 31+ storage rules
+        minSdk 29   // ONNX Runtime requires API 29 minimum (was 19 - unsafe with ONNX dependency)
+        targetSdk 30 // Android 11  avoids stricter API 31+ storage rules
         versionCode 1
         versionName "1.0"
 
