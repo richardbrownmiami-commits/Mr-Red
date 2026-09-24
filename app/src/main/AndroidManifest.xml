@@ -24,29 +24,27 @@
 
     <!-- Overlay - float over other apps -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
-
-    <!-- Accessibility - read screen -->
-    <!-- Foreground service for overlay -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-
-    <!-- Receive boot to restart overlay -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@android:mipmap/sym_def_app_icon"
+        android:roundIcon="@android:mipmap/sym_def_app_icon"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AIBot"
         android:largeHeap="true"
-        android:hardwareAccelerated="true"
->
+        android:hardwareAccelerated="true">
 
+        <!-- 3. OVERLAY SUPER POWER - show on lock screen + unkillable -->
         <!-- Splash / Awakening screen - LAUNCHER -->
         <activity
             android:name=".SplashActivity"
             android:exported="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@style/Theme.AIBot.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -54,18 +52,62 @@
             </intent-filter>
         </activity>
 
-        <!-- Main chat activity -->
+        <!-- Main chat activity - also shows on lock screen -->
         <activity
             android:name=".MainActivity"
             android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:windowSoftInputMode="adjustResize"/>
 
-        <!-- Accessibility Service - reads screen -->
+        <!-- 4. AUTO-START AFTER REBOOT - receiver to restart bot -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- 5. BECOME SYSTEM ASSISTANT - long press home -->
+        <activity
+            android:name=".AssistantActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AIBot.NoActionBar"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
+
+        <!-- 7. HANDLE SHARED TEXT/LINKS - appear in share menu everywhere -->
+        <activity
+            android:name=".ShareReceiverActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AIBot.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+            </intent-filter>
+        </activity>
+
+        <!-- Accessibility Service - reads screen - unkillable -->
         <service
             android:name=".ScreenReaderService"
             android:exported="true"
             android:label="AIBot Screen Reader"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:foregroundServiceType="mediaProjection">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService"/>
             </intent-filter>
