@@ -9,13 +9,9 @@ buildscript {
     }
 }
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-        maven { url 'https://jitpack.io' }
-    }
-}
+// Dependency repositories are configured centrally in settings.gradle.
+// Do not declare project repositories here because settings.gradle uses
+// RepositoriesMode.FAIL_ON_PROJECT_REPOS.
 
 task clean(type: Delete) {
     delete rootProject.buildDir
