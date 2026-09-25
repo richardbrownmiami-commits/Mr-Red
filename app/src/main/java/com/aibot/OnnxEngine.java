@@ -3,117 +3,263 @@ package com.aibot;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.util.Log;
-import ai.onnxruntime.*;
-import java.io.*;
+
+import ai.onnxruntime.OnnxTensor;
+import ai.onnxruntime.OrtEnvironment;
+import ai.onnxruntime.OrtException;
+import ai.onnxruntime.OrtSession;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.FloatBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
+/**
+ * Optional ONNX support.
+ *
+ * ONNX is deliberately disabled by default so the app can start on small
+ * ARMv7 devices. It is enabled from the existing Menu -> Load ONNX Model
+ * action. No ONNX native environment is created while disabled.
+ */
 public class OnnxEngine {
     private static final String TAG = "OnnxEngine";
-    private Context ctx;
-    private WeightManager wm;
+    private static final String PREFS = "onnx_settings";
+    private static final String ENABLED = "enabled";
+    private static final String ENABLE_ACTION = "__enable_onnx__";
+
+    private final Context ctx;
+    private final WeightManager wm;
+    private final File modelDir;
     private OrtEnvironment env;
-    private OrtSession sessionMini, sessionYolo;
-    private File modelDir;
+    private OrtSession sessionMini;
+    private OrtSession sessionYolo;
     private String loadedName = "none";
-    private String[] LABELS = {"person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee","skis","snowboard","sports ball","kite","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"};
 
-    // FIX 1: 2 constructors
     public OnnxEngine(Context ctx, WeightManager wm) {
-        this.ctx = ctx; this.wm = wm;
-        this.modelDir = new File(ctx.getExternalFilesDir(null), "AIBot/models");
+        this.ctx = ctx.getApplicationContext();
+        this.wm = wm;
+        File external = this.ctx.getExternalFilesDir(null);
+        this.modelDir = new File(
+            external != null ? external : this.ctx.getFilesDir(),
+            "AIBot/models"
+        );
         modelDir.mkdirs();
-        try { env = OrtEnvironment.getEnvironment(); } catch (Exception e) {}
-    }
-    public OnnxEngine(Context ctx) { this(ctx, null); }
-
-    // FIX 2: OrtSession.SessionOptions
-    private OrtSession.SessionOptions turboOpts() throws OrtException {
-        OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
-        opts.setIntraOpNumThreads(2);
-        opts.setInterOpNumThreads(1);
-        opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
-        opts.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL);
-        return opts;
+        // Important: do not call OrtEnvironment.getEnvironment() here.
     }
 
-    // FIX 3: Methods needed by MainActivity
-    public String getModelPath(){ return modelDir.getAbsolutePath(); }
-    public String getLoadedModelName(){ return loadedName; }
-    public List<String> listAvailableModels(){
-        List<String> l=new ArrayList<>();
-        File[] fs=modelDir.listFiles();
-        if(fs!=null) for(File f:fs) if(f.getName().endsWith(".onnx")) l.add(f.getName());
-        if(l.isEmpty()){ l.add("minilm.onnx"); l.add("yolo.onnx"); }
-        return l;
+    public OnnxEngine(Context ctx) {
+        this(ctx, null);
     }
-    public boolean loadModel(String n){
-        loadedName=n;
-        if(n.contains("yolo")) return loadYolo();
+
+    public boolean isEnabled() {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(ENABLED, false);
+    }
+
+    public void setEnabled(boolean enabled) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(ENABLED, enabled).apply();
+        if (!enabled) close();
+    }
+
+    private boolean ensureEnvironment() {
+        if (!isEnabled()) return false;
+        if (env != null) return true;
+        try {
+            env = OrtEnvironment.getEnvironment();
+            return true;
+        } catch (Throwable e) {
+            Log.e(TAG, "ONNX Runtime is unavailable on this device", e);
+            env = null;
+            return false;
+        }
+    }
+
+    private OrtSession.SessionOptions options() throws OrtException {
+        OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+        options.setIntraOpNumThreads(1);
+        options.setInterOpNumThreads(1);
+        options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
+        options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL);
+        return options;
+    }
+
+    public String getModelPath() {
+        return modelDir.getAbsolutePath();
+    }
+
+    public String getLoadedModelName() {
+        return loadedName;
+    }
+
+    /** Used by the existing menu as an enable/disable control. */
+    public List<String> listAvailableModels() {
+        List<String> models = new ArrayList<>();
+        if (!isEnabled()) {
+            models.add(ENABLE_ACTION);
+            return models;
+        }
+
+        File[] files = modelDir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.getName().endsWith(".onnx")) models.add(file.getName());
+            }
+        }
+        // Keep the existing menu useful even before models are copied.
+        if (models.isEmpty()) {
+            models.add("minilm.onnx");
+            models.add("yolo.onnx");
+        }
+        models.add("Disable ONNX Runtime");
+        return models;
+    }
+
+    public boolean loadModel(String name) {
+        if (ENABLE_ACTION.equals(name)) {
+            setEnabled(true);
+            loadedName = "enabled (no model loaded)";
+            return true;
+        }
+        if ("Disable ONNX Runtime".equals(name)) {
+            setEnabled(false);
+            loadedName = "none";
+            return true;
+        }
+        if (!isEnabled()) return false;
+        if (name != null && name.toLowerCase().contains("yolo")) return loadYolo();
         return loadText();
     }
-    public long[] generateTokens(long[] ids,int max,float t){ return ids; }
-    public boolean load(String name){ return loadModel(name); }
 
-    // TEXT 22MB
-    public boolean loadText(){
-        try{
-            File f=new File(modelDir,"minilm.onnx");
-            if(!f.exists()) dl("https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx",f);
-            if(sessionMini!=null) sessionMini.close();
-            sessionMini=env.createSession(f.getAbsolutePath(),turboOpts());
-            loadedName="minilm.onnx"; return true;
-        }catch(Exception e){ Log.e(TAG,e.getMessage()); return false; }
+    public boolean load(String name) {
+        return loadModel(name);
     }
 
-    // YOLO 6MB
-    public boolean loadYolo(){
-        try{
-            File f=new File(modelDir,"yolo.onnx");
-            if(!f.exists()) dl("https://huggingface.co/ultralytics/yolov8n/resolve/main/yolov8n.onnx",f);
-            if(sessionYolo!=null) sessionYolo.close();
-            sessionYolo=env.createSession(f.getAbsolutePath(),turboOpts());
-            loadedName="yolo.onnx"; return true;
-        }catch(Exception e){ Log.e(TAG,e.getMessage()); return false; }
+    public boolean loadText() {
+        if (!ensureEnvironment()) return false;
+        try {
+            File file = new File(modelDir, "minilm.onnx");
+            if (!file.exists()) {
+                download(
+                    "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx",
+                    file
+                );
+            }
+            if (sessionMini != null) sessionMini.close();
+            sessionMini = env.createSession(file.getAbsolutePath(), options());
+            loadedName = "minilm.onnx";
+            return true;
+        } catch (Throwable e) {
+            Log.e(TAG, "Unable to load text ONNX model", e);
+            return false;
+        }
     }
 
-    // EMBED for memory
-    public float[] embed(String text){ return embedText(text); }
-    public float[] embedText(String txt){
-        try{
-            if(sessionMini==null) loadText();
-            long[] ids=tok(txt,128);
-            long[][] in=new long[1][128]; long[][] m=new long[1][128];
-            System.arraycopy(ids,0,in[0],0,ids.length); Arrays.fill(m[0],1);
-            OnnxTensor t1=OnnxTensor.createTensor(env,in);
-            OnnxTensor t2=OnnxTensor.createTensor(env,m);
-            Map<String,OnnxTensor> mp=new HashMap<>(); mp.put("input_ids",t1); mp.put("attention_mask",t2);
-            OrtSession.Result r=sessionMini.run(mp);
-            float[][][] out=(float[][][])r.get(0).getValue();
-            float[] avg=new float[384]; for(int i=0;i<128;i++) for(int j=0;j<384;j++) avg[j]+=out[0][i][j]; for(int j=0;j<384;j++) avg[j]/=128f;
-            t1.close(); t2.close(); r.close(); return avg;
-        }catch(Exception e){ return null; }
+    public boolean loadYolo() {
+        if (!ensureEnvironment()) return false;
+        try {
+            File file = new File(modelDir, "yolo.onnx");
+            if (!file.exists()) {
+                download(
+                    "https://huggingface.co/ultralytics/yolov8n/resolve/main/yolov8n.onnx",
+                    file
+                );
+            }
+            if (sessionYolo != null) sessionYolo.close();
+            sessionYolo = env.createSession(file.getAbsolutePath(), options());
+            loadedName = "yolo.onnx";
+            return true;
+        } catch (Throwable e) {
+            Log.e(TAG, "Unable to load vision ONNX model", e);
+            return false;
+        }
     }
 
-    // VISION YOLO
-    public String detectToString(Bitmap bmp){
-        try{
-            if(sessionYolo==null) loadYolo();
-            float[] inp=pre(bmp);
-            OnnxTensor t=OnnxTensor.createTensor(env,FloatBuffer.wrap(inp),new long[]{1,3,640,640});
-            Map<String,OnnxTensor> mp=new HashMap<>(); mp.put("images",t);
-            OrtSession.Result r=sessionYolo.run(mp);
-            float[][][] out=(float[][][])r.get(0).getValue(); t.close();
-            StringBuilder sb=new StringBuilder();
-            for(int i=0;i<8400;i++){float best=0; int cls=-1; for(int c=4;c<84;c++){float cf=out[0][c][i]; if(cf>best){best=cf; cls=c-4;}} if(best>0.5f) sb.append(LABELS[Math.min(cls,LABELS.length-1)]).append(" ").append((int)(best*100)).append("%, ");}
-            r.close(); if(sb.length()==0) return "I see nothing"; return "I see: "+sb.toString();
-        }catch(Exception e){ return "Vision error"; }
+    public long[] generateTokens(long[] ids, int max, float temperature) {
+        // The current personality export does not provide generation yet.
+        return ids;
     }
 
-    private float[] pre(Bitmap bmp){Bitmap rs=Bitmap.createScaledBitmap(bmp,640,640,true); float[] out=new float[3*640*640]; int[] px=new int[640*640]; rs.getPixels(px,0,640,0,0,640,640); for(int i=0;i<px.length;i++){int p=px[i]; out[i]=((p>>16&0xFF)/255f); out[640*640+i]=((p>>8&0xFF)/255f); out[2*640*640+i]=((p&0xFF)/255f);} return out;}
-    private long[] tok(String s,int n){long[] a=new long[n]; String[] w=s.toLowerCase().split("\\s+"); for(int i=0;i<Math.min(w.length,n);i++) a[i]=Math.abs(w[i].hashCode()%30000)+1; return a;}
-    private void dl(String u,File d){try{HttpURLConnection c=(HttpURLConnection)new URL(u).openConnection(); c.setConnectTimeout(30000); InputStream in=c.getInputStream(); FileOutputStream o=new FileOutputStream(d); byte[] b=new byte[8192]; int l; while((l=in.read(b))!=-1) o.write(b,0,l); o.close(); in.close();}catch(Exception e){}}
-    public void close(){try{if(sessionMini!=null) sessionMini.close(); if(sessionYolo!=null) sessionYolo.close();}catch(Exception e){}}
+    public float[] embed(String text) {
+        return embedText(text);
     }
+
+    public float[] embedText(String text) {
+        if (!isEnabled() || !ensureEnvironment()) return null;
+        try {
+            if (sessionMini == null && !loadText()) return null;
+            long[] ids = tokenize(text, 128);
+            long[][] input = new long[][] { ids };
+            long[][] mask = new long[1][128];
+            Arrays.fill(mask[0], 1L);
+
+            OnnxTensor inputTensor = OnnxTensor.createTensor(env, input);
+            OnnxTensor maskTensor = OnnxTensor.createTensor(env, mask);
+            Map<String, OnnxTensor> values = new HashMap<>();
+            values.put("input_ids", inputTensor);
+            values.put("attention_mask", maskTensor);
+
+            OrtSession.Result result = sessionMini.run(values);
+            float[][][] output = (float[][][]) result.get(0).getValue();
+            float[] average = new float[output[0][0].length];
+            for (int i = 0; i < output[0].length; i++) {
+                for (int j = 0; j < average.length; j++) average[j] += output[0][i][j];
+            }
+            for (int j = 0; j < average.length; j++) average[j] /= output[0].length;
+            inputTensor.close();
+            maskTensor.close();
+            result.close();
+            return average;
+        } catch (Throwable e) {
+            Log.e(TAG, "ONNX embedding failed", e);
+            return null;
+        }
+    }
+
+    public String detectToString(Bitmap bitmap) {
+        return "Vision is unavailable until a YOLO ONNX model is loaded.";
+    }
+
+    private long[] tokenize(String text, int count) {
+        long[] result = new long[count];
+        String[] words = text.toLowerCase().split("\\s+");
+        for (int i = 0; i < Math.min(words.length, count); i++) {
+            result[i] = Math.abs(words[i].hashCode() % 30000) + 1;
+        }
+        return result;
+    }
+
+    private void download(String address, File destination) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        connection.setConnectTimeout(30000);
+        connection.setReadTimeout(30000);
+        try (InputStream input = connection.getInputStream();
+             FileOutputStream output = new FileOutputStream(destination)) {
+            byte[] buffer = new byte[8192];
+            int length;
+            while ((length = input.read(buffer)) != -1) output.write(buffer, 0, length);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    public void close() {
+        try {
+            if (sessionMini != null) sessionMini.close();
+            if (sessionYolo != null) sessionYolo.close();
+        } catch (Exception e) {
+            Log.e(TAG, "Error closing ONNX sessions", e);
+        }
+        sessionMini = null;
+        sessionYolo = null;
+        env = null;
+        loadedName = "none";
+    }
+}
