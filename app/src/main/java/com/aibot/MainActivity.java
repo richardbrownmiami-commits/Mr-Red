@@ -587,6 +587,7 @@ public class MainActivity extends AppCompatActivity {
         nn = new NeuralNetwork();
         tokenizer = new Tokenizer();
         nars = new NARSEngine();
+        narsTool = new NarsTool(nars);
         weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
         selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager);
         datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
