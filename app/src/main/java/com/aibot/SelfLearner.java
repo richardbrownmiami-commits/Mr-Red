@@ -48,16 +48,13 @@ public class SelfLearner {
             tokenizer.learnFromText(userMessage);
             tokenizer.learnFromText(botResponse);
 
-            // 2. Update NARS beliefs from user message
-            List<Belief> learned = nars.parseAndLearn(userMessage);
-            if (!learned.isEmpty()) {
-                Log.d(TAG, "Learned " + learned.size() + " beliefs from message");
-            }
+            // NARS is an explicit reasoning tool; normal conversation does not
+            // automatically enter every message into the reasoning engine.
 
-            // 3. Train neural network on this exchange
+            // 2. Train neural network on this exchange
             trainOnPair(userMessage, botResponse);
 
-            // 4. Save periodically
+            // 3. Save periodically
             if (trainSteps % SAVE_INTERVAL == 0) {
                 weightManager.saveAll();
             }
