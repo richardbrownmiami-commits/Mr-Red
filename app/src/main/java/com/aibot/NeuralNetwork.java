@@ -20,7 +20,11 @@ public class NeuralNetwork {
     public static final int FF_DIM        = 256;
     public static final int NUM_LAYERS    = 2;
     public static final int MAX_SEQ_LEN   = 128;
-    public static final float LEARN_RATE  = 0.001f;
+    public static final float LEARN_RATE  = 0.0005f;
+    private static final int MEMORY_DIM = 64;
+    private static final int TOP_K = 40;
+    float[][] contextIn;
+    float[][] contextOut;
 
     // Weights - Embedding
     float[][] tokenEmbedding;   // [VOCAB_SIZE][EMBED_DIM]
@@ -82,6 +86,8 @@ public class NeuralNetwork {
 
         Wout = randomMatrix(EMBED_DIM, VOCAB_SIZE, 0.02f);
         bout = new float[VOCAB_SIZE];
+        contextIn = randomMatrix(VOCAB_SIZE, MEMORY_DIM, 0.02f);
+        contextOut = randomMatrix(MEMORY_DIM, VOCAB_SIZE, 0.02f);
 
         isInitialized = true;
     }
@@ -107,13 +113,14 @@ public class NeuralNetwork {
 
         // Step 3: Get last token's logits
         float[] lastHidden = x[seqLen - 1];
+        float[] memoryState = buildMemoryState(inputTokens, seqLen);
         float[] logits = new float[VOCAB_SIZE];
         for (int v = 0; v < VOCAB_SIZE; v++) {
             float sum = bout[v];
-            for (int d = 0; d < EMBED_DIM; d++) {
-                sum += lastHidden[d] * Wout[d][v];
-            }
-            logits[v] = sum;
+            for (int d = 0; d < EMBED_DIM; d++) sum += lastHidden[d] * Wout[d][v];
+            float mem = 0f;
+            for (int d = 0; d < MEMORY_DIM; d++) mem += memoryState[d] * contextOut[d][v];
+            logits[v] = sum + 0.35f * mem;
         }
 
         return logits;
@@ -263,20 +270,41 @@ public class NeuralNetwork {
         return out;
     }
 
-    // Generate next token given input tokens
+    // Generate next token using temperature + top-k sampling.
     public int generateNextToken(int[] inputTokens, float temperature) {
         float[] logits = forward(inputTokens);
-
-        // Apply temperature
-        if (temperature > 0) {
-            for (int i = 0; i < logits.length; i++) {
-                logits[i] /= temperature;
+        if (temperature <= 0f) temperature = 0.8f;
+        int k = Math.min(TOP_K, logits.length);
+        int[] top = new int[k];
+        float[] topValues = new float[k];
+        java.util.Arrays.fill(top, -1);
+        java.util.Arrays.fill(topValues, Float.NEGATIVE_INFINITY);
+        for (int i = 0; i < logits.length; i++) {
+            float value = logits[i] / temperature;
+            for (int p = 0; p < k; p++) {
+                if (value > topValues[p]) {
+                    for (int q = k - 1; q > p; q--) {
+                        topValues[q] = topValues[q - 1];
+                        top[q] = top[q - 1];
+                    }
+                    topValues[p] = value;
+                    top[p] = i;
+                    break;
+                }
             }
         }
-
-        // Sample from softmax
-        float[] probs = softmax(logits, logits.length);
-        return sampleFromDistribution(probs);
+        float max = topValues[0], sum = 0f;
+        float[] probs = new float[k];
+        for (int i = 0; i < k; i++) {
+            probs[i] = (float)Math.exp(topValues[i] - max);
+            sum += probs[i];
+        }
+        float r = rng.nextFloat() * sum, cumulative = 0f;
+        for (int i = 0; i < k; i++) {
+            cumulative += probs[i];
+            if (r <= cumulative) return top[i];
+        }
+        return top[k - 1];
     }
 
     // Sample token from probability distribution
@@ -303,8 +331,32 @@ public class NeuralNetwork {
         float[] dLogits = probs.clone();
         dLogits[targetToken] -= 1.0f;
 
-        // Update output weights (simplified gradient descent)
         int seqLen = Math.min(inputTokens.length, MAX_SEQ_LEN);
+        float[] memoryState = buildMemoryState(inputTokens, seqLen);
+        float[] dMemory = new float[MEMORY_DIM];
+        for (int d = 0; d < MEMORY_DIM; d++) {
+            float g = 0f;
+            for (int v = 0; v < VOCAB_SIZE; v++) {
+                g += dLogits[v] * contextOut[d][v] * 0.35f;
+                contextOut[d][v] -= LEARN_RATE * 0.35f * dLogits[v] * memoryState[d];
+            }
+            dMemory[d] = g;
+        }
+        int validCount = 0;
+        for (int i = 0; i < seqLen; i++) {
+            int tok = inputTokens[i];
+            if (tok >= 0 && tok < VOCAB_SIZE) validCount++;
+        }
+        if (validCount > 0) {
+            float inv = 1f / validCount;
+            for (int i = 0; i < seqLen; i++) {
+                int tok = inputTokens[i];
+                if (tok < 0 || tok >= VOCAB_SIZE) continue;
+                for (int d = 0; d < MEMORY_DIM; d++) contextIn[tok][d] -= LEARN_RATE * dMemory[d] * inv;
+            }
+        }
+
+        // Update output weights (simplified gradient descent)
         float[][] x = getHiddenState(inputTokens, seqLen);
         float[] lastHidden = x[seqLen - 1];
 
@@ -332,6 +384,22 @@ public class NeuralNetwork {
         }
 
         return loss;
+    }
+
+    private float[] buildMemoryState(int[] inputTokens, int seqLen) {
+        float[] state = new float[MEMORY_DIM];
+        int count = 0;
+        for (int i = 0; i < seqLen; i++) {
+            int tok = inputTokens[i];
+            if (tok < 0 || tok >= VOCAB_SIZE) continue;
+            for (int d = 0; d < MEMORY_DIM; d++) state[d] += contextIn[tok][d];
+            count++;
+        }
+        if (count > 0) {
+            float inv = 1f / count;
+            for (int d = 0; d < MEMORY_DIM; d++) state[d] *= inv;
+        }
+        return state;
     }
 
     // Get hidden states for backprop
@@ -381,6 +449,8 @@ public class NeuralNetwork {
 
         writeMatrix(dos, Wout);
         writeArray(dos, bout);
+        writeMatrix(dos, contextIn);
+        writeMatrix(dos, contextOut);
         dos.close();
     }
 
@@ -412,6 +482,8 @@ public class NeuralNetwork {
 
         readMatrix(dis, Wout);
         readArray(dis, bout);
+        readMatrix(dis, contextIn);
+        readMatrix(dis, contextOut);
         dis.close();
     }
 
