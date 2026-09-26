@@ -15,6 +15,7 @@ public class TaskParser {
         DATA_ON, DATA_OFF,
         OPEN_APP,
         SCREEN_READ, SCREEN_APP, SCREEN_WHAT,
+        NARS_REASON,
         BATTERY_STATUS,
         DEVICE_STATUS,
         BRIGHTNESS_SETTINGS,
@@ -117,6 +118,14 @@ public class TaskParser {
             lower.contains("next move") || lower.contains("what should i do") ||
             lower.contains("help me with") && lower.contains("game")) {
             return new ParsedTask(TaskType.SCREEN_WHAT, null, input);
+        }
+
+        // ── NARS reasoning tool ──
+        if (lower.startsWith("!nars ")) {
+            return new ParsedTask(TaskType.NARS_REASON, lower.substring(6).trim(), input);
+        }
+        if (matches(lower, "reason this", "reason about", "deduce this", "what can you infer")) {
+            return new ParsedTask(TaskType.NARS_REASON, input, input);
         }
 
         // ── Battery ──
