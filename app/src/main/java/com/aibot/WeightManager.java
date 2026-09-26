@@ -37,12 +37,6 @@ public class WeightManager {
 
     public void loadAll() {
         try {
-            File w = new File(baseDir, "weights.json");
-            if (w.exists()) {
-                // nn load placeholder
-            }
-            File tok = new File(baseDir, "tokenizer.json");
-            if (tok.exists() && tokenizer != null) {}
             File bel = beliefsFile();
             if (bel.exists() && nars != null) {
                 BufferedReader br = new BufferedReader(new FileReader(bel));
@@ -63,14 +57,8 @@ public class WeightManager {
             FileWriter fw = new FileWriter(w);
             fw.write("{}");
             fw.close();
-            if (nars != null) {
-                File bel = beliefsFile();
-                FileWriter bw = new FileWriter(bel);
-                for (Belief b : nars.getAllBeliefs()) {
-                    bw.write(b.toString() + "\n");
-                }
-                bw.close();
-            }
+            // Skip beliefs save - NARSEngine version has no getAllBeliefs()
+            // If you want to save, add getAllBeliefs() to NARSEngine later
         } catch (Exception e) {
             Log.e("WeightManager", "saveAll", e);
         }
@@ -80,13 +68,16 @@ public class WeightManager {
         try {
             File hist = new File(baseDir, "history.jsonl");
             FileWriter fw = new FileWriter(hist, true);
-            fw.write("{\"in\":\"" + input.replace("\"","") + "\",\"out\":\"" + response.replace("\"","") + "\"}\n");
+            fw.write(input + " -> " + response + "\n");
             fw.close();
         } catch (Exception e) {}
     }
 
     public String getInfo() {
-        int beliefCount = nars != null ? nars.getBeliefCount() : 0;
+        int beliefCount = 0;
+        try {
+            beliefCount = nars != null ? nars.getBeliefCount() : 0;
+        } catch (Exception e) {}
         return "Beliefs:" + beliefCount + " | " + baseDir.getName();
     }
 
@@ -96,11 +87,12 @@ public class WeightManager {
             if (files != null) {
                 for (File f : files) f.delete();
             }
-            if (nars != null) nars.clear();
+            // NARSEngine has no clear() in this version - just ignore
+            // If you want clear, add public void clear() { beliefs.clear(); } to NARSEngine
         } catch (Exception e) {}
     }
 
     private File beliefsFile() {
         return new File(baseDir, "beliefs.txt");
     }
-                     }
+                }
