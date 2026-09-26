@@ -37,6 +37,7 @@ public class MainActivity extends AppCompatActivity {
     private NeuralNetwork nn;
     private Tokenizer tokenizer;
     private NARSEngine nars;
+    private NarsTool narsTool;
     private WeightManager weightManager;
     private SelfLearner selfLearner;
     private WebSearch webSearch;
@@ -118,6 +119,7 @@ public class MainActivity extends AppCompatActivity {
                 nn = new NeuralNetwork();
                 tokenizer = new Tokenizer();
                 nars = new NARSEngine();
+                narsTool = new NarsTool(nars);
                 weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
                 selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager);
                 webSearch = new WebSearch();
@@ -212,6 +214,8 @@ public class MainActivity extends AppCompatActivity {
             } else if (lower.startsWith("!load ")) {
                 handleLoadDataset(input.substring(6).trim());
                 return;
+            } else if (lower.startsWith("!nars ")) {
+                response = narsTool != null ? narsTool.execute(input.substring(6).trim()) : "NARS is not ready.";
             } else if (lower.equals("!stats")) {
                 response = buildStats();
             } else if (lower.equals("!save")) {
@@ -261,6 +265,8 @@ public class MainActivity extends AppCompatActivity {
     private String executeDeviceTask(TaskParser.ParsedTask task) {
         try {
             switch (task.type) {
+                case NARS_REASON:
+                    return narsTool != null ? narsTool.execute(task.argument) : "NARS is not ready.";
                 case FLASHLIGHT_ON:
                     return deviceController.setFlashlight(true)? "Flashlight is on" : "Couldn't turn on flashlight.";
                 case FLASHLIGHT_OFF:
@@ -686,7 +692,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String buildHelp() {
-        return "I am AIBot. Commands:\n!search query\n!fetch url\n!datasets\n!load file\n!stats!save!reset\nshow bubble\nTurn on flashlight\nWhat's on screen?";
+        return "I am AIBot. Commands:\n!search query\n!fetch url\n!nars question\n!datasets\n!load file\n!stats\n!save\n!reset\nshow bubble\nTurn on flashlight\nWhat's on screen?";
     }
 
     private String getMoodStatus() {
