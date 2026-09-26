@@ -738,4 +738,42 @@ public class MainActivity extends AppCompatActivity {
         needed.add(Manifest.permission.BLUETOOTH);
         needed.add(Manifest.permission.BLUETOOTH_ADMIN);
         needed.add(Manifest.permission.ACCESS_NETWORK_STATE);
-                                                                
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+            needed.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            needed.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            needed.add(Manifest.permission.BLUETOOTH_CONNECT);
+        List<String> toReq = new ArrayList<>();
+        for (String p : needed)
+            if (ContextCompat.checkSelfPermission(this, p)!= PackageManager.PERMISSION_GRANTED)
+                toReq.add(p);
+        if (!toReq.isEmpty())
+            ActivityCompat.requestPermissions(this, toReq.toArray(new String[0]), 100);
+    }
+
+    private void checkSpecialPermissions() {
+        try {
+            if (!OverlayManager.hasOverlayPermission(this))
+                new Handler(Looper.getMainLooper()).postDelayed(() -> addBotMessage("Tip: Enable overlay bubble in Menu"), 3000);
+        } catch (Exception e) {}
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        try {
+            if (weightManager!= null) weightManager.saveAll();
+        } catch (Exception e) {}
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        try {
+            if (overlayManager!= null) overlayManager.hideBubble();
+        } catch (Exception e) {}
+    }
+
+    private void scheduleProactiveFact() {}
+}
