@@ -31,34 +31,40 @@ public class WeightManager {
     public String getModelPath() { return baseDir.getAbsolutePath(); }
 
     public boolean hasExistingWeights() {
-        File f = new File(baseDir, "weights.json");
-        return f.exists() && f.length() > 10;
+        File f = new File(baseDir, "model.bin");
+        return f.exists() && f.length() > 1000;
     }
 
     public void loadAll() {
         try {
-            File bel = beliefsFile();
-            if (bel.exists() && nars != null) {
-                BufferedReader br = new BufferedReader(new FileReader(bel));
-                String line;
-                while ((line = br.readLine()) != null) {
-                    nars.parseAndLearn(line);
-                }
-                br.close();
-            }
+            File model = new File(baseDir, "model.bin");
+            if (model.exists() && nn != null) nn.loadWeights(model);
+
+            File vocab = new File(baseDir, "vocab.txt");
+            if (vocab.exists() && tokenizer != null) tokenizer.loadVocab(vocab);
+
+            File bel = new File(baseDir, "beliefs.bin");
+            if (bel.exists() && nars != null) nars.loadBeliefs(bel);
         } catch (Exception e) {
             Log.e("WeightManager", "loadAll", e);
         }
     }
 
-    public void saveAll() {
+    public synchronized void saveAll() {
         try {
-            File w = new File(baseDir, "weights.json");
-            FileWriter fw = new FileWriter(w);
-            fw.write("{}");
+            File model = new File(baseDir, "model.bin");
+            if (nn != null) nn.saveWeights(model);
+
+            File vocab = new File(baseDir, "vocab.txt");
+            if (tokenizer != null) tokenizer.saveVocab(vocab);
+
+            File bel = new File(baseDir, "beliefs.bin");
+            if (nars != null) nars.saveBeliefs(bel);
+
+            File marker = new File(baseDir, "weights.json");
+            FileWriter fw = new FileWriter(marker);
+            fw.write("{\"version\":2,\"model\":\"model.bin\",\"vocab\":\"vocab.txt\",\"beliefs\":\"beliefs.bin\"}");
             fw.close();
-            // Skip beliefs save - NARSEngine version has no getAllBeliefs()
-            // If you want to save, add getAllBeliefs() to NARSEngine later
         } catch (Exception e) {
             Log.e("WeightManager", "saveAll", e);
         }
