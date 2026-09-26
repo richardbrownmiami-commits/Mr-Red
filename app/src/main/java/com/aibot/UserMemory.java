@@ -79,6 +79,21 @@ public class UserMemory {
         return prefs.getInt(KEY_TOTAL_MESSAGES, 0);
     }
 
+    /**
+     * Returns a compact human-readable summary for the Stats dialog.
+     */
+    public String getStats() {
+        String name = getName();
+        String favorite = getFavoriteTopic();
+        String last = getLastTopic();
+        return "Memory: " + (name != null ? "name=" + name : "name=unknown")
+            + ", sessions=" + getSessionCount()
+            + ", messages=" + getTotalMessages()
+            + ", topics=" + topicFrequency.size()
+            + ", favorite=" + (favorite != null ? favorite : "none")
+            + ", last=" + (last != null ? last : "none");
+    }
+
     // ─── TOPIC TRACKING ───────────────────────────────────────────────────────
 
     public void recordTopic(String topic) {
