@@ -249,8 +249,18 @@ public class Tokenizer {
         if (word.length() <= 4) return word;
         if (word.endsWith("'s")) return word.substring(0, word.length() - 2);
         if (word.endsWith("ies") && word.length() > 4) return word.substring(0, word.length() - 3) + "y";
-        if (word.endsWith("ing") && word.length() > 6) return word.substring(0, word.length() - 3);
-        if (word.endsWith("ed") && word.length() > 5) return word.substring(0, word.length() - 2);
+        if (word.endsWith("ing") && word.length() > 6) {
+            String stem = word.substring(0, word.length() - 3);
+            if (stem.length() > 2 && stem.charAt(stem.length()-1) == stem.charAt(stem.length()-2))
+                stem = stem.substring(0, stem.length()-1);
+            return stem;
+        }
+        if (word.endsWith("ed") && word.length() > 5) {
+            String stem = word.substring(0, word.length() - 2);
+            if (stem.length() > 2 && stem.charAt(stem.length()-1) == stem.charAt(stem.length()-2))
+                stem = stem.substring(0, stem.length()-1);
+            return stem;
+        }
         if (word.endsWith("s") && !word.endsWith("ss") && word.length() > 5) return word.substring(0, word.length() - 1);
         return word;
     }
