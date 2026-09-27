@@ -232,12 +232,27 @@ public class Tokenizer {
     // ─── TOKENIZATION ─────────────────────────────────────────────────────────
 
     private String[] tokenize(String text) {
-        // Lowercase, keep punctuation as separate tokens
-        text = text.toLowerCase()
-                   .replaceAll("([.,!?;:])", " $1 ")
+        // Normalize English surface forms so rain/raining/rained and simple
+        // plurals share useful vocabulary instead of becoming unrelated words.
+        text = text == null ? "" : text.toLowerCase(Locale.US)
+                   .replaceAll("([.,!?;:()])", " $1 ")
                    .replaceAll("\\s+", " ")
                    .trim();
-        return text.split(" ");
+        if (text.isEmpty()) return new String[0];
+        String[] raw = text.split(" ");
+        for (int i = 0; i < raw.length; i++) raw[i] = normalizeWord(raw[i]);
+        return raw;
+    }
+
+    private String normalizeWord(String word) {
+        if (word == null || word.isEmpty()) return "";
+        if (word.length() <= 4) return word;
+        if (word.endsWith("'s")) return word.substring(0, word.length() - 2);
+        if (word.endsWith("ies") && word.length() > 4) return word.substring(0, word.length() - 3) + "y";
+        if (word.endsWith("ing") && word.length() > 6) return word.substring(0, word.length() - 3);
+        if (word.endsWith("ed") && word.length() > 5) return word.substring(0, word.length() - 2);
+        if (word.endsWith("s") && !word.endsWith("ss") && word.length() > 5) return word.substring(0, word.length() - 1);
+        return word;
     }
 
     // ─── VOCABULARY ───────────────────────────────────────────────────────────
