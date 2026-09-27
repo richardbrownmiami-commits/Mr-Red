@@ -296,6 +296,79 @@ public class ConversationManager {
         }
     }
 
+    // ─── INTENT HELPERS ────────────────────────────────────────────────────────
+
+    /**
+     * True when the user is actually asking for information.
+     * Ordinary statements should not trigger a web-search confirmation.
+     */
+    public boolean isKnowledgeQuestion(String input) {
+        if (input == null) return false;
+        String s = input.toLowerCase().trim();
+        if (s.isEmpty()) return false;
+
+        if (s.endsWith("?")) return true;
+
+        String[] starters = {
+            "what is ", "what are ", "who is ", "who are ",
+            "where is ", "where are ", "when is ", "when did ",
+            "when was ", "why is ", "why are ", "why does ",
+            "why do ", "how is ", "how are ", "how does ",
+            "how do ", "how can ", "what does ", "what do ",
+            "what happens ", "what happened ", "tell me about ",
+            "explain ", "define ", "meaning of ", "can you tell me "
+        };
+
+        for (String starter : starters) {
+            if (s.startsWith(starter)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Deterministic conversational fallback for social/casual messages.
+     * This is deliberately separate from factual web research.
+     */
+    public String buildCasualResponse(String input) {
+        String s = input == null ? "" : input.toLowerCase().trim();
+
+        if (s.contains("not here to teach") || s.contains("not here for teach") ||
+            s.contains("don't want to teach") || s.contains("do not want to teach")) {
+            return "That's fine. You don't have to teach me. Just tell me what you need.";
+        }
+
+        if (s.equals("hi") || s.equals("hello") || s.equals("hey")) {
+            return pick("Hey. I'm listening.", "Hi. What do you need?", "Hey — I'm here.");
+        }
+
+        if (s.equals("kk") || s.equals("k") || s.equals("okay") || s.equals("ok")) {
+            return "Okay.";
+        }
+
+        if (s.equals("thanks") || s.equals("thank you") || s.equals("thx")) {
+            return pick("You're welcome.", "Anytime.", "You're welcome. I'm here.");
+        }
+
+        if (s.equals("bye") || s.equals("goodbye")) {
+            return "Alright. I'll be here.";
+        }
+
+        if (s.equals("no") || s.equals("nope") || s.equals("nah")) {
+            return "Okay.";
+        }
+
+        if (s.endsWith("?")) {
+            return "I don't have a reliable answer yet.";
+        }
+
+        return pick(
+            "Got it.",
+            "Understood.",
+            "I'm listening.",
+            "Okay. What do you need?"
+        );
+    }
+
     // ─── REPETITION GUARD ─────────────────────────────────────────────────────
 
     private boolean isRepetitive(String response) {
