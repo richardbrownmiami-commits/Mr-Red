@@ -3,6 +3,7 @@ package com.aibot;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -66,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int THINK_MIN = 500;
     private static final int THINK_MAX = 1500;
     private static final String TAG = "MainActivity";
+    private static final int ONNX_IMPORT_REQUEST = 7001;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -695,16 +697,106 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showOnnxPicker() {
-        List<String> m = onnxEngine.listAvailableModels();
-        if (m.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle("ONNX").setMessage("No models in " + onnxEngine.getModelPath()).setPositiveButton("OK", null).show();
+        if (onnxEngine == null) {
+            addBotMessage("ONNX engine is not ready yet.");
             return;
         }
+
+        // Enable ONNX automatically when the user opens its menu.
+        if (!onnxEngine.isEnabled()) onnxEngine.setEnabled(true);
+
+        List<String> m = onnxEngine.listAvailableModels();
         String[] arr = m.toArray(new String[0]);
-        new AlertDialog.Builder(this).setTitle("Load ONNX").setItems(arr, (d, i) -> {
-            boolean l = personalityEngine.loadModel(arr[i]);
-            addBotMessage(l? "Loaded " + arr[i] : "Failed " + arr[i]);
-        }).show();
+
+        new AlertDialog.Builder(this)
+            .setTitle("ONNX Models")
+            .setItems(arr, (d, i) -> {
+                String selected = arr[i];
+
+                if ("Import ONNX from storage".equals(selected)) {
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("application/octet-stream");
+                    startActivityForResult(intent, ONNX_IMPORT_REQUEST);
+                    return;
+                }
+
+                if ("Disable ONNX Runtime".equals(selected)) {
+                    onnxEngine.setEnabled(false);
+                    addBotMessage("ONNX Runtime disabled.");
+                    return;
+                }
+
+                if ("__enable_onnx__".equals(selected)) {
+                    onnxEngine.setEnabled(true);
+                    addBotMessage("ONNX Runtime enabled.");
+                    return;
+                }
+
+                addBotMessage("Loading " + selected + "...");
+                setStatus("Downloading/loading " + selected);
+
+                // Model download and session creation must never run on the UI thread.
+                new Thread(() -> {
+                    boolean loaded = false;
+                    String error = null;
+                    try {
+                        loaded = personalityEngine.loadModel(selected);
+                        if (!loaded) error = "Model could not be loaded.";
+                    } catch (Throwable e) {
+                        error = e.getClass().getSimpleName() + ": " + e.getMessage();
+                    }
+
+                    final boolean ok = loaded;
+                    final String err = error;
+                    mainHandler.post(() -> {
+                        addBotMessage(ok
+                            ? "Loaded " + selected + " from " + onnxEngine.getModelPath()
+                            : "Failed " + selected + (err != null ? "\n" + err : ""));
+                        setStatus(getMoodStatus());
+                    });
+                }).start();
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != ONNX_IMPORT_REQUEST || resultCode != RESULT_OK ||
+            data == null || data.getData() == null || onnxEngine == null) {
+            return;
+        }
+
+        Uri uri = data.getData();
+        addBotMessage("Copying ONNX model into AIBot...");
+        new Thread(() -> {
+            String name = onnxEngine.importModel(uri);
+            final String imported = name;
+            mainHandler.post(() -> {
+                if (imported == null) {
+                    addBotMessage("ONNX import failed.");
+                    return;
+                }
+
+                addBotMessage("Saved " + imported + " to " + onnxEngine.getModelPath());
+
+                new Thread(() -> {
+                    boolean loaded = false;
+                    try {
+                        loaded = personalityEngine.loadModel(imported);
+                    } catch (Throwable ignored) {}
+
+                    final boolean ok = loaded;
+                    mainHandler.post(() ->
+                        addBotMessage(ok
+                            ? "Loaded " + imported + " and ready to run."
+                            : "Saved " + imported + ", but this model could not be loaded. Check that it is a compatible ONNX model.")
+                    );
+                }).start();
+            });
+        }).start();
     }
 
     private void showStats() {
