@@ -269,34 +269,10 @@ public class PersonalityEngine {
      * Run this Python script on PC after training
      */
     public static String getExportInstructions() {
-        return "# Export AIBot NeuralNetwork to ONNX\n" +
-               "# Run on PC after copying model.bin from device\n\n" +
-               "# pip install torch onnx numpy\n\n" +
-               "import torch\n" +
-               "import torch.nn as nn\n\n" +
-               "class TinyTransformer(nn.Module):\n" +
-               "    def __init__(self):\n" +
-               "        super().__init__()\n" +
-               "        self.embed = nn.Embedding(8000, 128)\n" +
-               "        self.pos   = nn.Embedding(128, 128)\n" +
-               "        layer = nn.TransformerEncoderLayer(128, 4, 256, batch_first=True)\n" +
-               "        self.transformer = nn.TransformerEncoder(layer, 2)\n" +
-               "        self.out = nn.Linear(128, 8000)\n\n" +
-               "    def forward(self, x):\n" +
-               "        pos = torch.arange(x.size(1)).unsqueeze(0)\n" +
-               "        x = self.embed(x) + self.pos(pos)\n" +
-               "        x = self.transformer(x)\n" +
-               "        return self.out(x[:, -1, :])\n\n" +
-               "model = TinyTransformer()\n" +
-               "dummy = torch.zeros(1, 10, dtype=torch.long)\n" +
-               "torch.onnx.export(\n" +
-               "    model, dummy, 'aibot_model.onnx',\n" +
-               "    input_names=['input_ids'],\n" +
-               "    output_names=['logits'],\n" +
-               "    dynamic_axes={'input_ids': {1: 'seq_len'}},\n" +
-               "    opset_version=12\n" +
-               ")\n" +
-               "print('Exported! Copy aibot_model.onnx to device models/ folder')";
+        return "Use export_to_onnx.py from the repository. It mirrors the Java NeuralNetwork " +
+               "including attention, feed-forward, layer norms, output weights, and memory weights. " +
+               "Copy model.bin and vocab.txt from the app brain directory, then run: " +
+               "python export_to_onnx.py model.bin vocab.txt aibot_model.onnx";
     }
 
     // ─── STATUS ───────────────────────────────────────────────────────────────
