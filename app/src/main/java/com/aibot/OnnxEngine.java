@@ -21,6 +21,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Set;
 
 /**
  * Optional ONNX support.
@@ -44,6 +46,7 @@ public class OnnxEngine {
     private OrtSession sessionGeneric;
     private String genericModelName = null;
     private String loadedName = "none";
+    private final Map<String, Integer> bertVocab = new LinkedHashMap<>();
 
     public OnnxEngine(Context ctx, WeightManager wm) {
         this.ctx = ctx.getApplicationContext();
@@ -172,6 +175,14 @@ public class OnnxEngine {
                     file
                 );
             }
+            File vocabFile = new File(modelDir, "minilm-vocab.txt");
+            if (!vocabFile.exists()) {
+                download(
+                    "https://huggingface.co/onnx-models/all-MiniLM-L6-v2-onnx/resolve/main/vocab.txt",
+                    vocabFile
+                );
+            }
+            loadBertVocab(vocabFile);
             if (sessionMini != null) sessionMini.close();
             sessionMini = env.createSession(file.getAbsolutePath(), options());
             loadedName = "minilm.onnx";
@@ -336,26 +347,36 @@ public class OnnxEngine {
         if (!isEnabled() || !ensureEnvironment()) return null;
         try {
             if (sessionMini == null && !loadText()) return null;
-            long[] ids = tokenize(text, 128);
-            long[][] input = new long[][] { ids };
-            long[][] mask = new long[1][128];
-            Arrays.fill(mask[0], 1L);
+            TokenizedBert tok = tokenizeBert(text, 128);
+            long[][] input = new long[][] { tok.ids };
+            long[][] mask = new long[][] { tok.mask };
 
             OnnxTensor inputTensor = OnnxTensor.createTensor(env, input);
             OnnxTensor maskTensor = OnnxTensor.createTensor(env, mask);
+            OnnxTensor typeTensor = null;
             Map<String, OnnxTensor> values = new HashMap<>();
             values.put("input_ids", inputTensor);
-            values.put("attention_mask", maskTensor);
+            if (sessionMini.getInputNames().contains("attention_mask")) values.put("attention_mask", maskTensor);
+            if (sessionMini.getInputNames().contains("token_type_ids")) {
+                values.put("token_type_ids", typeTensor = OnnxTensor.createTensor(env, new long[][] { new long[128] }));
+            }
 
             OrtSession.Result result = sessionMini.run(values);
-            float[][][] output = (float[][][]) result.get(0).getValue();
-            float[] average = new float[output[0][0].length];
+            Object raw = result.get(0).getValue();
+            float[][][] output = raw instanceof float[][][] ? (float[][][]) raw : null;
+            if (output == null || output.length == 0) return null;
+            int dim = output[0][0].length;
+            float[] average = new float[dim];
+            float denom = 0f;
             for (int i = 0; i < output[0].length; i++) {
-                for (int j = 0; j < average.length; j++) average[j] += output[0][i][j];
+                if (tok.mask[i] == 0) continue;
+                for (int j = 0; j < dim; j++) average[j] += output[0][i][j];
+                denom += 1f;
             }
-            for (int j = 0; j < average.length; j++) average[j] /= output[0].length;
+            if (denom > 0f) for (int j = 0; j < dim; j++) average[j] /= denom;
             inputTensor.close();
             maskTensor.close();
+            if (typeTensor != null) typeTensor.close();
             result.close();
             return average;
         } catch (Throwable e) {
@@ -368,13 +389,65 @@ public class OnnxEngine {
         return "Vision is unavailable until a YOLO ONNX model is loaded.";
     }
 
-    private long[] tokenize(String text, int count) {
-        long[] result = new long[count];
-        String[] words = text.toLowerCase().split("\\s+");
-        for (int i = 0; i < Math.min(words.length, count); i++) {
-            result[i] = Math.abs(words[i].hashCode() % 30000) + 1;
+    private static class TokenizedBert {
+        long[] ids;
+        long[] mask;
+        TokenizedBert(long[] ids, long[] mask) { this.ids=ids; this.mask=mask; }
+    }
+
+    private void loadBertVocab(File file) throws IOException {
+        if (!bertVocab.isEmpty()) return;
+        try (BufferedReader r = new BufferedReader(new FileReader(file))) {
+            String line; int id=0;
+            while ((line=r.readLine()) != null) {
+                bertVocab.put(line.trim(), id++);
+            }
         }
-        return result;
+        if (!bertVocab.containsKey("[CLS]") || !bertVocab.containsKey("[SEP]"))
+            throw new IOException("Invalid MiniLM WordPiece vocabulary");
+    }
+
+    private TokenizedBert tokenizeBert(String text, int count) {
+        long[] ids = new long[count];
+        long[] mask = new long[count];
+        Arrays.fill(ids, bertVocab.getOrDefault("[PAD]", 0).longValue());
+        List<Integer> pieces = new ArrayList<>();
+        pieces.add(bertVocab.getOrDefault("[CLS]", 101));
+        String normalized = text == null ? "" : text.toLowerCase(java.util.Locale.US)
+            .replaceAll("([.,!?;:()])", " $1 ").replaceAll("\\s+"," ").trim();
+        if (!normalized.isEmpty()) {
+            for (String word : normalized.split(" ")) {
+                if (pieces.size() >= count - 1) break;
+                pieces.addAll(wordPieceIds(word));
+            }
+        }
+        pieces.add(bertVocab.getOrDefault("[SEP]", 102));
+        int n=Math.min(pieces.size(),count);
+        for(int i=0;i<n;i++){ids[i]=pieces.get(i);mask[i]=1L;}
+        return new TokenizedBert(ids,mask);
+    }
+
+    private List<Integer> wordPieceIds(String word) {
+        List<Integer> out=new ArrayList<>();
+        if(word.isEmpty()) return out;
+        Integer direct=bertVocab.get(word);
+        if(direct!=null){out.add(direct);return out;}
+        int start=0;
+        while(start<word.length()){
+            int end=word.length();
+            int best=-1;
+            while(start<end){
+                String sub=word.substring(start,end);
+                if(start>0) sub="##"+sub;
+                Integer id=bertVocab.get(sub);
+                if(id!=null){best=id;break;}
+                end--;
+            }
+            if(best<0){out.add(bertVocab.getOrDefault("[UNK]",100));break;}
+            out.add(best);
+            start = end;
+        }
+        return out;
     }
 
     private void download(String address, File destination) throws Exception {
