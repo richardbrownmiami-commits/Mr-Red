@@ -86,7 +86,7 @@ public class CognitiveMemory {
         List<Entry> found = search(query, 3);
         if (found.isEmpty()) return "I don't have a matching conversation in my saved memory.";
         Entry e = found.get(0);
-        return "I remember this: you said "" + e.user + "" and I replied "" + e.response + "".";
+        return "I remember this: you said \"" + e.user + "\" and I replied \"" + e.response + "\".";
     }
 
     public synchronized void flush() { save(); }
