@@ -1,77 +1,27 @@
-# AIBot Dataset Guide
+# Unified AIBot dataset
 
-Put all datasets in the folder shown in app → Menu → Stats → Storage path
+The app now ships with one built-in baseline corpus:
 
----
+app/src/main/res/raw/core_assistant.jsonl
 
-## Loading Order (Do This Exactly)
+It is intentionally a single mixed corpus rather than a collection of unrelated datasets. It covers persona, conversation, English communication, identity, common knowledge, reasoning examples, memory behavior, and Android-agent behavior.
 
-### Step 1 — Basic Chat (do first, ~500KB)
-**HuggingFaceTB/everyday-conversations-llama3.1-2k**
-- Download: https://huggingface.co/datasets/HuggingFaceTB/everyday-conversations-llama3.1-2k/resolve/main/data/train.jsonl
-- Save as: `everyday_chat.jsonl`
-- Teaches: hello, goodbye, basic questions, who are you
-- Train time: ~5 min on ARMv7a
+## Automatic training
 
-### Step 2 — Whisper Personality (built in)
-- Already in app as `whisper_personality.jsonl`
-- Copy from: `app/src/main/res/raw/whisper_personality.jsonl`
-- Teaches: unique calm voice, emotional depth
-- Train time: ~2 min
+On first startup AIBot copies the corpus into its private dataset directory and trains it automatically. A progress bar shows the training state.
 
-### Step 3 — Persona Chat (~8MB)
-**Cynaptics/persona-chat**
-- Download: https://huggingface.co/datasets/Cynaptics/persona-chat/resolve/main/data/train.jsonl
-- Save as: `persona_chat.jsonl`
-- Teaches: personality, consistent character, personal facts
-- Train time: ~20 min
+You do not need to teach the assistant basic conversation before using it.
 
-### Step 4 — Reasoning (~3MB)
-**openai/gsm8k**
-- Download: https://huggingface.co/datasets/openai/gsm8k/resolve/main/main/train.jsonl
-- Save as: `gsm8k_reasoning.jsonl`
-- Teaches: step by step thinking, math, logic
-- Train time: ~10 min
+## Optional external data
 
-### Step 5 — Deep Persona (~15MB, optional)
-**google/Synthetic-Persona-Chat**
-- Download: https://huggingface.co/datasets/google/Synthetic-Persona-Chat/resolve/main/train.json
-- Save as: `synthetic_persona.json`
-- Teaches: rich persona depth, long conversations
-- Train time: ~45 min
+The Dataset Loader still accepts .jsonl, .json, .csv, and .txt.
 
----
+Hugging Face files can be downloaded directly with the built-in Hub commands:
 
-## Total After All Datasets
+- !hf dataset <query>
+- !hf files dataset <org/name>
+- !hf download dataset <org/name> <file.jsonl>
 
-```
-Vocab words:    ~6000-8000
-NARS beliefs:   ~2000+
-Train steps:    ~50,000+
-Personality:    Whisper style — calm, thoughtful, real
-```
+After download, the file appears in the dataset list and can be trained with !load <filename>.
 
----
-
-## What Each Dataset Fixes
-
-| Problem | Dataset That Fixes It |
-|---|---|
-| Says nothing on "hello" | everyday_chat.jsonl |
-| Robotic tone | whisper_personality.jsonl |
-| No personality | persona_chat.jsonl |
-| Can't reason | gsm8k_reasoning.jsonl |
-| Shallow responses | synthetic_persona.json |
-
----
-
-## Formats Supported
-
-| Format | Example datasets |
-|---|---|
-| .jsonl with input/output | gsm8k, custom |
-| .jsonl with messages[] | everyday-conversations |
-| .jsonl with dialogue[] | persona-chat |
-| .json array | synthetic-persona-chat |
-| .txt plain text | any text file |
-| .csv with columns | any spreadsheet export |
+External data is optional. The built-in baseline is the default starting point.
