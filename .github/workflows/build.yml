@@ -39,6 +39,23 @@ jobs:
         with:
           gradle-version: '8.2.1'
 
+      - name: Bundle tiny semantic embedding model
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://huggingface.co/blobbybob/potion-mxbai-micro/resolve/d93b2e520cc717b5c21342c7194360ff89c76e95"
+          dir="app/src/main/assets/embedded_semantic_model"
+          mkdir -p "$dir"
+          curl --fail --location --retry 3 -A "Mr-Red/1.0" "$base/model.safetensors?download=true" -o "$dir/model.safetensors"
+          curl --fail --location --retry 3 -A "Mr-Red/1.0" "$base/tokenizer.json?download=true" -o "$dir/tokenizer.json"
+          curl --fail --location --retry 3 -A "Mr-Red/1.0" "$base/config.json?download=true" -o "$dir/config.json"
+          printf '%s\n' 'blobbybob/potion-mxbai-micro' > "$dir/MODEL_ID.txt"
+          printf '%s\n' 'Apache-2.0' > "$dir/LICENSE.txt"
+          test "$(wc -c < "$dir/model.safetensors")" -gt 700000
+          test "$(wc -c < "$dir/model.safetensors")" -lt 1000000
+          sha256sum "$dir/model.safetensors"
+          du -h "$dir"/*
+
       - name: Build normal ARMv7a APK
         run: gradle --no-daemon --stacktrace clean assembleNormal
 
