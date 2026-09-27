@@ -1,250 +1,148 @@
 """
-export_to_onnx.py - Export AIBot's trained weights to ONNX format
-Run on PC after pulling model.bin from Android device
+Export the actual Java NeuralNetwork to ONNX.
 
-Requirements:
-    pip install torch onnx numpy
+This exporter mirrors the Java implementation instead of substituting
+PyTorch's TransformerEncoder. It therefore preserves the learned Java weights.
 
 Usage:
-    1. Copy model.bin from /sdcard/Android/data/com.aibot/files/AIBot/weights/
-    2. Run: python export_to_onnx.py
-    3. Copy aibot_model.onnx back to device models/ folder
-    4. In app: Menu → Load ONNX Model → aibot_model.onnx
+  1. Copy model.bin and vocab.txt from the app's files/aibot_weights directory.
+  2. Run: python export_to_onnx.py model.bin vocab.txt aibot_model.onnx
+  3. Import aibot_model.onnx from the app's ONNX picker.
+
+Requirements:
+  pip install torch onnx onnxruntime numpy
 """
 
+import os
+import struct
+import sys
+import shutil
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import struct
-import os
 
-# Must match NeuralNetwork.java constants exactly
-VOCAB_SIZE  = 8000
-EMBED_DIM   = 128
-NUM_HEADS   = 4
-FF_DIM      = 256
-NUM_LAYERS  = 2
-MAX_SEQ_LEN = 128
+VOCAB_SIZE=8000
+EMBED_DIM=128
+NUM_HEADS=4
+HEAD_DIM=32
+FF_DIM=256
+NUM_LAYERS=2
+MAX_SEQ_LEN=128
+MEMORY_DIM=64
 
-
-class TinyTransformer(nn.Module):
-    """
-    Python mirror of NeuralNetwork.java
-    Same architecture so weights transfer correctly
-    """
+class JavaTransformer(nn.Module):
     def __init__(self):
         super().__init__()
-        self.token_embedding = nn.Embedding(VOCAB_SIZE, EMBED_DIM)
-        self.pos_embedding   = nn.Embedding(MAX_SEQ_LEN, EMBED_DIM)
+        self.token_embedding=nn.Embedding(VOCAB_SIZE,EMBED_DIM)
+        self.pos_embedding=nn.Embedding(MAX_SEQ_LEN,EMBED_DIM)
+        self.wq=nn.Parameter(torch.empty(NUM_LAYERS,EMBED_DIM,EMBED_DIM))
+        self.wk=nn.Parameter(torch.empty(NUM_LAYERS,EMBED_DIM,EMBED_DIM))
+        self.wv=nn.Parameter(torch.empty(NUM_LAYERS,EMBED_DIM,EMBED_DIM))
+        self.wo=nn.Parameter(torch.empty(NUM_LAYERS,EMBED_DIM,EMBED_DIM))
+        self.w1=nn.Parameter(torch.empty(NUM_LAYERS,EMBED_DIM,FF_DIM))
+        self.w2=nn.Parameter(torch.empty(NUM_LAYERS,FF_DIM,EMBED_DIM))
+        self.b1=nn.Parameter(torch.empty(NUM_LAYERS,FF_DIM))
+        self.b2=nn.Parameter(torch.empty(NUM_LAYERS,EMBED_DIM))
+        self.ln1g=nn.Parameter(torch.ones(NUM_LAYERS,EMBED_DIM))
+        self.ln1b=nn.Parameter(torch.zeros(NUM_LAYERS,EMBED_DIM))
+        self.ln2g=nn.Parameter(torch.ones(NUM_LAYERS,EMBED_DIM))
+        self.ln2b=nn.Parameter(torch.zeros(NUM_LAYERS,EMBED_DIM))
+        self.wout=nn.Parameter(torch.empty(EMBED_DIM,VOCAB_SIZE))
+        self.bout=nn.Parameter(torch.empty(VOCAB_SIZE))
+        self.context_in=nn.Parameter(torch.empty(VOCAB_SIZE,MEMORY_DIM))
+        self.context_out=nn.Parameter(torch.empty(MEMORY_DIM,VOCAB_SIZE))
 
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=EMBED_DIM,
-            nhead=NUM_HEADS,
-            dim_feedforward=FF_DIM,
-            batch_first=True
-        )
-        self.transformer = nn.TransformerEncoder(encoder_layer, NUM_LAYERS)
-        self.output_proj = nn.Linear(EMBED_DIM, VOCAB_SIZE)
+    def layer_norm(self,x,g,b):
+        return torch.nn.functional.layer_norm(x,(EMBED_DIM,),g,b,1e-5)
 
-    def forward(self, input_ids):
-        seq_len = input_ids.size(1)
-        positions = torch.arange(seq_len, dtype=torch.long).unsqueeze(0)
-        x = self.token_embedding(input_ids) + self.pos_embedding(positions)
-        x = self.transformer(x)
-        logits = self.output_proj(x[:, -1, :])  # last token logits
+    def attention(self,x,l):
+        # Java stores Q/K/V as [embed, embed] and slices heads from columns.
+        q=torch.matmul(x,self.wq[l]).view(x.shape[0],x.shape[1],NUM_HEADS,HEAD_DIM)
+        k=torch.matmul(x,self.wk[l]).view(x.shape[0],x.shape[1],NUM_HEADS,HEAD_DIM)
+        v=torch.matmul(x,self.wv[l]).view(x.shape[0],x.shape[1],NUM_HEADS,HEAD_DIM)
+        q=q.permute(0,2,1,3)
+        k=k.permute(0,2,1,3)
+        v=v.permute(0,2,1,3)
+        scores=torch.matmul(q,k.transpose(-2,-1))*(HEAD_DIM**-0.5)
+        seq=x.shape[1]
+        mask=torch.triu(torch.ones(seq,seq,device=x.device,dtype=torch.bool),1)
+        scores=scores.masked_fill(mask,-1e9)
+        a=torch.softmax(scores,dim=-1)
+        out=torch.matmul(a,v).permute(0,2,1,3).contiguous().view(x.shape[0],seq,EMBED_DIM)
+        return torch.matmul(out,self.wo[l])
+
+    def forward(self,input_ids):
+        seq=input_ids.shape[1]
+        positions=torch.arange(seq,device=input_ids.device).clamp(max=MAX_SEQ_LEN-1)
+        x=self.token_embedding(input_ids)+self.pos_embedding(positions).unsqueeze(0)
+        for l in range(NUM_LAYERS):
+            x=self.layer_norm(x+self.attention(x,l),self.ln1g[l],self.ln1b[l])
+            h=torch.matmul(x,self.w1[l])+self.b1[l]
+            h=torch.relu(h)
+            ff=torch.matmul(h,self.w2[l])+self.b2[l]
+            x=self.layer_norm(x+ff,self.ln2g[l],self.ln2b[l])
+        last=x[:,-1,:]
+        safe=input_ids.clamp(0,VOCAB_SIZE-1)
+        mem=self.context_in[safe].mean(dim=1)
+        logits=torch.matmul(last,self.wout)+self.bout
+        logits=logits+0.35*torch.matmul(mem,self.context_out)
         return logits
 
+def read_matrix(f,rows,cols):
+    data=np.frombuffer(f.read(rows*cols*4),dtype='>f4').astype(np.float32)
+    if data.size!=rows*cols: raise EOFError("Unexpected end of model.bin")
+    return torch.from_numpy(data.reshape(rows,cols).copy())
 
-def load_weights_from_java(model, bin_path):
-    """
-    Load weights saved by WeightManager.java (DataOutputStream floats)
-    Java writes floats in big-endian by default
-    """
-    print(f"Loading weights from: {bin_path}")
-    
-    with open(bin_path, 'rb') as f:
-        def read_float():
-            return struct.unpack('>f', f.read(4))[0]  # big-endian float
+def read_vector(f,n):
+    return read_matrix(f,n,1).view(n)
 
-        def read_matrix(rows, cols):
-            data = []
-            for _ in range(rows * cols):
-                data.append(read_float())
-            return torch.tensor(data).reshape(rows, cols)
-
-        def read_vector(size):
-            data = [read_float() for _ in range(size)]
-            return torch.tensor(data)
-
-        # Token embeddings [VOCAB_SIZE, EMBED_DIM]
-        token_emb = read_matrix(VOCAB_SIZE, EMBED_DIM)
-        model.token_embedding.weight.data = token_emb
-        print(f"  Token embeddings: {token_emb.shape}")
-
-        # Position embeddings [MAX_SEQ_LEN, EMBED_DIM]
-        pos_emb = read_matrix(MAX_SEQ_LEN, EMBED_DIM)
-        model.pos_embedding.weight.data = pos_emb
-        print(f"  Position embeddings: {pos_emb.shape}")
-
-        # Layer weights
+def load_java_weights(model,path):
+    with open(path,'rb') as f:
+        model.token_embedding.weight.data.copy_(read_matrix(f,VOCAB_SIZE,EMBED_DIM))
+        model.pos_embedding.weight.data.copy_(read_matrix(f,MAX_SEQ_LEN,EMBED_DIM))
         for l in range(NUM_LAYERS):
-            print(f"  Layer {l}...")
-            # Wq, Wk, Wv, Wo [EMBED_DIM, EMBED_DIM]
-            # W1 [EMBED_DIM, FF_DIM], W2 [FF_DIM, EMBED_DIM]
-            # b1 [FF_DIM], b2 [EMBED_DIM]
-            # ln gammas and betas [EMBED_DIM]
-            for _ in range(4):  # Wq, Wk, Wv, Wo
-                read_matrix(EMBED_DIM, EMBED_DIM)
-            read_matrix(EMBED_DIM, FF_DIM)  # W1
-            read_matrix(FF_DIM, EMBED_DIM)  # W2
-            read_vector(FF_DIM)             # b1
-            read_vector(EMBED_DIM)          # b2
-            for _ in range(4):  # ln1_gamma, ln1_beta, ln2_gamma, ln2_beta
-                read_vector(EMBED_DIM)
-
-        # Output projection [EMBED_DIM, VOCAB_SIZE]
-        Wout = read_matrix(EMBED_DIM, VOCAB_SIZE)
-        model.output_proj.weight.data = Wout.T  # transpose for nn.Linear
-        print(f"  Output projection: {Wout.shape}")
-
-        # Output bias [VOCAB_SIZE]
-        bout = read_vector(VOCAB_SIZE)
-        model.output_proj.bias.data = bout
-
-    print("Weights loaded successfully!")
+            model.wq.data[l].copy_(read_matrix(f,EMBED_DIM,EMBED_DIM))
+            model.wk.data[l].copy_(read_matrix(f,EMBED_DIM,EMBED_DIM))
+            model.wv.data[l].copy_(read_matrix(f,EMBED_DIM,EMBED_DIM))
+            model.wo.data[l].copy_(read_matrix(f,EMBED_DIM,EMBED_DIM))
+            model.w1.data[l].copy_(read_matrix(f,EMBED_DIM,FF_DIM))
+            model.w2.data[l].copy_(read_matrix(f,FF_DIM,EMBED_DIM))
+            model.b1.data[l].copy_(read_vector(f,FF_DIM))
+            model.b2.data[l].copy_(read_vector(f,EMBED_DIM))
+            model.ln1g.data[l].copy_(read_vector(f,EMBED_DIM))
+            model.ln1b.data[l].copy_(read_vector(f,EMBED_DIM))
+            model.ln2g.data[l].copy_(read_vector(f,EMBED_DIM))
+            model.ln2b.data[l].copy_(read_vector(f,EMBED_DIM))
+        model.wout.data.copy_(read_matrix(f,EMBED_DIM,VOCAB_SIZE))
+        model.bout.data.copy_(read_vector(f,VOCAB_SIZE))
+        model.context_in.data.copy_(read_matrix(f,VOCAB_SIZE,MEMORY_DIM))
+        model.context_out.data.copy_(read_matrix(f,MEMORY_DIM,VOCAB_SIZE))
     return model
 
+def verify(path):
+    import onnxruntime as ort
+    sess=ort.InferenceSession(path)
+    out=sess.run(None,{"input_ids":np.zeros((1,5),dtype=np.int64)})
+    print("ONNX output:",out[0].shape)
+    return out[0]
 
-def export_to_onnx(model, output_path):
-    model.eval()
-    dummy_input = torch.zeros(1, 10, dtype=torch.long)
-
-    print(f"Exporting to: {output_path}")
+def main():
+    model_bin=sys.argv[1] if len(sys.argv)>1 else "model.bin"
+    vocab=sys.argv[2] if len(sys.argv)>2 else "vocab.txt"
+    output=sys.argv[3] if len(sys.argv)>3 else "aibot_model.onnx"
+    model=load_java_weights(JavaTransformer().eval(),model_bin)
+    dummy=torch.zeros((1,8),dtype=torch.long)
     torch.onnx.export(
-        model,
-        dummy_input,
-        output_path,
-        input_names=['input_ids'],
-        output_names=['logits'],
-        dynamic_axes={
-            'input_ids': {0: 'batch', 1: 'seq_len'},
-            'logits':    {0: 'batch'}
-        },
-        opset_version=12,
-        do_constant_folding=True
+        model,dummy,output,
+        input_names=["input_ids"],output_names=["logits"],
+        dynamic_axes={"input_ids":{0:"batch",1:"seq_len"},"logits":{0:"batch"}},
+        opset_version=17,do_constant_folding=True
     )
-    print(f"Exported! Size: {os.path.getsize(output_path) / 1024:.1f} KB")
+    if os.path.exists(vocab):
+        shutil.copyfile(vocab,os.path.splitext(output)[0]+"_vocab.txt")
+    print("Exported",output,os.path.getsize(output)/1024/1024,"MB")
+    try: verify(output)
+    except Exception as e: print("Verification skipped/failed:",e)
 
-
-def verify_onnx(onnx_path):
-    try:
-        import onnxruntime as ort
-        sess = ort.InferenceSession(onnx_path)
-        dummy = np.zeros((1, 5), dtype=np.int64)
-        out = sess.run(None, {'input_ids': dummy})
-        print(f"ONNX verification OK! Output shape: {out[0].shape}")
-        return True
-    except ImportError:
-        print("Install onnxruntime to verify: pip install onnxruntime")
-        return True
-    except Exception as e:
-        print(f"Verification failed: {e}")
-        return False
-
-
-def train_personality_onnx(personality_jsonl, output_path):
-    """
-    Fine-tune on whisper_personality.jsonl and export to ONNX
-    Run this to create whisper_personality.onnx
-    """
-    import json
-
-    print("Training personality model...")
-    model     = TinyTransformer()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    loss_fn   = nn.CrossEntropyLoss()
-
-    # Load personality dataset
-    samples = []
-    with open(personality_jsonl, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                obj = json.loads(line)
-                samples.append((obj['input'], obj['output']))
-
-    print(f"Training on {len(samples)} personality samples...")
-
-    # Simple word tokenizer for training
-    vocab = {'<PAD>': 0, '<UNK>': 1, '<BOS>': 2, '<EOS>': 3}
-    for inp, out in samples:
-        for word in (inp + ' ' + out).lower().split():
-            if word not in vocab:
-                vocab[word] = len(vocab)
-
-    def encode(text):
-        tokens = [2]  # BOS
-        for w in text.lower().split():
-            tokens.append(vocab.get(w, 1))
-        tokens.append(3)  # EOS
-        return tokens
-
-    model.train()
-    for epoch in range(10):
-        total_loss = 0
-        for inp, out in samples:
-            inp_ids = torch.tensor([encode(inp)])
-            tgt_ids = torch.tensor([encode(out)])
-
-            for i in range(tgt_ids.size(1) - 1):
-                ctx = torch.cat([inp_ids, tgt_ids[:, :i+1]], dim=1)
-                ctx = ctx[:, -MAX_SEQ_LEN:]  # trim
-                tgt = tgt_ids[:, i+1]
-
-                if tgt.item() >= VOCAB_SIZE:
-                    continue
-
-                logits = model(ctx)
-                loss   = loss_fn(logits, tgt)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-
-        if (epoch + 1) % 2 == 0:
-            print(f"  Epoch {epoch+1}/10 | Loss: {total_loss/len(samples):.4f}")
-
-    # Export
-    model.eval()
-    export_to_onnx(model, output_path)
-    print(f"Personality model saved: {output_path}")
-
-
-if __name__ == '__main__':
-    import sys
-
-    if len(sys.argv) > 1 and sys.argv[1] == '--personality':
-        # Train and export personality model
-        jsonl = sys.argv[2] if len(sys.argv) > 2 else 'whisper_personality.jsonl'
-        train_personality_onnx(jsonl, 'whisper_personality.onnx')
-        print("\nDone! Copy whisper_personality.onnx to device:")
-        print(f"  /sdcard/Android/data/com.aibot/files/AIBot/models/")
-
-    else:
-        # Export existing trained model
-        bin_path = sys.argv[1] if len(sys.argv) > 1 else 'model.bin'
-        out_path = sys.argv[2] if len(sys.argv) > 2 else 'aibot_model.onnx'
-
-        if not os.path.exists(bin_path):
-            print(f"model.bin not found at: {bin_path}")
-            print("Pull from device with: adb pull /sdcard/Android/data/com.aibot/files/AIBot/weights/model.bin")
-            sys.exit(1)
-
-        model = TinyTransformer()
-        model = load_weights_from_java(model, bin_path)
-        export_to_onnx(model, out_path)
-        verify_onnx(out_path)
-
-        print(f"\nDone! Copy {out_path} to device:")
-        print(f"  /sdcard/Android/data/com.aibot/files/AIBot/models/")
-        print(f"\nThen in app load the model from Menu → Load ONNX Model")
+if __name__=="__main__":
+    main()
