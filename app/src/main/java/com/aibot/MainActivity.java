@@ -124,10 +124,10 @@ public class MainActivity extends AppCompatActivity {
                 nn = new NeuralNetwork();
                 tokenizer = new Tokenizer();
                 nars = new NARSEngine();
-                narsTool = new NarsTool(nars, atomSpace);
                 weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
                 cognitiveMemory = new CognitiveMemory(new File(getFilesDir(), "aibot_memory"), nn, tokenizer);
                 atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
+                narsTool = new NarsTool(nars, atomSpace);
                 huggingFaceHub = new HuggingFaceHub();
                 selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
                 webSearch = new WebSearch();
