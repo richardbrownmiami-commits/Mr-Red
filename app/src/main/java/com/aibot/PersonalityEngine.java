@@ -90,11 +90,12 @@ public class PersonalityEngine {
 
             // Generate styled tokens
             long[] outputIds = onnxEngine.generateTokens(tokenIds, 40, 0.7f);
-            if (outputIds == null || outputIds.length == 0) return null;
+            if (outputIds == null || outputIds.length <= tokenIds.length) return null;
 
-            // Convert back to int[] for decoding
-            int[] outInts = new int[outputIds.length];
-            for (int i = 0; i < outputIds.length; i++) outInts[i] = (int) outputIds[i];
+            // generateTokens returns prompt + generated continuation.
+            int generated = outputIds.length - tokenIds.length;
+            int[] outInts = new int[generated];
+            for (int i = 0; i < generated; i++) outInts[i] = (int) outputIds[tokenIds.length + i];
 
             String result = tokenizer.decode(outInts).trim();
             return result.length() > 5 ? result : null;
