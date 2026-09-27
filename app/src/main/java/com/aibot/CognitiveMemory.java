@@ -47,7 +47,7 @@ public class CognitiveMemory {
         entries.add(new Entry(System.currentTimeMillis(), user.trim(), response.trim(),
                 source == null ? "conversation" : source, embedding));
         while (entries.size() > MAX_ITEMS) entries.remove(0);
-        save();
+        if (!"dataset".equals(source) || entries.size() % 20 == 0) save();
     }
 
     public synchronized List<Entry> search(String query, int limit) {
@@ -88,6 +88,8 @@ public class CognitiveMemory {
         Entry e = found.get(0);
         return "I remember this: you said "" + e.user + "" and I replied "" + e.response + "".";
     }
+
+    public synchronized void flush() { save(); }
 
     public synchronized int size() { return entries.size(); }
 
