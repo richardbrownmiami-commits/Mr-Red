@@ -120,20 +120,24 @@ public class SelfLearner {
             return;
         }
 
+        final List<DatasetLoader.TrainingSample> trainingSamples;
+        int usable = Math.min(samples.size(), MAX_DATASET_SAMPLES);
+        trainingSamples = usable < samples.size()
+            ? new ArrayList<>(samples.subList(0, usable))
+            : new ArrayList<>(samples);
+
         new Thread(() -> {
             isTraining = true;
-            int usable = Math.min(samples.size(), MAX_DATASET_SAMPLES);
-            if (usable < samples.size()) samples = new ArrayList<>(samples.subList(0, usable));
-            int total  = samples.size() * TRAIN_EPOCHS;
+            int total  = trainingSamples.size() * TRAIN_EPOCHS;
             int step   = 0;
             float epochLoss = 0;
 
             try {
                 for (int epoch = 0; epoch < TRAIN_EPOCHS; epoch++) {
                     // Shuffle for each epoch
-                    Collections.shuffle(samples);
+                    Collections.shuffle(trainingSamples);
 
-                    for (DatasetLoader.TrainingSample sample : samples) {
+                    for (DatasetLoader.TrainingSample sample : trainingSamples) {
                         // Learn vocabulary
                         tokenizer.learnFromText(sample.input);
                         tokenizer.learnFromText(sample.output);
