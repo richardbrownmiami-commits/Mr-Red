@@ -10,13 +10,16 @@ import java.util.*;
 public class SelfLearner {
 
     private static final String TAG = "SelfLearner";
-    private static final int TRAIN_EPOCHS   = 3;
+    private static final int TRAIN_EPOCHS   = 1;
+    private static final int MAX_DATASET_SAMPLES = 600;
     private static final int SAVE_INTERVAL  = 50; // save every N samples
 
     private NeuralNetwork nn;
     private Tokenizer     tokenizer;
     private NARSEngine    nars;
     private WeightManager weightManager;
+    private CognitiveMemory memory;
+    private AtomSpaceLite atomSpace;
 
     private float totalLoss   = 0;
     private int   trainSteps  = 0;
@@ -30,10 +33,18 @@ public class SelfLearner {
 
     public SelfLearner(NeuralNetwork nn, Tokenizer tokenizer,
                        NARSEngine nars, WeightManager wm) {
+        this(nn, tokenizer, nars, wm, null, null);
+    }
+
+    public SelfLearner(NeuralNetwork nn, Tokenizer tokenizer,
+                       NARSEngine nars, WeightManager wm,
+                       CognitiveMemory memory, AtomSpaceLite atomSpace) {
         this.nn            = nn;
         this.tokenizer     = tokenizer;
         this.nars          = nars;
         this.weightManager = wm;
+        this.memory        = memory;
+        this.atomSpace     = atomSpace;
     }
 
     // ─── LEARN FROM CONVERSATION ──────────────────────────────────────────────
@@ -53,6 +64,7 @@ public class SelfLearner {
 
             // 2. Train neural network on this exchange
             trainOnPair(userMessage, botResponse);
+            if (memory != null) memory.remember(userMessage, botResponse, "conversation");
 
             // 3. Save periodically
             if (trainSteps % SAVE_INTERVAL == 0) {
@@ -110,6 +122,8 @@ public class SelfLearner {
 
         new Thread(() -> {
             isTraining = true;
+            int usable = Math.min(samples.size(), MAX_DATASET_SAMPLES);
+            if (usable < samples.size()) samples = new ArrayList<>(samples.subList(0, usable));
             int total  = samples.size() * TRAIN_EPOCHS;
             int step   = 0;
             float epochLoss = 0;
@@ -124,11 +138,12 @@ public class SelfLearner {
                         tokenizer.learnFromText(sample.input);
                         tokenizer.learnFromText(sample.output);
 
-                        // Learn NARS beliefs
-                        nars.parseAndLearn(sample.input);
-                        nars.parseAndLearn(sample.output);
-                        if (!sample.context.isEmpty()) {
-                            nars.parseAndLearn(sample.context);
+                        // Dataset knowledge feeds the learned model and long-term
+                        // memory. Formal NARS inference stays an explicit tool.
+                        if (atomSpace != null) {
+                            atomSpace.learnSentence(sample.input);
+                            atomSpace.learnSentence(sample.output);
+                            if (!sample.context.isEmpty()) atomSpace.learnSentence(sample.context);
                         }
 
                         // Train neural network
@@ -137,7 +152,7 @@ public class SelfLearner {
                         step++;
 
                         // Report progress
-                        if (callback != null && step % 10 == 0) {
+                        if (callback != null && (step % 5 == 0 || step == total)) {
                             float avgLoss = step > 0 ? epochLoss / step : 0;
                             callback.onProgress(step, total, avgLoss,
                                 "Epoch " + (epoch+1) + "/" + TRAIN_EPOCHS);
@@ -173,14 +188,14 @@ public class SelfLearner {
         new Thread(() -> {
             for (String fact : facts) {
                 tokenizer.learnFromText(fact);
-                nars.parseAndLearn(fact);
+                if (atomSpace != null) atomSpace.learnSentence(fact);
 
                 // Train neural network on facts
                 if (fact.length() > 10) {
                     int[] tokens = tokenizer.encode(fact);
                     for (int i = 0; i < tokens.length - 1; i++) {
                         int[] context = Arrays.copyOfRange(tokens, 0, i + 1);
-                        nn.train(context, tokens[i + 1]);
+                        nn.trainFast(context, tokens[i + 1]);
                         trainSteps++;
                     }
                 }
