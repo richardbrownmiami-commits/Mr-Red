@@ -503,6 +503,44 @@ public class NeuralNetwork {
         for (int i = 0; i < arr.length; i++) arr[i] = dis.readFloat();
     }
 
+    /**
+     * Compact sentence embedding from the learned token space.
+     * Used by persistent memory and dataset indexing.
+     */
+    public float[] embedText(String text, Tokenizer tokenizer) {
+        if (tokenizer == null) return new float[EMBED_DIM];
+        int[] ids = tokenizer.encode(text == null ? "" : text, true, true);
+        float[] v = new float[EMBED_DIM];
+        int count = 0;
+        for (int id : ids) {
+            if (id < 0 || id >= VOCAB_SIZE) continue;
+            for (int d = 0; d < EMBED_DIM; d++) v[d] += tokenEmbedding[id][d];
+            count++;
+        }
+        if (count > 0) {
+            float inv = 1f / count;
+            for (int d = 0; d < EMBED_DIM; d++) v[d] *= inv;
+        }
+        float norm = 0f;
+        for (float x : v) norm += x * x;
+        norm = (float)Math.sqrt(norm);
+        if (norm > 1e-8f) for (int d = 0; d < EMBED_DIM; d++) v[d] /= norm;
+        return v;
+    }
+
+    /**
+     * Train one pair with a bounded context so Android does not spend time
+     * repeatedly processing the same long prefix.
+     */
+    public float trainFast(int[] inputTokens, int targetToken) {
+        if (inputTokens == null || inputTokens.length == 0) return 0f;
+        int len = Math.min(inputTokens.length, 64);
+        int[] context = inputTokens.length == len
+            ? inputTokens
+            : java.util.Arrays.copyOfRange(inputTokens, inputTokens.length - len, inputTokens.length);
+        return train(context, targetToken);
+    }
+
     private float[][] randomMatrix(int rows, int cols, float scale) {
         float[][] m = new float[rows][cols];
         for (int i = 0; i < rows; i++)
