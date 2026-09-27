@@ -8,9 +8,15 @@ import java.util.List;
  */
 public class NarsTool {
     private final NARSEngine nars;
+    private final AtomSpaceLite atomSpace;
 
     public NarsTool(NARSEngine nars) {
+        this(nars, null);
+    }
+
+    public NarsTool(NARSEngine nars, AtomSpaceLite atomSpace) {
         this.nars = nars;
+        this.atomSpace = atomSpace;
     }
 
     public String execute(String request) {
@@ -18,6 +24,19 @@ public class NarsTool {
 
         String q = request == null ? "" : request.trim();
         if (q.isEmpty()) return "Give me something to reason about.";
+
+        if (atomSpace != null) {
+            List<AtomSpaceLite.Atom> atoms = atomSpace.query(q, 5);
+            if (!atoms.isEmpty()) {
+                StringBuilder graph = new StringBuilder("Knowledge graph context:");
+                for (AtomSpaceLite.Atom a : atoms) graph.append("\n• ").append(a.readable());
+                String answerFromNars = nars.answerQuestion(q);
+                if (answerFromNars != null && !answerFromNars.startsWith("I don't")) {
+                    graph.append("\n\n").append(answerFromNars);
+                }
+                return graph.toString();
+            }
+        }
 
         String answer = nars.answerQuestion(q);
         if (answer != null && !answer.startsWith("I don't")) {
