@@ -443,8 +443,7 @@ public class MainActivity extends AppCompatActivity {
 
     private String generateFromNNWithContext(String input, String context) {
         try {
-            String narsCtx = nars.buildContextFromBeliefs(convManager.extractTopic(input));
-            String full = (context.isEmpty()? "" : context + " ") + (narsCtx.isEmpty()? "" : narsCtx + " ") + input;
+            String full = (context.isEmpty()? "" : context + " ") + input;
             int[] tokens = tokenizer.encode(full);
             StringBuilder sb = new StringBuilder();
             int[] cur = tokens;
