@@ -231,8 +231,8 @@ public class ConversationManager {
             base += "\n\nLast time we talked a lot about " + favTopic +
                     ". Want to continue or talk about something new?";
         } else {
-            base += "\n\nI start with zero knowledge. Teach me things, " +
-                    "ask me to search the web, or load a dataset!";
+            base += "\n\nI'm already equipped with a baseline of English, conversation, general knowledge, reasoning patterns, and phone skills. " +
+                    "You can ask me normally, ask me to research, or give me a device task.";
         }
 
         return base;
