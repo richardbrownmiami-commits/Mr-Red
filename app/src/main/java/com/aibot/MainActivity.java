@@ -56,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
     private AtomSpaceLite atomSpace;
     private OpenCogBridge openCog;
     private OnaEngine onaEngine;
+    private CognitiveContext cognitiveContext;
     private HuggingFaceHub huggingFaceHub;
 
     private RecyclerView chatRecycler;
@@ -131,6 +132,7 @@ public class MainActivity extends AppCompatActivity {
                 atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
                 openCog = new OpenCogBridge(atomSpace);
                 onaEngine = new OnaEngine(nars, atomSpace);
+                cognitiveContext = new CognitiveContext(cognitiveMemory, nars, atomSpace, onaEngine);
                 narsTool = new NarsTool(nars, atomSpace);
                 huggingFaceHub = new HuggingFaceHub();
                 selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
@@ -272,7 +274,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
             if (state == ConversationManager.State.NORMAL &&!TaskParser.isDeviceCommand(input)) {
-                if (selfLearner!= null) selfLearner.learnFromMessage(input, finalResponse);
+                if (cognitiveContext != null) cognitiveContext.rememberConversation(input, finalResponse);
                 if (weightManager!= null) weightManager.appendHistory(input, finalResponse);
             }
         } catch (Exception e) {
@@ -450,7 +452,6 @@ public class MainActivity extends AppCompatActivity {
 
             String lower = input.toLowerCase().trim();
 
-            // Basic identity/capability questions should never go to web search.
             if (lower.contains("who are you") || lower.contains("what are you"))
                 return birthStory.getSelfIntroduction(
                     birthStory.getBotName(), userMemory.getName());
@@ -465,16 +466,16 @@ public class MainActivity extends AppCompatActivity {
                 lower.contains("what do you do") ||
                 lower.contains("how can you help") ||
                 lower.contains("what are your capabilities")) {
-                return "I can chat with you, remember your name and conversation history, " +
-                       "search and learn from the web, reason with NARS when you ask me to, " +
-                       "read the screen, and control supported phone functions.";
+                return "I can chat with you, remember conversation, research the web, " +
+                       "use my embedded knowledge and reasoning systems, and control supported phone functions.";
             }
 
-            // Normal chat never invokes NARS. Retrieve only relevant long-term memory.
             if (convManager.isKnowledgeQuestion(input)) {
-                String memoryContext = cognitiveMemory != null
-                    ? cognitiveMemory.buildContext(input, 3) : "";
-                String nnR = generateFromNNWithContext(input, memoryContext);
+                // NARS, AtomSpace/OpenCog, ONA and conversation memory are retrieved
+                // as internal context. They never become the visible response.
+                String cognitive = cognitiveContext != null
+                    ? cognitiveContext.retrieve(input) : "";
+                String nnR = generateFromNNWithContext(input, cognitive);
                 if (isUsableNeuralResponse(nnR, input)) {
                     return convManager.buildNaturalResponse(
                         personalityEngine.styleResponse(
@@ -482,19 +483,22 @@ public class MainActivity extends AppCompatActivity {
                         topic, true, false);
                 }
 
-                // If the local brain cannot answer reliably, research automatically.
-                // The user is not asked to "teach" the assistant.
                 setStatus("Researching " + topic);
                 List<WebSearch.SearchResult> results = webSearch.search(input);
                 if (!results.isEmpty()) {
                     String summary = webSearch.summarizeResults(results);
                     selfLearner.learnFromWebResults(webSearch.extractFacts(results));
-                    for (WebSearch.SearchResult x : results) { nars.parseAndLearn(x.snippet); if (openCog != null) openCog.learn(x.snippet); }
+                    for (WebSearch.SearchResult x : results) {
+                        nars.parseAndLearn(x.snippet);
+                        if (openCog != null) openCog.learn(x.snippet);
+                    }
                     return summary;
                 }
                 return "I don't have a reliable answer for that yet.";
             }
 
+            // Ordinary conversation stays ordinary. Cognitive systems are not
+            // exposed as conversational agents and are not invoked as chat tools.
             return convManager.buildCasualResponse(input);
         } catch (Exception e) {
             return "Thinking... (" + e.getMessage() + ")";
