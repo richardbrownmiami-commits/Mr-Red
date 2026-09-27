@@ -770,10 +770,10 @@ public class MainActivity extends AppCompatActivity {
         nn = new NeuralNetwork();
         tokenizer = new Tokenizer();
         nars = new NARSEngine();
-        narsTool = new NarsTool(nars);
         weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
         cognitiveMemory = new CognitiveMemory(new File(getFilesDir(), "aibot_memory"), nn, tokenizer);
         atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
+        narsTool = new NarsTool(nars, atomSpace);
         huggingFaceHub = new HuggingFaceHub();
         selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
         datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
@@ -786,22 +786,49 @@ public class MainActivity extends AppCompatActivity {
 
     private void showMenu() {
         String bot = birthStory!= null? birthStory.getBotName() : "AIBot";
-        String[] opts = {"Load Dataset", "Web Search", "Fetch URL", "Device Status", "Screen Reader Setup", "Overlay Bubble", "Load ONNX", "View Stats", "Save Brain", "Reset Brain", "Help"};
+        String[] opts = {"Load Dataset", "Hugging Face", "Web Search", "Fetch URL", "Device Status", "Screen Reader Setup", "Overlay Bubble", "Load ONNX", "View Stats", "Save Brain", "Reset Brain", "Help"};
         new AlertDialog.Builder(this).setTitle(bot).setItems(opts, (d, i) -> {
             switch (i) {
                 case 0: showDatasetPicker(); break;
-                case 1: showSearchDialog(); break;
-                case 2: showFetchDialog(); break;
-                case 3: addBotMessage(deviceController.getDeviceStatus()); break;
-                case 4: showAccessibilitySetup(); break;
-                case 5: addBotMessage(handleOverlayToggle()); break;
-                case 6: showOnnxPicker(); break;
-                case 7: showStats(); break;
-                case 8: if (weightManager!= null) weightManager.saveAll(); Toast.makeText(this, "Saved!", 0).show(); break;
-                case 9: confirmReset(); break;
-                case 10: addBotMessage(buildHelp()); break;
+                case 1: showHuggingFaceDialog(); break;
+                case 2: showSearchDialog(); break;
+                case 3: showFetchDialog(); break;
+                case 4: addBotMessage(deviceController.getDeviceStatus()); break;
+                case 5: showAccessibilitySetup(); break;
+                case 6: addBotMessage(handleOverlayToggle()); break;
+                case 7: showOnnxPicker(); break;
+                case 8: showStats(); break;
+                case 9: if (weightManager!= null) weightManager.saveAll(); Toast.makeText(this, "Saved!", 0).show(); break;
+                case 10: confirmReset(); break;
+                case 11: addBotMessage(buildHelp()); break;
             }
         }).show();
+    }
+
+    private void showHuggingFaceDialog() {
+        EditText et = new EditText(this);
+        et.setHint("model or dataset search");
+        new AlertDialog.Builder(this)
+            .setTitle("Hugging Face Hub")
+            .setView(et)
+            .setPositiveButton("Search", (d,w) -> {
+                String q=et.getText().toString().trim();
+                if(q.isEmpty()) return;
+                new Thread(() -> {
+                    try {
+                        List<HuggingFaceHub.Item> models=huggingFaceHub.searchModels(q,5);
+                        List<HuggingFaceHub.Item> data=huggingFaceHub.searchDatasets(q,5);
+                        StringBuilder sb=new StringBuilder("Models:\n");
+                        for(HuggingFaceHub.Item x:models) sb.append("• ").append(x).append("\n");
+                        sb.append("\nDatasets:\n");
+                        for(HuggingFaceHub.Item x:data) sb.append("• ").append(x).append("\n");
+                        mainHandler.post(() -> addBotMessage(sb.toString().trim()));
+                    } catch(Exception e) {
+                        mainHandler.post(() -> addBotMessage("Hugging Face error: "+e.getMessage()));
+                    }
+                }).start();
+            })
+            .setNegativeButton("Close",null).show();
     }
 
     private void showDatasetPicker() {
