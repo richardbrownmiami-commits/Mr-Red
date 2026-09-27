@@ -98,7 +98,7 @@ public class SelfLearner {
 
             if (targetToken >= NeuralNetwork.VOCAB_SIZE) continue;
 
-            float loss = nn.train(contextTokens, targetToken);
+            float loss = nn.trainFast(contextTokens, targetToken);
             totalPairLoss += loss;
             count++;
             trainSteps++;
@@ -148,6 +148,7 @@ public class SelfLearner {
 
                         // Train neural network
                         float loss = trainOnPair(sample.input, sample.output);
+                        if (memory != null) memory.remember(sample.input, sample.output, "dataset");
                         epochLoss += loss;
                         step++;
 
@@ -166,6 +167,7 @@ public class SelfLearner {
                 }
 
                 // Final save
+                if (memory != null) memory.flush();
                 weightManager.saveAll();
                 float avgLoss = step > 0 ? epochLoss / step : 0;
                 if (callback != null) callback.onComplete(avgLoss, step);
