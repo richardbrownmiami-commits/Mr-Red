@@ -53,8 +53,9 @@ public class PersonalityEngine {
 
     public boolean loadModel(String filename) {
         if (onnxEngine == null) return false;
-        useOnnx = onnxEngine.loadModel(filename);
-        return useOnnx;
+        boolean loaded = onnxEngine.loadModel(filename);
+        useOnnx = loaded && onnxEngine.isGenerativeModelLoaded();
+        return loaded;
     }
 
     // ─── STYLE A RESPONSE ─────────────────────────────────────────────────────
