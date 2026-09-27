@@ -116,16 +116,4 @@ WeightManager (save to disk)
 - 2GB RAM minimum
 - 200MB free storage
 - Internet permission for web features
-
----
-
-## NARS Reasoning Example
-
-```
-You teach: "Cat is animal"
-You teach: "Animal needs food"
-NARS derives: "Cat needs food" (81% confidence)
-
-You ask: "Does cat need food?"
-Bot: "Yes, cat needs food (81% sure) — I figured this out!"
 ```
