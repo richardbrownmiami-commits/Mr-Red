@@ -62,6 +62,28 @@ public class OnaEngine {
         return "ONA queued the goal for application reasoning: " + q;
     }
 
+    /**
+     * Compact ONA state for the embedded cognitive context.
+     * This is never a conversational answer.
+     */
+    public synchronized String buildCognitiveContext(String query) {
+        if (goals.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("Agent goals:");
+        int count = 0;
+        for (Goal g : goals) {
+            if (query == null || query.isEmpty()
+                    || g.text.toLowerCase().contains(query.toLowerCase())
+                    || query.toLowerCase().contains(g.text.toLowerCase())) {
+                sb.append(" ").append(g.text)
+                  .append(" [priority ")
+                  .append(String.format(java.util.Locale.US, "%.2f", g.priority))
+                  .append("];");
+                if (++count >= 3) break;
+            }
+        }
+        return count == 0 ? "" : sb.toString();
+    }
+
     public synchronized String stats() {
         return "ONA agent: cycles=" + cycles + ", queuedGoals=" + goals.size();
     }
