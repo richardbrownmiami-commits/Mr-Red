@@ -443,16 +443,18 @@ public class MainActivity extends AppCompatActivity {
             }
 
             // NARS is an explicit reasoning tool, not part of ordinary chat.
-            String nnR = generateFromNN(input);
-            if (nnR != null && nnR.length() > 10) {
-                return convManager.buildNaturalResponse(
-                    personalityEngine.styleResponse(
-                        nnR, input, emotionSystem.getMood()),
-                    topic, false, false);
-            }
-
-            // Only offer web research when the user actually asks for information.
+            // Use the neural generator for real information questions; do not let
+            // a weak/random generation hijack ordinary social conversation.
             if (convManager.isKnowledgeQuestion(input)) {
+                String nnR = generateFromNN(input);
+                if (nnR != null && nnR.length() > 10) {
+                    return convManager.buildNaturalResponse(
+                        personalityEngine.styleResponse(
+                            nnR, input, emotionSystem.getMood()),
+                        topic, false, false);
+                }
+
+                // Only offer web research when the user actually asks for information.
                 convManager.setPendingSearch(input.trim(), topic);
                 return convManager.buildSearchPrompt(topic);
             }
