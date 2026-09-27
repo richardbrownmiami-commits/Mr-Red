@@ -52,6 +52,9 @@ public class MainActivity extends AppCompatActivity {
     private DeviceController deviceController;
     private OverlayManager overlayManager;
     private BirthStory birthStory;
+    private CognitiveMemory cognitiveMemory;
+    private AtomSpaceLite atomSpace;
+    private HuggingFaceHub huggingFaceHub;
 
     private RecyclerView chatRecycler;
     private ChatAdapter chatAdapter;
@@ -123,7 +126,10 @@ public class MainActivity extends AppCompatActivity {
                 nars = new NARSEngine();
                 narsTool = new NarsTool(nars);
                 weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
-                selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager);
+                cognitiveMemory = new CognitiveMemory(new File(getFilesDir(), "aibot_memory"), nn, tokenizer);
+                atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
+                huggingFaceHub = new HuggingFaceHub();
+                selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
                 webSearch = new WebSearch();
                 webFetch = new WebFetch();
                 datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
@@ -167,6 +173,7 @@ public class MainActivity extends AppCompatActivity {
                             }
                         }
                         setStatus(getMoodStatus());
+                        mainHandler.postDelayed(() -> ensureCoreKnowledgeTrained(), 800);
                         startOverlayIfPermitted();
                     } catch (Exception e) {
                         Log.e(TAG, "UI post crash", e);
@@ -217,6 +224,8 @@ public class MainActivity extends AppCompatActivity {
             } else if (lower.startsWith("!load ")) {
                 handleLoadDataset(input.substring(6).trim());
                 return;
+            } else if (lower.startsWith("!hf ")) {
+                response = handleHuggingFaceCommand(input.substring(4).trim());
             } else if (lower.startsWith("!nars ")) {
                 response = narsTool != null ? narsTool.execute(input.substring(6).trim()) : "NARS is not ready.";
             } else if (lower.equals("!stats")) {
@@ -413,6 +422,9 @@ public class MainActivity extends AppCompatActivity {
 
     private String generateHumanResponse(String input) {
         try {
+            String memoryAnswer = cognitiveMemory != null ? cognitiveMemory.answerMemoryQuestion(input) : null;
+            if (memoryAnswer != null) return memoryAnswer;
+
             String topic = convManager.extractTopic(input);
             userMemory.recordTopic(topic);
 
@@ -444,24 +456,31 @@ public class MainActivity extends AppCompatActivity {
                        "read the screen, and control supported phone functions.";
             }
 
-            // NARS is an explicit reasoning tool, not part of ordinary chat.
-            // Use the neural generator for real information questions; do not let
-            // a weak/random generation hijack ordinary social conversation.
+            // Normal chat never invokes NARS. Retrieve only relevant long-term memory.
             if (convManager.isKnowledgeQuestion(input)) {
-                String nnR = generateFromNN(input);
-                if (nnR != null && nnR.length() > 10) {
+                String memoryContext = cognitiveMemory != null
+                    ? cognitiveMemory.buildContext(input, 3) : "";
+                String nnR = generateFromNNWithContext(input, memoryContext);
+                if (isUsableNeuralResponse(nnR, input)) {
                     return convManager.buildNaturalResponse(
                         personalityEngine.styleResponse(
                             nnR, input, emotionSystem.getMood()),
-                        topic, false, false);
+                        topic, true, false);
                 }
 
-                // Only offer web research when the user actually asks for information.
-                convManager.setPendingSearch(input.trim(), topic);
-                return convManager.buildSearchPrompt(topic);
+                // If the local brain cannot answer reliably, research automatically.
+                // The user is not asked to "teach" the assistant.
+                setStatus("Researching " + topic);
+                List<WebSearch.SearchResult> results = webSearch.search(input);
+                if (!results.isEmpty()) {
+                    String summary = webSearch.summarizeResults(results);
+                    selfLearner.learnFromWebResults(webSearch.extractFacts(results));
+                    for (WebSearch.SearchResult x : results) nars.parseAndLearn(x.snippet);
+                    return summary;
+                }
+                return "I don't have a reliable answer for that yet.";
             }
 
-            // Ordinary conversation should not be treated as an unknown fact.
             return convManager.buildCasualResponse(input);
         } catch (Exception e) {
             return "Thinking... (" + e.getMessage() + ")";
@@ -469,7 +488,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String generateFromNN(String input) {
-        return generateFromNNWithContext(input, "");
+        return generateFromNNWithContext(input, cognitiveMemory != null ? cognitiveMemory.buildContext(input, 2) : "");
     }
 
     private String generateFromNNWithContext(String input, String context) {
@@ -544,14 +563,130 @@ public class MainActivity extends AppCompatActivity {
         return convManager.buildNameResponse(n);
     }
 
+    private void ensureCoreKnowledgeTrained() {
+        try {
+            if (selfLearner == null || datasetLoader == null) return;
+            android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
+            if (p.getBoolean("core_trained_v2", false)) return;
+
+            File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
+            if (!core.exists()) copyBundledDatasetIfMissing();
+            if (!core.exists()) return;
+
+            addBotMessage("Building my built-in language and knowledge base...");
+            if (progressBar != null) {
+                progressBar.setVisibility(View.VISIBLE);
+                progressBar.setIndeterminate(true);
+            }
+            datasetLoader.loadAsync(core.getName(), new DatasetLoader.LoadCallback() {
+                public void onProgress(int loaded, int total, String file) {
+                    mainHandler.post(() -> setStatus("Reading baseline " + loaded));
+                }
+                public void onComplete(List<DatasetLoader.TrainingSample> samples) {
+                    selfLearner.learnFromDataset(samples, new SelfLearner.LearningCallback() {
+                        public void onProgress(int step, int total, float loss, String status) {
+                            mainHandler.post(() -> {
+                                if (progressBar != null) {
+                                    progressBar.setIndeterminate(false);
+                                    progressBar.setMax(Math.max(1,total));
+                                    progressBar.setProgress(Math.min(step,total));
+                                }
+                                setStatus("Baseline " + step + "/" + total + " | loss " +
+                                    String.format(java.util.Locale.US, "%.4f", loss));
+                            });
+                        }
+                        public void onComplete(float avg, int steps) {
+                            p.edit().putBoolean("core_trained_v2", true).apply();
+                            mainHandler.post(() -> {
+                                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                                addBotMessage("Baseline ready. Language, conversation, general knowledge, reasoning patterns, identity, and device behavior are loaded.");
+                                setStatus(getMoodStatus());
+                            });
+                        }
+                        public void onError(String error) {
+                            mainHandler.post(() -> {
+                                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                                setStatus("Baseline training error");
+                            });
+                        }
+                    });
+                }
+                public void onError(String error) {
+                    mainHandler.post(() -> {
+                        if (progressBar != null) progressBar.setVisibility(View.GONE);
+                        setStatus("Baseline load error");
+                    });
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "core training", e);
+        }
+    }
+
+    private boolean isUsableNeuralResponse(String response, String input) {
+        if (response == null) return false;
+        String r = response.trim();
+        if (r.length() < 8 || r.length() > 600) return false;
+        if (r.contains("<UNK>") || r.contains("<PAD>") || r.contains("<BOS>") || r.contains("<EOS>")) return false;
+        String[] words = r.toLowerCase(java.util.Locale.US).split("\\s+");
+        if (words.length < 2) return false;
+        int unique = new java.util.HashSet<>(java.util.Arrays.asList(words)).size();
+        if (unique < Math.max(2, words.length / 4)) return false;
+        return !r.equalsIgnoreCase(input.trim());
+    }
+
+    private String handleHuggingFaceCommand(String command) {
+        if (huggingFaceHub == null) return "Hugging Face is not ready.";
+        String[] p = command.trim().split("\\s+", 3);
+        if (p.length < 2) return "Use !hf model <query>, !hf dataset <query>, !hf files <model|dataset> <org/name>, or !hf download <model|dataset> <org/name> <file>.";
+        String action=p[0].toLowerCase(java.util.Locale.US);
+        try {
+            if ("model".equals(action)) {
+                List<HuggingFaceHub.Item> items=huggingFaceHub.searchModels(command.substring(6).trim(),8);
+                return formatHubItems("Models",items);
+            }
+            if ("dataset".equals(action)) {
+                List<HuggingFaceHub.Item> items=huggingFaceHub.searchDatasets(command.substring(8).trim(),8);
+                return formatHubItems("Datasets",items);
+            }
+            if ("files".equals(action) && p.length >= 3) {
+                String[] q=p[1].split("\\s+",2);
+                List<String> files=huggingFaceHub.listFiles(p[2].trim(),q[0]);
+                StringBuilder sb=new StringBuilder("Hub files:\\n");
+                for(String file:files) sb.append("• ").append(file).append("\\n");
+                return sb.toString();
+            }
+            if ("download".equals(action) && p.length >= 3) {
+                String[] rest=p[2].split("\\s+",2);
+                if(rest.length<2) return "Add the repository id and filename.";
+                boolean dataset="dataset".equalsIgnoreCase(p[1]);
+                File destDir=dataset?weightManager.getDatasetDir():onnxEngine==null?getFilesDir():new File(onnxEngine.getModelPath());
+                File dest=new File(destDir,new File(rest[1]).getName());
+                if(dataset) huggingFaceHub.downloadDataset(rest[0],rest[1],dest);
+                else huggingFaceHub.downloadModel(rest[0],rest[1],dest);
+                return "Downloaded " + dest.getName() + " to " + dest.getParent();
+            }
+        } catch(Exception e) {
+            return "Hugging Face error: " + e.getMessage();
+        }
+        return "Unknown !hf command.";
+    }
+
+    private String formatHubItems(String title, List<HuggingFaceHub.Item> items) {
+        if(items.isEmpty()) return "No Hub results.";
+        StringBuilder sb=new StringBuilder(title).append(":\\n");
+        for(HuggingFaceHub.Item item:items) sb.append("• ").append(item.toString()).append("\\n");
+        return sb.toString().trim();
+    }
+
     private void copyBundledDatasetIfMissing() {
         try {
             if (weightManager == null || weightManager.getDatasetDir() == null) return;
-            File dest = new File(weightManager.getDatasetDir(), "whisper_personality.jsonl");
+            File dest = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
             if (dest.exists() && dest.length() > 100) return;
             if (dest.getParentFile()!= null &&!dest.getParentFile().exists())
                 dest.getParentFile().mkdirs();
-            int resId = R.raw.whisper_personality;
+            int resId = R.raw.core_assistant;
             InputStream is = getResources().openRawResource(resId);
             FileOutputStream fos = new FileOutputStream(dest);
             byte[] buf = new byte[4096];
@@ -575,17 +710,35 @@ public class MainActivity extends AppCompatActivity {
     private void handleLoadDataset(String filename) {
         mainHandler.post(() -> {
             addBotMessage("Loading " + filename);
-            if (progressBar!= null) progressBar.setVisibility(View.VISIBLE);
+            if (progressBar!= null) {
+                progressBar.setVisibility(View.VISIBLE);
+                progressBar.setIndeterminate(true);
+                progressBar.setProgress(0);
+            }
         });
         datasetLoader.loadAsync(filename, new DatasetLoader.LoadCallback() {
             public void onProgress(int l, int t, String f) {
                 mainHandler.post(() -> setStatus("Loaded " + l));
             }
             public void onComplete(List<DatasetLoader.TrainingSample> s) {
-                mainHandler.post(() -> addBotMessage("Got " + s.size() + " samples! Training..."));
+                mainHandler.post(() -> {
+                    addBotMessage("Got " + s.size() + " samples. Indexing memory and training...");
+                    if (progressBar != null) {
+                        progressBar.setIndeterminate(false);
+                        progressBar.setMax(Math.max(1, s.size()));
+                        progressBar.setProgress(0);
+                    }
+                });
                 selfLearner.learnFromDataset(s, new SelfLearner.LearningCallback() {
                     public void onProgress(int a, int b, float loss, String st) {
-                        mainHandler.post(() -> setStatus(st + " Loss " + loss));
+                        mainHandler.post(() -> {
+                            setStatus(st + " Loss " + String.format(java.util.Locale.US, "%.4f", loss));
+                            if (progressBar != null && b > 0) {
+                                progressBar.setIndeterminate(false);
+                                progressBar.setMax(b);
+                                progressBar.setProgress(Math.min(a, b));
+                            }
+                        });
                     }
                     public void onComplete(float avg, int steps) {
                         mainHandler.post(() -> {
@@ -619,12 +772,16 @@ public class MainActivity extends AppCompatActivity {
         nars = new NARSEngine();
         narsTool = new NarsTool(nars);
         weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
-        selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager);
+        cognitiveMemory = new CognitiveMemory(new File(getFilesDir(), "aibot_memory"), nn, tokenizer);
+        atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
+        huggingFaceHub = new HuggingFaceHub();
+        selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
         datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
         onnxEngine = new OnnxEngine(MainActivity.this, weightManager);
         personalityEngine = new PersonalityEngine(onnxEngine, tokenizer);
         convManager.clearPending();
-        return "Brain wiped";
+        getSharedPreferences("brain_state", MODE_PRIVATE).edit().remove("core_trained_v2").apply();
+        return "Brain wiped. The built-in baseline will rebuild automatically.";
     }
 
     private void showMenu() {
@@ -809,11 +966,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String buildStats() {
-        return (weightManager!= null? weightManager.getInfo() : "") + "\nMood: " + (emotionSystem!= null? emotionSystem.getMood() : "");
+        return (weightManager!= null? weightManager.getInfo() : "")
+            + "\n" + (cognitiveMemory != null ? cognitiveMemory.getStats() : "")
+            + "\n" + (atomSpace != null ? atomSpace.stats() : "")
+            + "\nMood: " + (emotionSystem!= null? emotionSystem.getMood() : "");
     }
 
     private String buildHelp() {
-        return "I am AIBot. Commands:\n!search query\n!fetch url\n!nars question\n!datasets\n!load file\n!stats\n!save\n!reset\nshow bubble\nTurn on flashlight\nWhat's on screen?";
+        return "I am AIBot. Commands:\n!search query\n!fetch url\n!nars question\n!hf model query\n!hf dataset query\n!hf files model org/name\n!hf files dataset org/name\n!hf download model org/name file.onnx\n!hf download dataset org/name file.jsonl\n!datasets\n!load file\n!stats\n!save\n!reset\nshow bubble\nTurn on flashlight\nWhat's on screen?";
     }
 
     private String getMoodStatus() {
