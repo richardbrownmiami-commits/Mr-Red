@@ -101,3 +101,4 @@ public class WeightManager {
     private File beliefsFile() {
         return new File(baseDir, "beliefs.txt");
     }
+}
