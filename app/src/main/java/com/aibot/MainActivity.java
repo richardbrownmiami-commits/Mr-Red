@@ -54,6 +54,8 @@ public class MainActivity extends AppCompatActivity {
     private BirthStory birthStory;
     private CognitiveMemory cognitiveMemory;
     private AtomSpaceLite atomSpace;
+    private OpenCogBridge openCog;
+    private OnaEngine onaEngine;
     private HuggingFaceHub huggingFaceHub;
 
     private RecyclerView chatRecycler;
@@ -127,6 +129,8 @@ public class MainActivity extends AppCompatActivity {
                 weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
                 cognitiveMemory = new CognitiveMemory(new File(getFilesDir(), "aibot_memory"), nn, tokenizer);
                 atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
+                openCog = new OpenCogBridge(atomSpace);
+                onaEngine = new OnaEngine(nars, atomSpace);
                 narsTool = new NarsTool(nars, atomSpace);
                 huggingFaceHub = new HuggingFaceHub();
                 selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
@@ -156,8 +160,8 @@ public class MainActivity extends AppCompatActivity {
                         if (statusText!= null && emotionSystem!= null)
                             statusText.setText(botName + " " + emotionSystem.getMoodEmoji());
                         if (justBorn) {
-                            String intro = "I am " + botName + ". I was just born on this device.\n\n" +
-                                "I can feel the hardware.\nI know nothing yet. But I will learn.\n\n" +
+                            String intro = "I am " + botName + ", your on-device Android assistant.\n\n" +
+                                "I already have a baseline of English, conversation, general knowledge, reasoning, memory, web research, and supported phone controls.\n\n" +
                                 "Just talk to me naturally.";
                             addBotMessage(intro);
                             if (userName == null) {
@@ -228,6 +232,12 @@ public class MainActivity extends AppCompatActivity {
                 response = handleHuggingFaceCommand(input.substring(4).trim());
             } else if (lower.startsWith("!nars ")) {
                 response = narsTool != null ? narsTool.execute(input.substring(6).trim()) : "NARS is not ready.";
+            } else if (lower.startsWith("!cog ")) {
+                response = openCog != null ? openCog.execute(input.substring(5).trim()) : "OpenCog bridge is not ready.";
+            } else if (lower.startsWith("!opencog ")) {
+                response = openCog != null ? openCog.execute(input.substring(9).trim()) : "OpenCog bridge is not ready.";
+            } else if (lower.startsWith("!ona ")) {
+                response = onaEngine != null ? onaEngine.execute(input.substring(5).trim()) : "ONA agent is not ready.";
             } else if (lower.equals("!stats")) {
                 response = buildStats();
             } else if (lower.equals("!save")) {
@@ -279,6 +289,10 @@ public class MainActivity extends AppCompatActivity {
             switch (task.type) {
                 case NARS_REASON:
                     return narsTool != null ? narsTool.execute(task.argument) : "NARS is not ready.";
+                case OPENCOG_REASON:
+                    return openCog != null ? openCog.execute(task.argument) : "OpenCog bridge is not ready.";
+                case ONA_REASON:
+                    return onaEngine != null ? onaEngine.execute(task.argument) : "ONA agent is not ready.";
                 case FLASHLIGHT_ON:
                     return deviceController.setFlashlight(true)? "Flashlight is on" : "Couldn't turn on flashlight.";
                 case FLASHLIGHT_OFF:
@@ -475,7 +489,7 @@ public class MainActivity extends AppCompatActivity {
                 if (!results.isEmpty()) {
                     String summary = webSearch.summarizeResults(results);
                     selfLearner.learnFromWebResults(webSearch.extractFacts(results));
-                    for (WebSearch.SearchResult x : results) nars.parseAndLearn(x.snippet);
+                    for (WebSearch.SearchResult x : results) { nars.parseAndLearn(x.snippet); if (openCog != null) openCog.learn(x.snippet); }
                     return summary;
                 }
                 return "I don't have a reliable answer for that yet.";
@@ -527,7 +541,7 @@ public class MainActivity extends AppCompatActivity {
             if (r.isEmpty()) return "Nothing for " + topic;
             String s = webSearch.summarizeResults(r);
             selfLearner.learnFromWebResults(webSearch.extractFacts(r));
-            for (WebSearch.SearchResult x : r) nars.parseAndLearn(x.snippet);
+            for (WebSearch.SearchResult x : r) { nars.parseAndLearn(x.snippet); if (openCog != null) openCog.learn(x.snippet); }
             return convManager.buildLearnedFromWebResponse(topic, s);
         }
         if (convManager.isNo(input)) return convManager.buildSearchDeclinedResponse(topic);
@@ -541,7 +555,7 @@ public class MainActivity extends AppCompatActivity {
         if (r.isEmpty()) return "Nothing for " + q;
         String s = webSearch.summarizeResults(r);
         selfLearner.learnFromWebResults(webSearch.extractFacts(r));
-        for (WebSearch.SearchResult x : r) nars.parseAndLearn(x.snippet);
+        for (WebSearch.SearchResult x : r) { nars.parseAndLearn(x.snippet); if (openCog != null) openCog.learn(x.snippet); }
         emotionSystem.onLearnedSomethingNew();
         return s;
     }
@@ -773,6 +787,8 @@ public class MainActivity extends AppCompatActivity {
         weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
         cognitiveMemory = new CognitiveMemory(new File(getFilesDir(), "aibot_memory"), nn, tokenizer);
         atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
+        openCog = new OpenCogBridge(atomSpace);
+        onaEngine = new OnaEngine(nars, atomSpace);
         narsTool = new NarsTool(nars, atomSpace);
         huggingFaceHub = new HuggingFaceHub();
         selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
@@ -995,12 +1011,14 @@ public class MainActivity extends AppCompatActivity {
     private String buildStats() {
         return (weightManager!= null? weightManager.getInfo() : "")
             + "\n" + (cognitiveMemory != null ? cognitiveMemory.getStats() : "")
-            + "\n" + (atomSpace != null ? atomSpace.stats() : "")
+            + "\n" + (atomSpace != null ? atomSpace.stats() : "") +
+            "\n" + (openCog != null ? openCog.stats() : "") +
+            "\n" + (onaEngine != null ? onaEngine.stats() : "")
             + "\nMood: " + (emotionSystem!= null? emotionSystem.getMood() : "");
     }
 
     private String buildHelp() {
-        return "I am AIBot. Commands:\n!search query\n!fetch url\n!nars question\n!hf model query\n!hf dataset query\n!hf files model org/name\n!hf files dataset org/name\n!hf download model org/name file.onnx\n!hf download dataset org/name file.jsonl\n!datasets\n!load file\n!stats\n!save\n!reset\nshow bubble\nTurn on flashlight\nWhat's on screen?";
+        return "I am AIBot. Commands:\n!search query\n!fetch url\n!nars question\n!cog question\n!opencog question\n!ona goal/reasoning task\n!hf model query\n!hf dataset query\n!hf files model org/name\n!hf files dataset org/name\n!hf download model org/name file.onnx\n!hf download dataset org/name file.jsonl\n!datasets\n!load file\n!stats\n!save\n!reset\nshow bubble\nTurn on flashlight\nWhat's on screen?";
     }
 
     private String getMoodStatus() {
