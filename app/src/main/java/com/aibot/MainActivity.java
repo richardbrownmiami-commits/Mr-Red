@@ -267,8 +267,6 @@ public class MainActivity extends AppCompatActivity {
             switch (task.type) {
                 case NARS_REASON:
                     return narsTool != null ? narsTool.execute(task.argument) : "NARS is not ready.";
-                case NARS_REASON:
-                    return narsTool != null ? narsTool.execute(task.argument) : "NARS is not ready.";
                 case FLASHLIGHT_ON:
                     return deviceController.setFlashlight(true)? "Flashlight is on" : "Couldn't turn on flashlight.";
                 case FLASHLIGHT_OFF:
