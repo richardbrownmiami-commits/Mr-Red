@@ -153,6 +153,7 @@ public class MainActivity extends AppCompatActivity {
                                 "Just talk to me naturally.";
                             addBotMessage(intro);
                             if (userName == null) {
+                                convManager.setState(ConversationManager.State.WAITING_NAME);
                                 new Handler(Looper.getMainLooper()).postDelayed(() ->
                                     addBotMessage("What's your name?"), 1500);
                             }
@@ -412,26 +413,52 @@ public class MainActivity extends AppCompatActivity {
         try {
             String topic = convManager.extractTopic(input);
             userMemory.recordTopic(topic);
+
             String name = userMemory.detectName(input);
-            if (name!= null) {
+            if (name != null) {
                 userMemory.setName(name);
                 return convManager.buildNameResponse(name);
             }
-            String lower = input.toLowerCase();
+
+            String lower = input.toLowerCase().trim();
+
+            // Basic identity/capability questions should never go to web search.
             if (lower.contains("who are you") || lower.contains("what are you"))
-                return birthStory.getSelfIntroduction(birthStory.getBotName(), userMemory.getName());
-            String narsAns = nars.answerQuestion(input);
-            if (narsAns!= null &&!narsAns.startsWith("I don't")) {
-                emotionSystem.onAnsweredSuccessfully();
-                return convManager.buildNaturalResponse(personalityEngine.styleResponse(narsAns, input, emotionSystem.getMood()), topic, true, false);
+                return birthStory.getSelfIntroduction(
+                    birthStory.getBotName(), userMemory.getName());
+
+            if (lower.equals("what's your name") ||
+                lower.equals("what is your name") ||
+                lower.equals("your name")) {
+                return "My name is " + birthStory.getBotName() + ".";
             }
-            List<Belief> learned = nars.parseAndLearn(input);
-            if (!learned.isEmpty()) return convManager.buildLearnedResponse(learned, topic);
+
+            if (lower.contains("what can you do") ||
+                lower.contains("what do you do") ||
+                lower.contains("how can you help") ||
+                lower.contains("what are your capabilities")) {
+                return "I can chat with you, remember your name and conversation history, " +
+                       "search and learn from the web, reason with NARS when you ask me to, " +
+                       "read the screen, and control supported phone functions.";
+            }
+
+            // NARS is an explicit reasoning tool, not part of ordinary chat.
             String nnR = generateFromNN(input);
-            if (nnR.length() > 10)
-                return convManager.buildNaturalResponse(personalityEngine.styleResponse(nnR, input, emotionSystem.getMood()), topic, false, false);
-            convManager.setPendingSearch(topic, topic);
-            return convManager.buildSearchPrompt(topic);
+            if (nnR != null && nnR.length() > 10) {
+                return convManager.buildNaturalResponse(
+                    personalityEngine.styleResponse(
+                        nnR, input, emotionSystem.getMood()),
+                    topic, false, false);
+            }
+
+            // Only offer web research when the user actually asks for information.
+            if (convManager.isKnowledgeQuestion(input)) {
+                convManager.setPendingSearch(input.trim(), topic);
+                return convManager.buildSearchPrompt(topic);
+            }
+
+            // Ordinary conversation should not be treated as an unknown fact.
+            return convManager.buildCasualResponse(input);
         } catch (Exception e) {
             return "Thinking... (" + e.getMessage() + ")";
         }
