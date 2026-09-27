@@ -102,6 +102,10 @@ public class OnnxEngine {
         return loadedName;
     }
 
+    public boolean isGenerativeModelLoaded() {
+        return sessionGeneric != null;
+    }
+
     /** Models visible in the ONNX picker. */
     public List<String> listAvailableModels() {
         List<String> models = new ArrayList<>();
