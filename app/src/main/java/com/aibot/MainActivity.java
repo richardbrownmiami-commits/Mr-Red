@@ -58,6 +58,8 @@ public class MainActivity extends AppCompatActivity {
     private OnaEngine onaEngine;
     private CognitiveContext cognitiveContext;
     private HuggingFaceHub huggingFaceHub;
+    private final StringBuilder neuralTrace = new StringBuilder();
+    private static final int TRACE_MAX = 12000;
 
     private RecyclerView chatRecycler;
     private ChatAdapter chatAdapter;
@@ -438,8 +440,13 @@ public class MainActivity extends AppCompatActivity {
 
     private String generateHumanResponse(String input) {
         try {
+            trace("TURN input: " + input);
+
             String memoryAnswer = cognitiveMemory != null ? cognitiveMemory.answerMemoryQuestion(input) : null;
-            if (memoryAnswer != null) return memoryAnswer;
+            if (memoryAnswer != null) {
+                trace("MEMORY DIRECT ANSWER");
+                return memoryAnswer;
+            }
 
             String topic = convManager.extractTopic(input);
             userMemory.recordTopic(topic);
@@ -447,18 +454,22 @@ public class MainActivity extends AppCompatActivity {
             String name = userMemory.detectName(input);
             if (name != null) {
                 userMemory.setName(name);
+                trace("IDENTITY HANDLER");
                 return convManager.buildNameResponse(name);
             }
 
             String lower = input.toLowerCase().trim();
 
-            if (lower.contains("who are you") || lower.contains("what are you"))
+            if (lower.contains("who are you") || lower.contains("what are you")) {
+                trace("IDENTITY HANDLER");
                 return birthStory.getSelfIntroduction(
                     birthStory.getBotName(), userMemory.getName());
+            }
 
             if (lower.equals("what's your name") ||
                 lower.equals("what is your name") ||
                 lower.equals("your name")) {
+                trace("IDENTITY HANDLER");
                 return "My name is " + birthStory.getBotName() + ".";
             }
 
@@ -466,24 +477,33 @@ public class MainActivity extends AppCompatActivity {
                 lower.contains("what do you do") ||
                 lower.contains("how can you help") ||
                 lower.contains("what are your capabilities")) {
+                trace("CAPABILITY HANDLER");
                 return "I can chat with you, remember conversation, research the web, " +
                        "use my embedded knowledge and reasoning systems, and control supported phone functions.";
             }
 
-            if (convManager.isKnowledgeQuestion(input)) {
-                // NARS, AtomSpace/OpenCog, ONA and conversation memory are retrieved
-                // as internal context. They never become the visible response.
-                String cognitive = cognitiveContext != null
-                    ? cognitiveContext.retrieve(input) : "";
-                String nnR = generateFromNNWithContext(input, cognitive);
-                if (isUsableNeuralResponse(nnR, input)) {
-                    return convManager.buildNaturalResponse(
-                        personalityEngine.styleResponse(
-                            nnR, input, emotionSystem.getMood()),
-                        topic, true, false);
-                }
+            // The neural network is now the normal conversational generator.
+            // Cognitive systems supply context; they do not become the visible answer.
+            String cognitive = cognitiveContext != null
+                ? cognitiveContext.retrieve(input) : "";
+            trace("COGNITIVE CONTEXT chars=" + cognitive.length());
 
+            String nnR = generateFromNNWithContext(input, cognitive);
+            if (isUsableNeuralResponse(nnR, input)) {
+                trace("NN RESPONSE accepted chars=" + nnR.length());
+                return convManager.buildNaturalResponse(
+                    personalityEngine.styleResponse(
+                        nnR, input, emotionSystem.getMood()),
+                    topic, true, !convManager.isKnowledgeQuestion(input));
+            }
+
+            trace("NN RESPONSE rejected: " + (nnR == null ? "null" : ("chars=" + nnR.length())));
+            
+            // Knowledge questions may use web research when the local neural
+            // answer is not reliable. Ordinary chat does not web-search.
+            if (convManager.isKnowledgeQuestion(input)) {
                 setStatus("Researching " + topic);
+                trace("WEB FALLBACK for knowledge question");
                 List<WebSearch.SearchResult> results = webSearch.search(input);
                 if (!results.isEmpty()) {
                     String summary = webSearch.summarizeResults(results);
@@ -494,14 +514,13 @@ public class MainActivity extends AppCompatActivity {
                     }
                     return summary;
                 }
-                return "I don't have a reliable answer for that yet.";
             }
 
-            // Ordinary conversation stays ordinary. Cognitive systems are not
-            // exposed as conversational agents and are not invoked as chat tools.
+            trace("TEMPLATE FALLBACK");
             return convManager.buildCasualResponse(input);
         } catch (Exception e) {
-            return "Thinking... (" + e.getMessage() + ")";
+            trace("NN TURN ERROR: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            return convManager.buildCasualResponse(input);
         }
     }
 
@@ -510,18 +529,51 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String generateFromNNWithContext(String input, String context) {
+        long started = System.currentTimeMillis();
         try {
-            String full = (context.isEmpty()? "" : context + " ") + input;
-            int[] tokens = tokenizer.encode(full);
+            if (nn == null || tokenizer == null) {
+                trace("NN NOT READY");
+                return "";
+            }
+
+            // Keep the user's input at the end of the prompt. The old code could
+            // let a long cognitive context push the actual question out of the
+            // 128-token Transformer window.
+            int[] inputTokens = tokenizer.encode(input, true, false);
+            int[] contextTokens = context == null || context.isEmpty()
+                ? new int[0] : tokenizer.encode(context, false, false);
+
+            int maxContext = Math.max(0,
+                NeuralNetwork.MAX_SEQ_LEN - Math.min(inputTokens.length, 60) - 1);
+            if (contextTokens.length > maxContext) {
+                contextTokens = Arrays.copyOfRange(
+                    contextTokens, contextTokens.length - maxContext, contextTokens.length);
+            }
+
+            int inputLimit = Math.min(inputTokens.length, 60);
+            if (inputTokens.length > inputLimit) {
+                inputTokens = Arrays.copyOfRange(
+                    inputTokens, inputTokens.length - inputLimit, inputTokens.length);
+            }
+
+            int[] prompt = new int[contextTokens.length + inputTokens.length];
+            System.arraycopy(contextTokens, 0, prompt, 0, contextTokens.length);
+            System.arraycopy(inputTokens, 0, prompt, contextTokens.length, inputTokens.length);
+
+            trace("NN RUN promptTokens=" + prompt.length +
+                  " contextTokens=" + contextTokens.length +
+                  " inputTokens=" + inputTokens.length);
+
             StringBuilder sb = new StringBuilder();
-            int[] cur = tokens;
+            int[] cur = prompt;
             for (int i = 0; i < 35; i++) {
-                int next = nn.generateNextToken(cur, 0.8f);
+                int next = nn.generateNextToken(cur, 0.72f);
                 if (next == Tokenizer.EOS_TOKEN || next == Tokenizer.PAD_TOKEN) break;
                 String w = tokenizer.decodeToken(next);
-                if (w.startsWith("<")) break;
+                if (w == null || w.startsWith("<")) break;
                 if (sb.length() > 0) sb.append(" ");
                 sb.append(w);
+
                 int[] ext = new int[cur.length + 1];
                 System.arraycopy(cur, 0, ext, 0, cur.length);
                 ext[cur.length] = next;
@@ -529,8 +581,15 @@ public class MainActivity extends AppCompatActivity {
                 if (cur.length > NeuralNetwork.MAX_SEQ_LEN)
                     cur = Arrays.copyOfRange(cur, cur.length - NeuralNetwork.MAX_SEQ_LEN, cur.length);
             }
-            return sb.toString().trim();
+
+            String result = sb.toString().trim();
+            trace("NN GENERATED tokens=" + result.split("\\s+").length +
+                  " chars=" + result.length() +
+                  " ms=" + (System.currentTimeMillis() - started));
+            return result;
         } catch (Exception e) {
+            trace("NN GENERATION ERROR: " + e.getClass().getSimpleName() +
+                  ": " + e.getMessage());
             return "";
         }
     }
@@ -585,7 +644,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (selfLearner == null || datasetLoader == null) return;
             android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
-            if (p.getBoolean("core_trained_v2", false)) return;
+            if (p.getBoolean("core_trained_v3", false)) return;
 
             File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
             if (!core.exists()) copyBundledDatasetIfMissing();
@@ -614,7 +673,7 @@ public class MainActivity extends AppCompatActivity {
                             });
                         }
                         public void onComplete(float avg, int steps) {
-                            p.edit().putBoolean("core_trained_v2", true).apply();
+                            p.edit().putBoolean("core_trained_v3", true).apply();
                             mainHandler.post(() -> {
                                 if (progressBar != null) progressBar.setVisibility(View.GONE);
                                 addBotMessage("Baseline ready. Language, conversation, general knowledge, reasoning patterns, identity, and device behavior are loaded.");
@@ -806,7 +865,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showMenu() {
         String bot = birthStory!= null? birthStory.getBotName() : "AIBot";
-        String[] opts = {"Load Dataset", "Hugging Face", "Web Search", "Fetch URL", "Device Status", "Screen Reader Setup", "Overlay Bubble", "Load ONNX", "View Stats", "Save Brain", "Reset Brain", "Help"};
+        String[] opts = {"Load Dataset", "Hugging Face", "Web Search", "Fetch URL", "Device Status", "Screen Reader Setup", "Overlay Bubble", "Load ONNX", "Neural Trace", "View Stats", "Save Brain", "Reset Brain", "Help"};
         new AlertDialog.Builder(this).setTitle(bot).setItems(opts, (d, i) -> {
             switch (i) {
                 case 0: showDatasetPicker(); break;
@@ -817,12 +876,49 @@ public class MainActivity extends AppCompatActivity {
                 case 5: showAccessibilitySetup(); break;
                 case 6: addBotMessage(handleOverlayToggle()); break;
                 case 7: showOnnxPicker(); break;
-                case 8: showStats(); break;
-                case 9: if (weightManager!= null) weightManager.saveAll(); Toast.makeText(this, "Saved!", 0).show(); break;
-                case 10: confirmReset(); break;
-                case 11: addBotMessage(buildHelp()); break;
+                case 8: showNeuralTrace(); break;
+                case 9: showStats(); break;
+                case 10: if (weightManager!= null) weightManager.saveAll(); Toast.makeText(this, "Saved!", 0).show(); break;
+                case 11: confirmReset(); break;
+                case 12: addBotMessage(buildHelp()); break;
             }
         }).show();
+    }
+
+    private void trace(String message) {
+        String line = "[" + new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            .format(new java.util.Date()) + "] " + message;
+        Log.d(TAG, line);
+        synchronized (neuralTrace) {
+            neuralTrace.append(line).append("\\n");
+            if (neuralTrace.length() > TRACE_MAX)
+                neuralTrace.delete(0, neuralTrace.length() - TRACE_MAX);
+        }
+        mainHandler.post(() -> {
+            if (statusText != null && message.startsWith("NN "))
+                statusText.setText(message);
+        });
+    }
+
+    private void showNeuralTrace() {
+        final TextView tv = new TextView(this);
+        tv.setTextSize(12);
+        tv.setTextColor(android.graphics.Color.WHITE);
+        tv.setPadding(24, 16, 24, 16);
+        tv.setText(neuralTrace.length() == 0
+            ? "No neural trace yet. Send a normal message first."
+            : neuralTrace.toString());
+        tv.setTextIsSelectable(true);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(tv);
+        new AlertDialog.Builder(this)
+            .setTitle("Neural Trace")
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Clear", (d, w) -> {
+                synchronized (neuralTrace) { neuralTrace.setLength(0); }
+            })
+            .show();
     }
 
     private void showHuggingFaceDialog() {
