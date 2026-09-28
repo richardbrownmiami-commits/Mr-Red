@@ -24,16 +24,25 @@ public class CognitiveContext {
     }
 
     public String retrieve(String input) {
+        return retrieve(input, true, true, true, true);
+    }
+
+    /**
+     * Selective retrieval. The caller decides which cognitive systems are
+     * relevant for this turn instead of injecting every subsystem every time.
+     */
+    public String retrieve(String input, boolean useMemory, boolean useSemantic,
+                           boolean useReasoning, boolean useAgent) {
         String q = input == null ? "" : input.trim();
         if (q.isEmpty()) return "";
 
         StringBuilder out = new StringBuilder();
 
-        if (memory != null) {
+        if (useMemory && memory != null) {
             append(out, memory.buildContext(q, 3));
         }
 
-        if (atomSpace != null) {
+        if (useSemantic && atomSpace != null) {
             List<AtomSpaceLite.Atom> atoms = atomSpace.query(q, 6);
             if (!atoms.isEmpty()) {
                 append(out, "Semantic knowledge:");
@@ -44,14 +53,14 @@ public class CognitiveContext {
             }
         }
 
-        if (nars != null) {
+        if (useReasoning && nars != null) {
             String narsContext = nars.buildContextFromBeliefs(q);
             if (narsContext != null && !narsContext.trim().isEmpty()) {
                 append(out, "Reasoning context: " + narsContext);
             }
         }
 
-        if (ona != null) {
+        if (useAgent && ona != null) {
             String goalContext = ona.buildCognitiveContext(q);
             if (goalContext != null && !goalContext.trim().isEmpty()) {
                 append(out, goalContext);
