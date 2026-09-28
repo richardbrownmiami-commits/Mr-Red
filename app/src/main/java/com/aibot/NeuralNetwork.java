@@ -13,16 +13,18 @@ import java.util.Random;
 public class NeuralNetwork {
 
     // Model dimensions (tiny for ARMv7a)
-    public static final int VOCAB_SIZE    = 8000;
-    public static final int EMBED_DIM     = 128;
+    public static final int VOCAB_SIZE    = 12000;
+    public static final int EMBED_DIM     = 160;
     public static final int NUM_HEADS     = 4;
     public static final int HEAD_DIM      = EMBED_DIM / NUM_HEADS; // 32
-    public static final int FF_DIM        = 256;
-    public static final int NUM_LAYERS    = 2;
-    public static final int MAX_SEQ_LEN   = 128;
-    public static final float LEARN_RATE  = 0.0005f;
+    public static final int FF_DIM        = 512;
+    public static final int NUM_LAYERS    = 3;
+    public static final int MAX_SEQ_LEN   = 160;
+    public static final float LEARN_RATE  = 0.0010f;
     private static final int MEMORY_DIM = 64;
-    private static final int TOP_K = 24;
+    private static final int TOP_K = 32;
+    private static final int MODEL_MAGIC = 0x4D524544; // MRED
+    private static final int MODEL_VERSION = 3;
     private int activeVocabSize = VOCAB_SIZE;
     float[][] contextIn;
     float[][] contextOut;
@@ -92,10 +94,10 @@ public class NeuralNetwork {
             }
         }
 
-        Wout = randomMatrix(EMBED_DIM, VOCAB_SIZE, 0.02f);
+        Wout = randomMatrix(EMBED_DIM, VOCAB_SIZE, 0.006f);
         bout = new float[VOCAB_SIZE];
-        contextIn = randomMatrix(VOCAB_SIZE, MEMORY_DIM, 0.02f);
-        contextOut = randomMatrix(MEMORY_DIM, VOCAB_SIZE, 0.02f);
+        contextIn = randomMatrix(VOCAB_SIZE, MEMORY_DIM, 0.01f);
+        contextOut = randomMatrix(MEMORY_DIM, VOCAB_SIZE, 0.01f);
 
         isInitialized = true;
     }
@@ -235,7 +237,7 @@ public class NeuralNetwork {
                 for (int d = 0; d < EMBED_DIM; d++) {
                     sum += x[i][d] * W1[layer][d][f];
                 }
-                h[f] = Math.max(0, sum); // ReLU
+                h[f] = gelu(sum);
             }
             // Layer 2: FF_DIM -> EMBED_DIM
             for (int d = 0; d < EMBED_DIM; d++) {
@@ -250,6 +252,16 @@ public class NeuralNetwork {
     }
 
     // Layer normalization
+    private float gelu(float x) {
+        // Fast GELU approximation: x * sigmoid(1.702x)
+        return x / (1.0f + (float)Math.exp(-1.702f * x));
+    }
+
+    private float geluDerivative(float x) {
+        float s = 1.0f / (1.0f + (float)Math.exp(-1.702f * x));
+        return s + 1.702f * x * s * (1.0f - s);
+    }
+
     private float[] layerNorm(float[] x, float[] gamma, float[] beta) {
         float mean = 0, variance = 0;
         for (float v : x) mean += v;
@@ -437,6 +449,8 @@ public class NeuralNetwork {
         DataOutputStream dos = new DataOutputStream(
             new BufferedOutputStream(new FileOutputStream(file)));
 
+        dos.writeInt(MODEL_MAGIC);
+        dos.writeInt(MODEL_VERSION);
         // Save token embeddings
         for (float[] row : tokenEmbedding)
             for (float v : row) dos.writeFloat(v);
@@ -472,6 +486,12 @@ public class NeuralNetwork {
     public void loadWeights(File file) throws IOException {
         DataInputStream dis = new DataInputStream(
             new BufferedInputStream(new FileInputStream(file)));
+        int magic = dis.readInt();
+        int version = dis.readInt();
+        if (magic != MODEL_MAGIC || version != MODEL_VERSION) {
+            dis.close();
+            throw new IOException("Incompatible model format; rebuilding model");
+        }
 
         for (float[] row : tokenEmbedding)
             for (int i = 0; i < row.length; i++) row[i] = dis.readFloat();
