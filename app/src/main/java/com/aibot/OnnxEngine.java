@@ -67,6 +67,41 @@ public class OnnxEngine {
         this(ctx, null);
     }
 
+    /**
+     * Activates the bundled semantic ONNX model. It is used for semantic
+     * retrieval/routing only; it is not used as a chat generator.
+     */
+    public boolean activateEmbeddedSemanticModel() {
+        try {
+            setEnabled(true);
+            File model = new File(modelDir, "minilm.onnx");
+            File vocab = new File(modelDir, "minilm-vocab.txt");
+            if (!model.exists()) copyAsset("embedded_onnx/minilm.onnx", model);
+            if (!vocab.exists()) copyAsset("embedded_onnx/vocab.txt", vocab);
+            if (!model.exists() || !vocab.exists()) return false;
+            return loadText();
+        } catch (Throwable e) {
+            Log.e(TAG, "Embedded semantic ONNX activation failed", e);
+            return false;
+        }
+    }
+
+    public boolean isSemanticModelLoaded() {
+        return sessionMini != null;
+    }
+
+    private void copyAsset(String assetPath, File destination) throws IOException {
+        File parent = destination.getParentFile();
+        if (parent != null && !parent.exists()) parent.mkdirs();
+        try (InputStream in = ctx.getAssets().open(assetPath);
+             FileOutputStream out = new FileOutputStream(destination)) {
+            byte[] buffer = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+            out.getFD().sync();
+        }
+    }
+
     public boolean isEnabled() {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(ENABLED, false);
