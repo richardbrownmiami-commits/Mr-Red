@@ -688,7 +688,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (selfLearner == null || datasetLoader == null) return;
             android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
-            if (p.getBoolean("core_trained_v3", false)) return;
+            if (p.getBoolean("core_trained_v4", false)) return;
 
             File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
             if (!core.exists()) copyBundledDatasetIfMissing();
@@ -717,7 +717,7 @@ public class MainActivity extends AppCompatActivity {
                             });
                         }
                         public void onComplete(float avg, int steps) {
-                            p.edit().putBoolean("core_trained_v3", true).apply();
+                            p.edit().putBoolean("core_trained_v4", true).apply();
                             mainHandler.post(() -> {
                                 if (progressBar != null) progressBar.setVisibility(View.GONE);
                                 addBotMessage("Baseline ready. Language, conversation, general knowledge, reasoning patterns, identity, and device behavior are loaded.");
@@ -903,7 +903,7 @@ public class MainActivity extends AppCompatActivity {
         onnxEngine = new OnnxEngine(MainActivity.this, weightManager);
         personalityEngine = new PersonalityEngine(onnxEngine, tokenizer);
         convManager.clearPending();
-        getSharedPreferences("brain_state", MODE_PRIVATE).edit().remove("core_trained_v2").remove("core_trained_v3").apply();
+        getSharedPreferences("brain_state", MODE_PRIVATE).edit().remove("core_trained_v2").remove("core_trained_v4").apply();
         return "Brain wiped. The built-in baseline will rebuild automatically.";
     }
 
