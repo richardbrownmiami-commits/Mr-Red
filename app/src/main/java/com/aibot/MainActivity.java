@@ -859,7 +859,7 @@ public class MainActivity extends AppCompatActivity {
         onnxEngine = new OnnxEngine(MainActivity.this, weightManager);
         personalityEngine = new PersonalityEngine(onnxEngine, tokenizer);
         convManager.clearPending();
-        getSharedPreferences("brain_state", MODE_PRIVATE).edit().remove("core_trained_v2").apply();
+        getSharedPreferences("brain_state", MODE_PRIVATE).edit().remove("core_trained_v2").remove("core_trained_v3").apply();
         return "Brain wiped. The built-in baseline will rebuild automatically.";
     }
 
