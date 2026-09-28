@@ -56,6 +56,21 @@ jobs:
           sha256sum "$dir/model.safetensors"
           du -h "$dir"/*
 
+      - name: Bundle quantized ONNX semantic model
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="app/src/main/assets/embedded_onnx"
+          mkdir -p "$dir"
+          base="https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/751bff37182d3f1213fa05d7196b954e230abad9"
+          curl --fail --location --retry 3 -A "Mr-Red/1.0" "$base/onnx/model_quantized.onnx?download=true" -o "$dir/minilm.onnx"
+          curl --fail --location --retry 3 -A "Mr-Red/1.0" "$base/vocab.txt?download=true" -o "$dir/vocab.txt"
+          printf '%s\n' 'Xenova/all-MiniLM-L6-v2' > "$dir/MODEL_ID.txt"
+          printf '%s\n' 'Apache-2.0' > "$dir/LICENSE.txt"
+          test "$(wc -c < "$dir/minilm.onnx")" -gt 18000000
+          test "$(wc -c < "$dir/minilm.onnx")" -lt 30000000
+          sha256sum "$dir/minilm.onnx"
+          du -h "$dir"/*
       - name: Build normal ARMv7a APK
         run: gradle --no-daemon --stacktrace clean assembleNormal
 
