@@ -110,6 +110,24 @@ public class ToolRouter {
             "conversation", 0.86f);
     }
 
+    private float semanticSimilarity(String a, String b) {
+        try {
+            float[] x = onnx.embedText(a);
+            float[] y = onnx.embedText(b);
+            if (x == null || y == null || x.length != y.length) return 0f;
+            float dot = 0f, nx = 0f, ny = 0f;
+            for (int i = 0; i < x.length; i++) {
+                dot += x[i] * y[i];
+                nx += x[i] * x[i];
+                ny += y[i] * y[i];
+            }
+            if (nx < 1e-8f || ny < 1e-8f) return 0f;
+            return (float)(dot / (Math.sqrt(nx) * Math.sqrt(ny)));
+        } catch (Throwable ignored) {
+            return 0f;
+        }
+    }
+
     private boolean isKnowledgeLike(String s) {
         return s.contains("?") ||
             containsAny(s, "what is", "what are", "who is", "who are",
