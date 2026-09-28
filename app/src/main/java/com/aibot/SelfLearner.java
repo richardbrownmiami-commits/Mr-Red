@@ -10,7 +10,7 @@ import java.util.*;
 public class SelfLearner {
 
     private static final String TAG = "SelfLearner";
-    private static final int TRAIN_EPOCHS   = 1;
+    private static final int TRAIN_EPOCHS   = 8;
     private static final int MAX_DATASET_SAMPLES = 600;
     private static final int SAVE_INTERVAL  = 50; // save every N samples
 
@@ -80,6 +80,7 @@ public class SelfLearner {
         // Combine: encode input + output as sequence
         String combined = input + " " + output;
         tokenizer.learnFromText(combined);
+        nn.setActiveVocabSize(tokenizer.getVocabSize());
 
         int[] inputIds  = tokenizer.encode(input,  true, false);
         int[] outputIds = tokenizer.encode(output, false, true);
@@ -141,6 +142,7 @@ public class SelfLearner {
                         // Learn vocabulary
                         tokenizer.learnFromText(sample.input);
                         tokenizer.learnFromText(sample.output);
+                        nn.setActiveVocabSize(tokenizer.getVocabSize());
 
                         // Dataset knowledge feeds the learned model and long-term
                         // memory. Formal NARS inference stays an explicit tool.
@@ -194,6 +196,7 @@ public class SelfLearner {
         new Thread(() -> {
             for (String fact : facts) {
                 tokenizer.learnFromText(fact);
+                nn.setActiveVocabSize(tokenizer.getVocabSize());
                 if (atomSpace != null) atomSpace.learnSentence(fact);
 
                 // Train neural network on facts
