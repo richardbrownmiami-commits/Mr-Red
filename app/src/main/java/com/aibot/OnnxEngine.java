@@ -130,6 +130,9 @@ public class OnnxEngine {
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
         options.setIntraOpNumThreads(1);
         options.setInterOpNumThreads(1);
+        // XNNPACK is included by the Android package and is optimized for
+        // ARM floating-point inference. Keep ORT's own threadpool small.
+        options.addXnnpack(new HashMap<String, String>());
         options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
         options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL);
         return options;
