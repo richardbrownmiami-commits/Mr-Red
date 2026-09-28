@@ -10,7 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:orientation="horizontal"
-        android:background="#121212"
+        android:background="#111318"
         android:gravity="center_vertical"
         android:paddingStart="12dp"
         android:paddingEnd="12dp">
@@ -21,8 +21,9 @@
             android:layout_weight="1"
             android:text="AIBot"
             android:textColor="#ffffff"
-            android:textSize="18sp"
-            android:textStyle="bold"/>
+            android:textSize="19sp"
+            android:textStyle="bold"
+            android:fontFamily="sans"/>
 
         <ImageButton
             android:id="@+id/menuButton"
@@ -38,8 +39,8 @@
         android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#0f0f0f"
-        android:textColor="#8e8e8e"
+        android:background="#0b0d10"
+        android:textColor="#a5abb5"
         android:textSize="11sp"
         android:padding="5dp"
         android:paddingStart="12dp"
@@ -81,8 +82,8 @@
             android:hint="Ask AIBot..."
             android:textColorHint="#6e6e6e"
             android:textColor="#ffffff"
-            android:background="@android:drawable/editbox_background"
-            android:backgroundTint="#1e1e1e"
+            android:background="@drawable/bg_input"
+            android:backgroundTint="#1e2229"
             android:paddingStart="18dp"
             android:paddingEnd="18dp"
             android:paddingTop="14dp"
@@ -97,7 +98,7 @@
             android:layout_height="44dp"
             android:layout_marginStart="10dp"
             android:src="@android:drawable/ic_menu_send"
-            android:background="@android:drawable/btn_default"
+            android:background="@drawable/bg_send"
             android:backgroundTint="#ffffff"
             android:tint="#000000"
             android:padding="10dp"/>
