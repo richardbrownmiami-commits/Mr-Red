@@ -71,6 +71,14 @@ public class ToolRouter {
 
         boolean semantic = onnx != null && onnx.isSemanticModelLoaded();
 
+        // For ambiguous knowledge requests, use the embedded ONNX encoder as
+        // a lightweight semantic signal. It does not generate the answer.
+        if (semantic && !web && !reasoning && !memory && isKnowledgeLike(s)) {
+            float currentScore = semanticSimilarity(q,
+                "latest current news today recent update what happened now");
+            if (currentScore >= 0.62f) web = true;
+        }
+
         // Semantic retrieval is useful for ordinary knowledge and memory
         // matching, but it does not force a web search or a reasoning tool.
         if (semantic && (memory || isKnowledgeLike(s))) {
