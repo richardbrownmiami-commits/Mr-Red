@@ -22,7 +22,8 @@ public class NeuralNetwork {
     public static final int MAX_SEQ_LEN   = 128;
     public static final float LEARN_RATE  = 0.0005f;
     private static final int MEMORY_DIM = 64;
-    private static final int TOP_K = 40;
+    private static final int TOP_K = 24;
+    private int activeVocabSize = VOCAB_SIZE;
     float[][] contextIn;
     float[][] contextOut;
 
@@ -44,6 +45,13 @@ public class NeuralNetwork {
     float[][] ln2_gamma, ln2_beta;
 
     private Random rng = new Random(42);
+
+    /** Set the number of vocabulary rows that are actually trained/generated. */
+    public void setActiveVocabSize(int size) {
+        activeVocabSize = Math.max(5, Math.min(VOCAB_SIZE, size));
+    }
+
+    public int getActiveVocabSize() { return activeVocabSize; }
     private boolean isInitialized = false;
 
     public NeuralNetwork() {
@@ -115,7 +123,8 @@ public class NeuralNetwork {
         float[] lastHidden = x[seqLen - 1];
         float[] memoryState = buildMemoryState(inputTokens, seqLen);
         float[] logits = new float[VOCAB_SIZE];
-        for (int v = 0; v < VOCAB_SIZE; v++) {
+        java.util.Arrays.fill(logits, -1.0e9f);
+        for (int v = 0; v < activeVocabSize; v++) {
             float sum = bout[v];
             for (int d = 0; d < EMBED_DIM; d++) sum += lastHidden[d] * Wout[d][v];
             float mem = 0f;
@@ -273,13 +282,18 @@ public class NeuralNetwork {
     // Generate next token using temperature + top-k sampling.
     public int generateNextToken(int[] inputTokens, float temperature) {
         float[] logits = forward(inputTokens);
+        // Never generate structural tokens as normal conversation words.
+        logits[Tokenizer.PAD_TOKEN] = -1.0e9f;
+        logits[Tokenizer.BOS_TOKEN] = -1.0e9f;
+        logits[Tokenizer.SEP_TOKEN] = -1.0e9f;
         if (temperature <= 0f) temperature = 0.8f;
         int k = Math.min(TOP_K, logits.length);
         int[] top = new int[k];
         float[] topValues = new float[k];
         java.util.Arrays.fill(top, -1);
         java.util.Arrays.fill(topValues, Float.NEGATIVE_INFINITY);
-        for (int i = 0; i < logits.length; i++) {
+        for (int i = 0; i < activeVocabSize; i++) {
+            if (i == Tokenizer.PAD_TOKEN || i == Tokenizer.BOS_TOKEN || i == Tokenizer.SEP_TOKEN) continue;
             float value = logits[i] / temperature;
             for (int p = 0; p < k; p++) {
                 if (value > topValues[p]) {
@@ -324,7 +338,7 @@ public class NeuralNetwork {
         float[] logits = forward(inputTokens);
 
         // Cross entropy loss
-        float[] probs = softmax(logits, logits.length);
+        float[] probs = softmax(logits, activeVocabSize);
         float loss = -(float) Math.log(Math.max(probs[targetToken], 1e-10f));
 
         // Gradient of loss w.r.t. logits
@@ -336,7 +350,7 @@ public class NeuralNetwork {
         float[] dMemory = new float[MEMORY_DIM];
         for (int d = 0; d < MEMORY_DIM; d++) {
             float g = 0f;
-            for (int v = 0; v < VOCAB_SIZE; v++) {
+            for (int v = 0; v < activeVocabSize; v++) {
                 g += dLogits[v] * contextOut[d][v] * 0.35f;
                 contextOut[d][v] -= LEARN_RATE * 0.35f * dLogits[v] * memoryState[d];
             }
@@ -360,7 +374,7 @@ public class NeuralNetwork {
         float[][] x = getHiddenState(inputTokens, seqLen);
         float[] lastHidden = x[seqLen - 1];
 
-        for (int v = 0; v < VOCAB_SIZE; v++) {
+        for (int v = 0; v < activeVocabSize; v++) {
             bout[v] -= LEARN_RATE * dLogits[v];
             for (int d = 0; d < EMBED_DIM; d++) {
                 Wout[d][v] -= LEARN_RATE * dLogits[v] * lastHidden[d];
@@ -370,7 +384,7 @@ public class NeuralNetwork {
         // Update embeddings for input tokens
         float[] dHidden = new float[EMBED_DIM];
         for (int d = 0; d < EMBED_DIM; d++) {
-            for (int v = 0; v < VOCAB_SIZE; v++) {
+            for (int v = 0; v < activeVocabSize; v++) {
                 dHidden[d] += dLogits[v] * Wout[d][v];
             }
         }
