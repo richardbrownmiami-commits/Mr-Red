@@ -10,7 +10,7 @@ import java.util.*;
 public class SelfLearner {
 
     private static final String TAG = "SelfLearner";
-    private static final int TRAIN_EPOCHS   = 8;
+    private static final int TRAIN_EPOCHS   = 4;
     private static final int MAX_DATASET_SAMPLES = 600;
     private static final int SAVE_INTERVAL  = 50; // save every N samples
 
