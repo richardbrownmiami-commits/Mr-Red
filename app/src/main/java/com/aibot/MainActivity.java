@@ -448,7 +448,15 @@ public class MainActivity extends AppCompatActivity {
         try {
             trace("TURN input: " + input);
 
-            String memoryAnswer = cognitiveMemory != null ? cognitiveMemory.answerMemoryQuestion(input) : null;
+            ToolRouter.Decision decision = toolRouter != null
+                ? toolRouter.decide(input)
+                : new ToolRouter(null).decide(input);
+            trace("ROUTER " + decision.summary());
+
+            String memoryAnswer = null;
+            if (decision.memory && cognitiveMemory != null) {
+                memoryAnswer = cognitiveMemory.answerMemoryQuestion(input);
+            }
             if (memoryAnswer != null) {
                 trace("MEMORY DIRECT ANSWER");
                 return memoryAnswer;
@@ -484,15 +492,59 @@ public class MainActivity extends AppCompatActivity {
                 lower.contains("how can you help") ||
                 lower.contains("what are your capabilities")) {
                 trace("CAPABILITY HANDLER");
-                return "I can chat with you, remember conversation, research the web, " +
-                       "use my embedded knowledge and reasoning systems, and control supported phone functions.";
+                return "I can chat, remember relevant conversation, use semantic knowledge, " +
+                       "research current information, reason when needed, and control supported phone functions.";
             }
 
-            // The neural network is now the normal conversational generator.
-            // Cognitive systems supply context; they do not become the visible answer.
+            // Current/fresh questions go to web first. The neural network then
+            // turns the retrieved evidence into the final natural response.
+            if (decision.web) {
+                setStatus("Researching " + topic);
+                trace("WEB ROUTE");
+                List<WebSearch.SearchResult> results = webSearch.search(input);
+                if (!results.isEmpty()) {
+                    String evidence = webSearch.summarizeResults(results);
+                    selfLearner.learnFromWebResults(webSearch.extractFacts(results));
+                    for (WebSearch.SearchResult x : results) {
+                        if (nars != null) nars.parseAndLearn(x.snippet);
+                        if (openCog != null) openCog.learn(x.snippet);
+                    }
+
+                    String nnWeb = generateFromNNWithContext(
+                        input, "Current web evidence:\n" + evidence);
+                    if (isUsableNeuralResponse(nnWeb, input)) {
+                        trace("WEB EVIDENCE -> NN");
+                        return convManager.buildNaturalResponse(
+                            personalityEngine.styleResponse(
+                                nnWeb, input, emotionSystem.getMood()),
+                            topic, true, false);
+                    }
+                    trace("WEB NN FALLBACK");
+                    return evidence;
+                }
+                trace("WEB EMPTY");
+            }
+
+            // Only retrieve the cognitive systems selected by the router.
             String cognitive = cognitiveContext != null
-                ? cognitiveContext.retrieve(input) : "";
+                ? cognitiveContext.retrieve(
+                    input,
+                    decision.memory,
+                    decision.semantic,
+                    decision.reasoning,
+                    decision.device)
+                : "";
             trace("COGNITIVE CONTEXT chars=" + cognitive.length());
+
+            if (decision.reasoning) {
+                String reasoning = narsTool != null
+                    ? narsTool.execute(input) : "";
+                if (reasoning != null && !reasoning.startsWith("NARS could not")) {
+                    cognitive = cognitive + (cognitive.isEmpty() ? "" : "\n") +
+                        "Explicit reasoning result:\n" + reasoning;
+                    trace("NARS ROUTE");
+                }
+            }
 
             String nnR = generateFromNNWithContext(input, cognitive);
             if (isUsableNeuralResponse(nnR, input)) {
@@ -500,28 +552,14 @@ public class MainActivity extends AppCompatActivity {
                 return convManager.buildNaturalResponse(
                     personalityEngine.styleResponse(
                         nnR, input, emotionSystem.getMood()),
-                    topic, true, !convManager.isKnowledgeQuestion(input));
+                    topic, true, !decision.web);
             }
 
-            trace("NN RESPONSE rejected: " + (nnR == null ? "null" : ("chars=" + nnR.length())));
-            
-            // Knowledge questions may use web research when the local neural
-            // answer is not reliable. Ordinary chat does not web-search.
-            if (convManager.isKnowledgeQuestion(input)) {
-                setStatus("Researching " + topic);
-                trace("WEB FALLBACK for knowledge question");
-                List<WebSearch.SearchResult> results = webSearch.search(input);
-                if (!results.isEmpty()) {
-                    String summary = webSearch.summarizeResults(results);
-                    selfLearner.learnFromWebResults(webSearch.extractFacts(results));
-                    for (WebSearch.SearchResult x : results) {
-                        nars.parseAndLearn(x.snippet);
-                        if (openCog != null) openCog.learn(x.snippet);
-                    }
-                    return summary;
-                }
-            }
+            trace("NN RESPONSE rejected: " +
+                (nnR == null ? "null" : ("chars=" + nnR.length())));
 
+            // Do not web-search ordinary conversation. The template is only a
+            // last-resort safety fallback when the custom NN has no usable text.
             trace("TEMPLATE FALLBACK");
             return convManager.buildCasualResponse(input);
         } catch (Exception e) {
