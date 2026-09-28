@@ -78,3 +78,7 @@ The Java neural network can be exported with export_to_onnx.py. The exporter now
 - normal non-debuggable APK only
 
 ONNX Runtime officially supports Android ARM32v7; model size and runtime cost still depend on the selected ONNX model.
+
+
+## Neural diagnostics
+Open the three-dot menu and choose **Neural Trace** after sending a message. It shows whether the custom neural network actually ran, prompt/context token counts, generated token count, timing, and why a fallback was used.
