@@ -38,10 +38,20 @@ public class WeightManager {
     public void loadAll() {
         try {
             File model = new File(baseDir, "model.bin");
-            if (model.exists() && nn != null) nn.loadWeights(model);
+            if (model.exists() && nn != null) {
+                try {
+                    nn.loadWeights(model);
+                } catch (Exception incompatible) {
+                    Log.w("WeightManager", "Old/incompatible model; rebuilding", incompatible);
+                    model.delete();
+                }
+            }
 
             File vocab = new File(baseDir, "vocab.txt");
-            if (vocab.exists() && tokenizer != null) tokenizer.loadVocab(vocab);
+            if (vocab.exists() && tokenizer != null) {
+                tokenizer.loadVocab(vocab);
+                if (nn != null) nn.setActiveVocabSize(tokenizer.getVocabSize());
+            }
 
             File bel = new File(baseDir, "beliefs.bin");
             if (bel.exists() && nars != null) nars.loadBeliefs(bel);
