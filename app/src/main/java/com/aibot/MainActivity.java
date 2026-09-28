@@ -57,6 +57,7 @@ public class MainActivity extends AppCompatActivity {
     private OpenCogBridge openCog;
     private OnaEngine onaEngine;
     private CognitiveContext cognitiveContext;
+    private ToolRouter toolRouter;
     private HuggingFaceHub huggingFaceHub;
     private final StringBuilder neuralTrace = new StringBuilder();
     private static final int TRACE_MAX = 12000;
@@ -143,6 +144,11 @@ public class MainActivity extends AppCompatActivity {
                 datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
                 copyBundledDatasetIfMissing();
                 onnxEngine = new OnnxEngine(MainActivity.this, weightManager);
+                // Activate the bundled quantized MiniLM encoder once at startup.
+                // It is used for semantic routing/retrieval, never as the chat generator.
+                boolean onnxReady = onnxEngine.activateEmbeddedSemanticModel();
+                trace("ONNX semantic model " + (onnxReady ? "READY" : "UNAVAILABLE"));
+                toolRouter = new ToolRouter(onnxEngine);
                 personalityEngine = new PersonalityEngine(onnxEngine, tokenizer);
                 emotionSystem = new EmotionSystem();
                 userMemory = new UserMemory(MainActivity.this);
