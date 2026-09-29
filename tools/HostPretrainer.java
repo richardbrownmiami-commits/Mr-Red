@@ -24,9 +24,9 @@ public final class HostPretrainer {
     }
     private static void addAll(Tokenizer t,List<String[]> rows){ for(String[] r:rows){t.learnFromText(r[0]);t.learnFromText(r[1]);} }
     public static void main(String[] args) throws Exception {
-        if(args.length<3) throw new IllegalArgumentException("usage: HostPretrainer <outDir> <corpus1> <corpus2>");
+        if(args.length<2) throw new IllegalArgumentException("usage: HostPretrainer <outDir> <corpus...>");
         Path out=Paths.get(args[0]); Files.createDirectories(out);
-        List<String[]> rows=new ArrayList<>(); rows.addAll(load(Paths.get(args[1]))); rows.addAll(load(Paths.get(args[2])));
+        List<String[]> rows=new ArrayList<>(); for(int i=1;i<args.length;i++) rows.addAll(load(Paths.get(args[i])));
         if(rows.isEmpty()) throw new IllegalStateException("No training samples");
         if(rows.size()>MAX_SAMPLES) rows=new ArrayList<>(rows.subList(0,MAX_SAMPLES));
         Tokenizer tok=new Tokenizer(); addAll(tok,rows);
