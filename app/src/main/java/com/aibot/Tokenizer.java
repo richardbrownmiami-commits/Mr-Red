@@ -301,22 +301,32 @@ public class Tokenizer {
     }
 
     public void loadVocab(File file) throws IOException {
-        wordToId.clear();
-        idToWord.clear();
-        nextId = 0;
-
-        BufferedReader br = new BufferedReader(new FileReader(file));
-        String line;
-        while ((line = br.readLine()) != null) {
-            String[] parts = line.split("\t", 2);
-            if (parts.length == 2) {
-                int id   = Integer.parseInt(parts[0].trim());
+        Map<String,Integer> loadedWords = new LinkedHashMap<>();
+        Map<Integer,String> loadedIds = new LinkedHashMap<>();
+        int loadedNext = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split("\\t", 2);
+                if (parts.length != 2) continue;
+                int id = Integer.parseInt(parts[0].trim());
                 String w = parts[1].trim();
-                wordToId.put(w, id);
-                idToWord.put(id, w);
-                nextId = Math.max(nextId, id + 1);
+                if (id < 0 || id >= NeuralNetwork.VOCAB_SIZE || w.isEmpty()) continue;
+                loadedWords.put(w, id);
+                loadedIds.put(id, w);
+                loadedNext = Math.max(loadedNext, id + 1);
             }
         }
-        br.close();
-    }
-}
+        if (!"<PAD>".equals(loadedIds.get(PAD_TOKEN)) ||
+            !"<UNK>".equals(loadedIds.get(UNK_TOKEN)) ||
+            !"<BOS>".equals(loadedIds.get(BOS_TOKEN)) ||
+            !"<EOS>".equals(loadedIds.get(EOS_TOKEN)) ||
+            !"<SEP>".equals(loadedIds.get(SEP_TOKEN))) {
+            throw new IOException("Vocabulary missing required special tokens");
+        }
+        wordToId.clear();
+        idToWord.clear();
+        wordToId.putAll(loadedWords);
+        idToWord.putAll(loadedIds);
+        nextId = Math.max(5, loadedNext);
+    }}
