@@ -69,7 +69,7 @@ public class ToolRouter {
             "weather", "stock price", "price today", "live score",
             "breaking", "update on", "what happened today", "who won today");
 
-        boolean semantic = onnx != null && onnx.isSemanticModelLoaded();
+        boolean semantic = onnx != null && onnx.isSemanticModelAvailable();
 
         // For ambiguous knowledge requests, use the embedded ONNX encoder as
         // a lightweight semantic signal. It does not generate the answer.
