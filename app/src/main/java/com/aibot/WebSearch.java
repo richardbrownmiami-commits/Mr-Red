@@ -6,7 +6,13 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URLEncoder;
+import java.net.URL;
 import java.util.*;
+import org.json.JSONObject;
 
 /**
  * Web Search using DuckDuckGo (no API key needed)
@@ -16,7 +22,7 @@ public class WebSearch {
 
     private static final String TAG = "WebSearch";
     private static final String DDG_URL = "https://html.duckduckgo.com/html/?q=";
-    private static final int TIMEOUT_MS = 8000;
+    private static final int TIMEOUT_MS = 6000;
     private static final int MAX_RESULTS = 5;
 
     public interface SearchCallback {
@@ -39,6 +45,40 @@ public class WebSearch {
         public String toString() {
             return title + ": " + snippet;
         }
+    }
+
+    /** Lightweight factual lookup. Avoids HTML parsing for simple "what is" questions. */
+    public List<SearchResult> searchKnowledge(String query) {
+        List<SearchResult> out = new ArrayList<>();
+        String topic = query == null ? "" : query.trim();
+        String low = topic.toLowerCase(Locale.US);
+        String[] prefixes = {"what is ", "what are ", "define ", "tell me about ", "explain ", "meaning of "};
+        for (String p : prefixes) if (low.startsWith(p)) { topic = topic.substring(p.length()).trim(); break; }
+        if (topic.isEmpty()) return out;
+        HttpURLConnection conn = null;
+        try {
+            String path = URLEncoder.encode(topic.replace(' ', '_'), "UTF-8").replace("+", "%20");
+            URL u = new URL("https://en.wikipedia.org/api/rest_v1/page/summary/" + path);
+            conn = (HttpURLConnection) u.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
+            conn.setRequestProperty("User-Agent", "Mr-Red-Android/1.0");
+            if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) return out;
+            BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+            StringBuilder body = new StringBuilder(); String line;
+            while ((line = br.readLine()) != null && body.length() < 200000) body.append(line);
+            br.close();
+            JSONObject json = new JSONObject(body.toString());
+            String extract = json.optString("extract", "").trim();
+            if (!extract.isEmpty()) {
+                String page = json.optString("content_urls", "");
+                out.add(new SearchResult(json.optString("title", topic), extract, page));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Knowledge lookup failed: " + e.getMessage());
+        } finally { if (conn != null) conn.disconnect(); }
+        return out;
     }
 
     // ─── SYNC SEARCH ──────────────────────────────────────────────────────────
