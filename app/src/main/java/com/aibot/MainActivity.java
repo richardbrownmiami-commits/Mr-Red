@@ -73,8 +73,8 @@ public class MainActivity extends AppCompatActivity {
     private List<ChatMessage> messages = new ArrayList<>();
     private Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private static final int THINK_MIN = 100;
-    private static final int THINK_MAX = 250;
+    private static final int THINK_MIN = 40;
+    private static final int THINK_MAX = 100;
     private static final String TAG = "MainActivity";
     private static final int ONNX_IMPORT_REQUEST = 7001;
 
@@ -610,8 +610,8 @@ public class MainActivity extends AppCompatActivity {
 
             StringBuilder sb = new StringBuilder();
             int[] cur = prompt;
-            for (int i = 0; i < 18; i++) {
-                int next = nn.generateNextToken(cur, 0.72f);
+            for (int i = 0; i < 12; i++) {
+                int next = nn.generateNextToken(cur, 0.0f);
                 if (next == Tokenizer.EOS_TOKEN || next == Tokenizer.PAD_TOKEN) break;
                 String w = tokenizer.decodeToken(next);
                 if (w == null || w.startsWith("<")) break;
@@ -688,7 +688,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (selfLearner == null || datasetLoader == null) return;
             android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
-            if (p.getBoolean("core_trained_v4", false)) return;
+            if (p.getBoolean("core_trained_v5", false)) return;
 
             File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
             if (!core.exists()) copyBundledDatasetIfMissing();
