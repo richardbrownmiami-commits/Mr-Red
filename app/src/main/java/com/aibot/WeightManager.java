@@ -103,8 +103,13 @@ public class WeightManager {
     }
 
     private void replaceAtomically(File tmp, File destination) throws IOException {
-        if (destination.exists() && !destination.delete()) throw new IOException("Cannot replace " + destination.getName());
-        if (!tmp.renameTo(destination)) throw new IOException("Cannot finalize " + destination.getName());
+        File backup = new File(destination.getParentFile(), destination.getName() + ".bak");
+        if (backup.exists()) backup.delete();
+        boolean hadOld = destination.exists();
+        if (hadOld && !destination.renameTo(backup)) throw new IOException("Cannot protect old " + destination.getName());
+        if (tmp.renameTo(destination)) { if (backup.exists()) backup.delete(); return; }
+        if (hadOld) backup.renameTo(destination);
+        throw new IOException("Cannot finalize " + destination.getName());
     }
 
     public void appendHistory(String input, String response) {
