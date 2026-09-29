@@ -651,11 +651,18 @@ public class MainActivity extends AppCompatActivity {
         try {
             setStatus("Researching");
             if (webSearch != null) {
+                List<WebSearch.SearchResult> direct = webSearch.searchKnowledge(input);
+                trace("KNOWLEDGE DIRECT results=" + direct.size());
+                if (!direct.isEmpty()) {
+                    String evidence = webSearch.summarizeResults(direct);
+                    trace("KNOWLEDGE DIRECT -> ANSWER (NO NN)");
+                    return evidence;
+                }
                 List<WebSearch.SearchResult> results = webSearch.search(input);
-                trace("KNOWLEDGE WEB results=" + results.size());
+                trace("KNOWLEDGE WEB FALLBACK results=" + results.size());
                 if (!results.isEmpty()) {
                     String evidence = webSearch.summarizeResults(results);
-                    trace("PHASE1 KNOWLEDGE -> WEB EVIDENCE -> DIRECT (NO NN)");
+                    trace("KNOWLEDGE WEB FALLBACK -> ANSWER (NO NN)");
                     return evidence;
                 }
             }
