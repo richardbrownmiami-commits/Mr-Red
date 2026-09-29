@@ -551,7 +551,23 @@ public class MainActivity extends AppCompatActivity {
                             webError.getClass().getSimpleName() + ": " + webError.getMessage());
                 }
 
-                // Never send an unanswered factual question to the Transformer.
+                // Web failed or returned nothing. Try local cognitive knowledge
+                // without invoking the neural generator.
+                try {
+                    String local = cognitiveContext != null
+                        ? cognitiveContext.retrieve(input, true, true, true, false)
+                        : "";
+                    if (local != null && !local.trim().isEmpty()) {
+                        trace("FACTUAL ROUTE -> LOCAL COGNITIVE -> DIRECT (NO NN)");
+                        return local;
+                    }
+                } catch (Exception localError) {
+                    trace("FACTUAL ROUTE -> LOCAL ERROR (NO NN): " +
+                            localError.getClass().getSimpleName() + ": " + localError.getMessage());
+                }
+
+                // Final factual safety boundary. Never feed an unanswered
+                // knowledge question into the custom Transformer.
                 trace("FACTUAL ROUTE -> SAFE FALLBACK (NO NN)");
                 return "I couldn't retrieve reliable information about " + topic +
                         " right now. I won't guess.";
