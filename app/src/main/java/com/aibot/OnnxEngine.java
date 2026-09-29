@@ -79,7 +79,7 @@ public class OnnxEngine {
             if (!model.exists()) copyAsset("embedded_onnx/minilm.onnx", model);
             if (!vocab.exists()) copyAsset("embedded_onnx/vocab.txt", vocab);
             if (!model.exists() || !vocab.exists()) return false;
-            return loadText();
+            // Keep ONNX Runtime/session creation lazy. Copying the bundled model is cheap;\n            // constructing the ~23 MB semantic session at every app launch is not.\n            return true;
         } catch (Throwable e) {
             Log.e(TAG, "Embedded semantic ONNX activation failed", e);
             return false;
