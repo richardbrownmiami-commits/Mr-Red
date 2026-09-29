@@ -110,3 +110,535 @@
 {"input":"can you reason every time","output":"No. Formal reasoning should be used when the request needs it, not forced into every casual conversation."}
 {"input":"can you remember this conversation","output":"Important exchanges can be saved in persistent conversation memory and retrieved later by similarity."}
 {"input":"what is your goal","output":"Be useful, communicate naturally, preserve useful context, and choose the appropriate local or external tool for the task."}
+{"input":"what is gravity","output":"Gravity is the interaction that attracts masses toward one another."}
+{"input":"explain gravity simply","output":"Gravity is the interaction that attracts masses toward one another."}
+{"input":"why is gravity useful","output":"Gravity is the interaction that attracts masses toward one another. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about gravity","output":"Gravity is the interaction that attracts masses toward one another. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about gravity","output":"Gravity is the interaction that attracts masses toward one another. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving gravity","output":"For example, a user can ask about gravity, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is energy","output":"Energy is the capacity of a system to cause change or perform work."}
+{"input":"explain energy simply","output":"Energy is the capacity of a system to cause change or perform work."}
+{"input":"why is energy useful","output":"Energy is the capacity of a system to cause change or perform work. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about energy","output":"Energy is the capacity of a system to cause change or perform work. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about energy","output":"Energy is the capacity of a system to cause change or perform work. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving energy","output":"For example, a user can ask about energy, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is matter","output":"Matter is physical substance that has mass and occupies space."}
+{"input":"explain matter simply","output":"Matter is physical substance that has mass and occupies space."}
+{"input":"why is matter useful","output":"Matter is physical substance that has mass and occupies space. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about matter","output":"Matter is physical substance that has mass and occupies space. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about matter","output":"Matter is physical substance that has mass and occupies space. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving matter","output":"For example, a user can ask about matter, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is light","output":"Light is electromagnetic radiation that can be detected by the human eye."}
+{"input":"explain light simply","output":"Light is electromagnetic radiation that can be detected by the human eye."}
+{"input":"why is light useful","output":"Light is electromagnetic radiation that can be detected by the human eye. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about light","output":"Light is electromagnetic radiation that can be detected by the human eye. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about light","output":"Light is electromagnetic radiation that can be detected by the human eye. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving light","output":"For example, a user can ask about light, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is sound","output":"Sound is a mechanical wave produced by vibrations traveling through a medium."}
+{"input":"explain sound simply","output":"Sound is a mechanical wave produced by vibrations traveling through a medium."}
+{"input":"why is sound useful","output":"Sound is a mechanical wave produced by vibrations traveling through a medium. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about sound","output":"Sound is a mechanical wave produced by vibrations traveling through a medium. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about sound","output":"Sound is a mechanical wave produced by vibrations traveling through a medium. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving sound","output":"For example, a user can ask about sound, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is electricity","output":"Electricity concerns electric charge, electric fields, and the movement of charge."}
+{"input":"explain electricity simply","output":"Electricity concerns electric charge, electric fields, and the movement of charge."}
+{"input":"why is electricity useful","output":"Electricity concerns electric charge, electric fields, and the movement of charge. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about electricity","output":"Electricity concerns electric charge, electric fields, and the movement of charge. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about electricity","output":"Electricity concerns electric charge, electric fields, and the movement of charge. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving electricity","output":"For example, a user can ask about electricity, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is magnetism","output":"Magnetism is a physical phenomenon associated with moving charge and magnetic fields."}
+{"input":"explain magnetism simply","output":"Magnetism is a physical phenomenon associated with moving charge and magnetic fields."}
+{"input":"why is magnetism useful","output":"Magnetism is a physical phenomenon associated with moving charge and magnetic fields. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about magnetism","output":"Magnetism is a physical phenomenon associated with moving charge and magnetic fields. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about magnetism","output":"Magnetism is a physical phenomenon associated with moving charge and magnetic fields. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving magnetism","output":"For example, a user can ask about magnetism, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is atoms","output":"Atoms are units of matter made of a nucleus and surrounding electrons."}
+{"input":"explain atoms simply","output":"Atoms are units of matter made of a nucleus and surrounding electrons."}
+{"input":"why is atoms useful","output":"Atoms are units of matter made of a nucleus and surrounding electrons. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about atoms","output":"Atoms are units of matter made of a nucleus and surrounding electrons. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about atoms","output":"Atoms are units of matter made of a nucleus and surrounding electrons. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving atoms","output":"For example, a user can ask about atoms, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is molecules","output":"Molecules are groups of atoms held together by chemical bonds."}
+{"input":"explain molecules simply","output":"Molecules are groups of atoms held together by chemical bonds."}
+{"input":"why is molecules useful","output":"Molecules are groups of atoms held together by chemical bonds. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about molecules","output":"Molecules are groups of atoms held together by chemical bonds. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about molecules","output":"Molecules are groups of atoms held together by chemical bonds. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving molecules","output":"For example, a user can ask about molecules, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is cells","output":"Cells are the basic structural and functional units of living organisms."}
+{"input":"explain cells simply","output":"Cells are the basic structural and functional units of living organisms."}
+{"input":"why is cells useful","output":"Cells are the basic structural and functional units of living organisms. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about cells","output":"Cells are the basic structural and functional units of living organisms. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about cells","output":"Cells are the basic structural and functional units of living organisms. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving cells","output":"For example, a user can ask about cells, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is DNA","output":"DNA stores hereditary genetic information in living organisms and many viruses."}
+{"input":"explain DNA simply","output":"DNA stores hereditary genetic information in living organisms and many viruses."}
+{"input":"why is DNA useful","output":"DNA stores hereditary genetic information in living organisms and many viruses. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about DNA","output":"DNA stores hereditary genetic information in living organisms and many viruses. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about DNA","output":"DNA stores hereditary genetic information in living organisms and many viruses. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving DNA","output":"For example, a user can ask about DNA, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is photosynthesis","output":"Photosynthesis uses light energy to help convert carbon dioxide and water into chemical energy."}
+{"input":"explain photosynthesis simply","output":"Photosynthesis uses light energy to help convert carbon dioxide and water into chemical energy."}
+{"input":"why is photosynthesis useful","output":"Photosynthesis uses light energy to help convert carbon dioxide and water into chemical energy. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about photosynthesis","output":"Photosynthesis uses light energy to help convert carbon dioxide and water into chemical energy. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about photosynthesis","output":"Photosynthesis uses light energy to help convert carbon dioxide and water into chemical energy. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving photosynthesis","output":"For example, a user can ask about photosynthesis, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is evolution","output":"Biological evolution is change in inherited characteristics of populations across generations."}
+{"input":"explain evolution simply","output":"Biological evolution is change in inherited characteristics of populations across generations."}
+{"input":"why is evolution useful","output":"Biological evolution is change in inherited characteristics of populations across generations. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about evolution","output":"Biological evolution is change in inherited characteristics of populations across generations. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about evolution","output":"Biological evolution is change in inherited characteristics of populations across generations. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving evolution","output":"For example, a user can ask about evolution, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is ecosystems","output":"An ecosystem contains interacting organisms and their physical environment."}
+{"input":"explain ecosystems simply","output":"An ecosystem contains interacting organisms and their physical environment."}
+{"input":"why is ecosystems useful","output":"An ecosystem contains interacting organisms and their physical environment. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about ecosystems","output":"An ecosystem contains interacting organisms and their physical environment. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about ecosystems","output":"An ecosystem contains interacting organisms and their physical environment. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving ecosystems","output":"For example, a user can ask about ecosystems, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is climate","output":"Climate describes long-term patterns of atmospheric conditions."}
+{"input":"explain climate simply","output":"Climate describes long-term patterns of atmospheric conditions."}
+{"input":"why is climate useful","output":"Climate describes long-term patterns of atmospheric conditions. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about climate","output":"Climate describes long-term patterns of atmospheric conditions. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about climate","output":"Climate describes long-term patterns of atmospheric conditions. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving climate","output":"For example, a user can ask about climate, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is weather","output":"Weather describes short-term atmospheric conditions such as temperature, wind, clouds, and precipitation."}
+{"input":"explain weather simply","output":"Weather describes short-term atmospheric conditions such as temperature, wind, clouds, and precipitation."}
+{"input":"why is weather useful","output":"Weather describes short-term atmospheric conditions such as temperature, wind, clouds, and precipitation. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about weather","output":"Weather describes short-term atmospheric conditions such as temperature, wind, clouds, and precipitation. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about weather","output":"Weather describes short-term atmospheric conditions such as temperature, wind, clouds, and precipitation. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving weather","output":"For example, a user can ask about weather, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is water","output":"Water is H2O, a compound of hydrogen and oxygen that is essential to known life."}
+{"input":"explain water simply","output":"Water is H2O, a compound of hydrogen and oxygen that is essential to known life."}
+{"input":"why is water useful","output":"Water is H2O, a compound of hydrogen and oxygen that is essential to known life. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about water","output":"Water is H2O, a compound of hydrogen and oxygen that is essential to known life. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about water","output":"Water is H2O, a compound of hydrogen and oxygen that is essential to known life. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving water","output":"For example, a user can ask about water, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is the internet","output":"The internet is a global network of interconnected networks that communicate using standard protocols."}
+{"input":"explain the internet simply","output":"The internet is a global network of interconnected networks that communicate using standard protocols."}
+{"input":"why is the internet useful","output":"The internet is a global network of interconnected networks that communicate using standard protocols. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about the internet","output":"The internet is a global network of interconnected networks that communicate using standard protocols. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about the internet","output":"The internet is a global network of interconnected networks that communicate using standard protocols. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving the internet","output":"For example, a user can ask about the internet, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is software","output":"Software is a set of instructions and data used to operate or control computing systems."}
+{"input":"explain software simply","output":"Software is a set of instructions and data used to operate or control computing systems."}
+{"input":"why is software useful","output":"Software is a set of instructions and data used to operate or control computing systems. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about software","output":"Software is a set of instructions and data used to operate or control computing systems. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about software","output":"Software is a set of instructions and data used to operate or control computing systems. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving software","output":"For example, a user can ask about software, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is hardware","output":"Hardware is the physical equipment that makes up a computing device."}
+{"input":"explain hardware simply","output":"Hardware is the physical equipment that makes up a computing device."}
+{"input":"why is hardware useful","output":"Hardware is the physical equipment that makes up a computing device. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about hardware","output":"Hardware is the physical equipment that makes up a computing device. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about hardware","output":"Hardware is the physical equipment that makes up a computing device. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving hardware","output":"For example, a user can ask about hardware, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is Android","output":"Android is a mobile operating system and software platform used by many devices."}
+{"input":"explain Android simply","output":"Android is a mobile operating system and software platform used by many devices."}
+{"input":"why is Android useful","output":"Android is a mobile operating system and software platform used by many devices. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about Android","output":"Android is a mobile operating system and software platform used by many devices. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about Android","output":"Android is a mobile operating system and software platform used by many devices. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving Android","output":"For example, a user can ask about Android, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is databases","output":"Databases organize stored data so it can be searched, updated, and retrieved."}
+{"input":"explain databases simply","output":"Databases organize stored data so it can be searched, updated, and retrieved."}
+{"input":"why is databases useful","output":"Databases organize stored data so it can be searched, updated, and retrieved. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about databases","output":"Databases organize stored data so it can be searched, updated, and retrieved. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about databases","output":"Databases organize stored data so it can be searched, updated, and retrieved. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving databases","output":"For example, a user can ask about databases, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is algorithms","output":"An algorithm is a finite procedure for transforming inputs into outputs to solve a problem."}
+{"input":"explain algorithms simply","output":"An algorithm is a finite procedure for transforming inputs into outputs to solve a problem."}
+{"input":"why is algorithms useful","output":"An algorithm is a finite procedure for transforming inputs into outputs to solve a problem. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about algorithms","output":"An algorithm is a finite procedure for transforming inputs into outputs to solve a problem. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about algorithms","output":"An algorithm is a finite procedure for transforming inputs into outputs to solve a problem. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving algorithms","output":"For example, a user can ask about algorithms, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is machine learning","output":"Machine learning adjusts model parameters from data so a system can perform a task."}
+{"input":"explain machine learning simply","output":"Machine learning adjusts model parameters from data so a system can perform a task."}
+{"input":"why is machine learning useful","output":"Machine learning adjusts model parameters from data so a system can perform a task. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about machine learning","output":"Machine learning adjusts model parameters from data so a system can perform a task. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about machine learning","output":"Machine learning adjusts model parameters from data so a system can perform a task. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving machine learning","output":"For example, a user can ask about machine learning, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is neural networks","output":"Neural networks use connected numerical transformations with learned parameters."}
+{"input":"explain neural networks simply","output":"Neural networks use connected numerical transformations with learned parameters."}
+{"input":"why is neural networks useful","output":"Neural networks use connected numerical transformations with learned parameters. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about neural networks","output":"Neural networks use connected numerical transformations with learned parameters. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about neural networks","output":"Neural networks use connected numerical transformations with learned parameters. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving neural networks","output":"For example, a user can ask about neural networks, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is Transformers","output":"Transformers use attention mechanisms to model relationships among tokens."}
+{"input":"explain Transformers simply","output":"Transformers use attention mechanisms to model relationships among tokens."}
+{"input":"why is Transformers useful","output":"Transformers use attention mechanisms to model relationships among tokens. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about Transformers","output":"Transformers use attention mechanisms to model relationships among tokens. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about Transformers","output":"Transformers use attention mechanisms to model relationships among tokens. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving Transformers","output":"For example, a user can ask about Transformers, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is attention","output":"Attention assigns different weights to parts of an input when computing a representation."}
+{"input":"explain attention simply","output":"Attention assigns different weights to parts of an input when computing a representation."}
+{"input":"why is attention useful","output":"Attention assigns different weights to parts of an input when computing a representation. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about attention","output":"Attention assigns different weights to parts of an input when computing a representation. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about attention","output":"Attention assigns different weights to parts of an input when computing a representation. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving attention","output":"For example, a user can ask about attention, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is tokenization","output":"Tokenization converts text into units that a model can represent numerically."}
+{"input":"explain tokenization simply","output":"Tokenization converts text into units that a model can represent numerically."}
+{"input":"why is tokenization useful","output":"Tokenization converts text into units that a model can represent numerically. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about tokenization","output":"Tokenization converts text into units that a model can represent numerically. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about tokenization","output":"Tokenization converts text into units that a model can represent numerically. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving tokenization","output":"For example, a user can ask about tokenization, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is memory","output":"Memory stores information so it can be retrieved later and used as context."}
+{"input":"explain memory simply","output":"Memory stores information so it can be retrieved later and used as context."}
+{"input":"why is memory useful","output":"Memory stores information so it can be retrieved later and used as context. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about memory","output":"Memory stores information so it can be retrieved later and used as context. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about memory","output":"Memory stores information so it can be retrieved later and used as context. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving memory","output":"For example, a user can ask about memory, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is reasoning","output":"Reasoning derives conclusions from information, rules, observations, or assumptions."}
+{"input":"explain reasoning simply","output":"Reasoning derives conclusions from information, rules, observations, or assumptions."}
+{"input":"why is reasoning useful","output":"Reasoning derives conclusions from information, rules, observations, or assumptions. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about reasoning","output":"Reasoning derives conclusions from information, rules, observations, or assumptions. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about reasoning","output":"Reasoning derives conclusions from information, rules, observations, or assumptions. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving reasoning","output":"For example, a user can ask about reasoning, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is logic","output":"Logic studies valid relationships between statements and inferences."}
+{"input":"explain logic simply","output":"Logic studies valid relationships between statements and inferences."}
+{"input":"why is logic useful","output":"Logic studies valid relationships between statements and inferences. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about logic","output":"Logic studies valid relationships between statements and inferences. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about logic","output":"Logic studies valid relationships between statements and inferences. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving logic","output":"For example, a user can ask about logic, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is evidence","output":"Evidence is information used to support or challenge a claim."}
+{"input":"explain evidence simply","output":"Evidence is information used to support or challenge a claim."}
+{"input":"why is evidence useful","output":"Evidence is information used to support or challenge a claim. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about evidence","output":"Evidence is information used to support or challenge a claim. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about evidence","output":"Evidence is information used to support or challenge a claim. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving evidence","output":"For example, a user can ask about evidence, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is uncertainty","output":"Uncertainty means that available information does not determine one definite conclusion."}
+{"input":"explain uncertainty simply","output":"Uncertainty means that available information does not determine one definite conclusion."}
+{"input":"why is uncertainty useful","output":"Uncertainty means that available information does not determine one definite conclusion. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about uncertainty","output":"Uncertainty means that available information does not determine one definite conclusion. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about uncertainty","output":"Uncertainty means that available information does not determine one definite conclusion. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving uncertainty","output":"For example, a user can ask about uncertainty, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is NARS","output":"NARS is a non-axiomatic reasoning approach designed to reason with insufficient knowledge and resources."}
+{"input":"explain NARS simply","output":"NARS is a non-axiomatic reasoning approach designed to reason with insufficient knowledge and resources."}
+{"input":"why is NARS useful","output":"NARS is a non-axiomatic reasoning approach designed to reason with insufficient knowledge and resources. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about NARS","output":"NARS is a non-axiomatic reasoning approach designed to reason with insufficient knowledge and resources. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about NARS","output":"NARS is a non-axiomatic reasoning approach designed to reason with insufficient knowledge and resources. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving NARS","output":"For example, a user can ask about NARS, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is OpenCog","output":"OpenCog is a project centered on symbolic knowledge representation and reasoning."}
+{"input":"explain OpenCog simply","output":"OpenCog is a project centered on symbolic knowledge representation and reasoning."}
+{"input":"why is OpenCog useful","output":"OpenCog is a project centered on symbolic knowledge representation and reasoning. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about OpenCog","output":"OpenCog is a project centered on symbolic knowledge representation and reasoning. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about OpenCog","output":"OpenCog is a project centered on symbolic knowledge representation and reasoning. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving OpenCog","output":"For example, a user can ask about OpenCog, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is AtomSpace","output":"AtomSpace is a graph-oriented knowledge representation system for structured atoms and relationships."}
+{"input":"explain AtomSpace simply","output":"AtomSpace is a graph-oriented knowledge representation system for structured atoms and relationships."}
+{"input":"why is AtomSpace useful","output":"AtomSpace is a graph-oriented knowledge representation system for structured atoms and relationships. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about AtomSpace","output":"AtomSpace is a graph-oriented knowledge representation system for structured atoms and relationships. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about AtomSpace","output":"AtomSpace is a graph-oriented knowledge representation system for structured atoms and relationships. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving AtomSpace","output":"For example, a user can ask about AtomSpace, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is ONA","output":"ONA means OpenNARS for Applications, a NARS-based reasoning system for application-oriented agents."}
+{"input":"explain ONA simply","output":"ONA means OpenNARS for Applications, a NARS-based reasoning system for application-oriented agents."}
+{"input":"why is ONA useful","output":"ONA means OpenNARS for Applications, a NARS-based reasoning system for application-oriented agents. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about ONA","output":"ONA means OpenNARS for Applications, a NARS-based reasoning system for application-oriented agents. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about ONA","output":"ONA means OpenNARS for Applications, a NARS-based reasoning system for application-oriented agents. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving ONA","output":"For example, a user can ask about ONA, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is web research","output":"Web research retrieves external information so current or specialized questions can be checked."}
+{"input":"explain web research simply","output":"Web research retrieves external information so current or specialized questions can be checked."}
+{"input":"why is web research useful","output":"Web research retrieves external information so current or specialized questions can be checked. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about web research","output":"Web research retrieves external information so current or specialized questions can be checked. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about web research","output":"Web research retrieves external information so current or specialized questions can be checked. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving web research","output":"For example, a user can ask about web research, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is persistent memory","output":"Persistent memory stores selected information beyond a single conversation or process."}
+{"input":"explain persistent memory simply","output":"Persistent memory stores selected information beyond a single conversation or process."}
+{"input":"why is persistent memory useful","output":"Persistent memory stores selected information beyond a single conversation or process. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about persistent memory","output":"Persistent memory stores selected information beyond a single conversation or process. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about persistent memory","output":"Persistent memory stores selected information beyond a single conversation or process. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving persistent memory","output":"For example, a user can ask about persistent memory, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is an Android agent","output":"An Android agent can combine local reasoning with permitted device actions and application tools."}
+{"input":"explain an Android agent simply","output":"An Android agent can combine local reasoning with permitted device actions and application tools."}
+{"input":"why is an Android agent useful","output":"An Android agent can combine local reasoning with permitted device actions and application tools. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about an Android agent","output":"An Android agent can combine local reasoning with permitted device actions and application tools. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about an Android agent","output":"An Android agent can combine local reasoning with permitted device actions and application tools. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving an Android agent","output":"For example, a user can ask about an Android agent, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is privacy","output":"Privacy means limiting unnecessary collection, disclosure, and use of personal information."}
+{"input":"explain privacy simply","output":"Privacy means limiting unnecessary collection, disclosure, and use of personal information."}
+{"input":"why is privacy useful","output":"Privacy means limiting unnecessary collection, disclosure, and use of personal information. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about privacy","output":"Privacy means limiting unnecessary collection, disclosure, and use of personal information. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about privacy","output":"Privacy means limiting unnecessary collection, disclosure, and use of personal information. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving privacy","output":"For example, a user can ask about privacy, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is permissions","output":"Android permissions control access to protected device capabilities and user data."}
+{"input":"explain permissions simply","output":"Android permissions control access to protected device capabilities and user data."}
+{"input":"why is permissions useful","output":"Android permissions control access to protected device capabilities and user data. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about permissions","output":"Android permissions control access to protected device capabilities and user data. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about permissions","output":"Android permissions control access to protected device capabilities and user data. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving permissions","output":"For example, a user can ask about permissions, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is battery","output":"A battery stores electrical energy and supplies power to a device."}
+{"input":"explain battery simply","output":"A battery stores electrical energy and supplies power to a device."}
+{"input":"why is battery useful","output":"A battery stores electrical energy and supplies power to a device. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about battery","output":"A battery stores electrical energy and supplies power to a device. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about battery","output":"A battery stores electrical energy and supplies power to a device. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving battery","output":"For example, a user can ask about battery, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is Wi-Fi","output":"Wi-Fi is a family of wireless networking technologies used to connect devices to networks."}
+{"input":"explain Wi-Fi simply","output":"Wi-Fi is a family of wireless networking technologies used to connect devices to networks."}
+{"input":"why is Wi-Fi useful","output":"Wi-Fi is a family of wireless networking technologies used to connect devices to networks. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about Wi-Fi","output":"Wi-Fi is a family of wireless networking technologies used to connect devices to networks. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about Wi-Fi","output":"Wi-Fi is a family of wireless networking technologies used to connect devices to networks. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving Wi-Fi","output":"For example, a user can ask about Wi-Fi, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is Bluetooth","output":"Bluetooth is a short-range wireless communication technology."}
+{"input":"explain Bluetooth simply","output":"Bluetooth is a short-range wireless communication technology."}
+{"input":"why is Bluetooth useful","output":"Bluetooth is a short-range wireless communication technology. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about Bluetooth","output":"Bluetooth is a short-range wireless communication technology. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about Bluetooth","output":"Bluetooth is a short-range wireless communication technology. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving Bluetooth","output":"For example, a user can ask about Bluetooth, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is GPS","output":"GPS provides location information using signals from navigation satellites."}
+{"input":"explain GPS simply","output":"GPS provides location information using signals from navigation satellites."}
+{"input":"why is GPS useful","output":"GPS provides location information using signals from navigation satellites. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about GPS","output":"GPS provides location information using signals from navigation satellites. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about GPS","output":"GPS provides location information using signals from navigation satellites. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving GPS","output":"For example, a user can ask about GPS, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is cameras","output":"A camera captures images or video by recording light."}
+{"input":"explain cameras simply","output":"A camera captures images or video by recording light."}
+{"input":"why is cameras useful","output":"A camera captures images or video by recording light. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about cameras","output":"A camera captures images or video by recording light. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about cameras","output":"A camera captures images or video by recording light. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving cameras","output":"For example, a user can ask about cameras, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is microphones","output":"A microphone converts sound into an electrical or digital signal."}
+{"input":"explain microphones simply","output":"A microphone converts sound into an electrical or digital signal."}
+{"input":"why is microphones useful","output":"A microphone converts sound into an electrical or digital signal. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about microphones","output":"A microphone converts sound into an electrical or digital signal. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about microphones","output":"A microphone converts sound into an electrical or digital signal. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving microphones","output":"For example, a user can ask about microphones, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is notifications","output":"Notifications provide users with information or actions from an application."}
+{"input":"explain notifications simply","output":"Notifications provide users with information or actions from an application."}
+{"input":"why is notifications useful","output":"Notifications provide users with information or actions from an application. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about notifications","output":"Notifications provide users with information or actions from an application. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about notifications","output":"Notifications provide users with information or actions from an application. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving notifications","output":"For example, a user can ask about notifications, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is files","output":"Files store data in a named structure that software can read or write."}
+{"input":"explain files simply","output":"Files store data in a named structure that software can read or write."}
+{"input":"why is files useful","output":"Files store data in a named structure that software can read or write. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about files","output":"Files store data in a named structure that software can read or write. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about files","output":"Files store data in a named structure that software can read or write. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving files","output":"For example, a user can ask about files, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is JSON","output":"JSON is a text format for representing structured data using objects, arrays, strings, numbers, booleans, and null."}
+{"input":"explain JSON simply","output":"JSON is a text format for representing structured data using objects, arrays, strings, numbers, booleans, and null."}
+{"input":"why is JSON useful","output":"JSON is a text format for representing structured data using objects, arrays, strings, numbers, booleans, and null. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about JSON","output":"JSON is a text format for representing structured data using objects, arrays, strings, numbers, booleans, and null. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about JSON","output":"JSON is a text format for representing structured data using objects, arrays, strings, numbers, booleans, and null. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving JSON","output":"For example, a user can ask about JSON, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is JSONL","output":"JSONL stores one JSON object per line, making it convenient for streaming datasets."}
+{"input":"explain JSONL simply","output":"JSONL stores one JSON object per line, making it convenient for streaming datasets."}
+{"input":"why is JSONL useful","output":"JSONL stores one JSON object per line, making it convenient for streaming datasets. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about JSONL","output":"JSONL stores one JSON object per line, making it convenient for streaming datasets. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about JSONL","output":"JSONL stores one JSON object per line, making it convenient for streaming datasets. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving JSONL","output":"For example, a user can ask about JSONL, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is training","output":"Training adjusts model parameters to reduce error on examples."}
+{"input":"explain training simply","output":"Training adjusts model parameters to reduce error on examples."}
+{"input":"why is training useful","output":"Training adjusts model parameters to reduce error on examples. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about training","output":"Training adjusts model parameters to reduce error on examples. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about training","output":"Training adjusts model parameters to reduce error on examples. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving training","output":"For example, a user can ask about training, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is loss","output":"A loss function measures how far a model's prediction is from a target."}
+{"input":"explain loss simply","output":"A loss function measures how far a model's prediction is from a target."}
+{"input":"why is loss useful","output":"A loss function measures how far a model's prediction is from a target. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about loss","output":"A loss function measures how far a model's prediction is from a target. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about loss","output":"A loss function measures how far a model's prediction is from a target. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving loss","output":"For example, a user can ask about loss, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is gradient descent","output":"Gradient descent updates parameters in a direction that tends to reduce the training loss."}
+{"input":"explain gradient descent simply","output":"Gradient descent updates parameters in a direction that tends to reduce the training loss."}
+{"input":"why is gradient descent useful","output":"Gradient descent updates parameters in a direction that tends to reduce the training loss. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about gradient descent","output":"Gradient descent updates parameters in a direction that tends to reduce the training loss. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about gradient descent","output":"Gradient descent updates parameters in a direction that tends to reduce the training loss. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving gradient descent","output":"For example, a user can ask about gradient descent, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is backpropagation","output":"Backpropagation computes gradients through a neural network so parameters can be updated."}
+{"input":"explain backpropagation simply","output":"Backpropagation computes gradients through a neural network so parameters can be updated."}
+{"input":"why is backpropagation useful","output":"Backpropagation computes gradients through a neural network so parameters can be updated. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about backpropagation","output":"Backpropagation computes gradients through a neural network so parameters can be updated. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about backpropagation","output":"Backpropagation computes gradients through a neural network so parameters can be updated. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving backpropagation","output":"For example, a user can ask about backpropagation, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is embeddings","output":"Embeddings represent discrete items such as words as numerical vectors."}
+{"input":"explain embeddings simply","output":"Embeddings represent discrete items such as words as numerical vectors."}
+{"input":"why is embeddings useful","output":"Embeddings represent discrete items such as words as numerical vectors. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about embeddings","output":"Embeddings represent discrete items such as words as numerical vectors. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about embeddings","output":"Embeddings represent discrete items such as words as numerical vectors. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving embeddings","output":"For example, a user can ask about embeddings, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is vocabulary","output":"A vocabulary maps tokens or words to numeric IDs used by a model."}
+{"input":"explain vocabulary simply","output":"A vocabulary maps tokens or words to numeric IDs used by a model."}
+{"input":"why is vocabulary useful","output":"A vocabulary maps tokens or words to numeric IDs used by a model. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about vocabulary","output":"A vocabulary maps tokens or words to numeric IDs used by a model. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about vocabulary","output":"A vocabulary maps tokens or words to numeric IDs used by a model. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving vocabulary","output":"For example, a user can ask about vocabulary, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is inference","output":"Inference is running a trained model to produce an output from an input."}
+{"input":"explain inference simply","output":"Inference is running a trained model to produce an output from an input."}
+{"input":"why is inference useful","output":"Inference is running a trained model to produce an output from an input. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about inference","output":"Inference is running a trained model to produce an output from an input. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about inference","output":"Inference is running a trained model to produce an output from an input. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving inference","output":"For example, a user can ask about inference, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is decoding","output":"Decoding converts model token IDs back into readable text."}
+{"input":"explain decoding simply","output":"Decoding converts model token IDs back into readable text."}
+{"input":"why is decoding useful","output":"Decoding converts model token IDs back into readable text. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about decoding","output":"Decoding converts model token IDs back into readable text. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about decoding","output":"Decoding converts model token IDs back into readable text. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving decoding","output":"For example, a user can ask about decoding, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is greedy decoding","output":"Greedy decoding chooses the highest-scoring next token at each generation step."}
+{"input":"explain greedy decoding simply","output":"Greedy decoding chooses the highest-scoring next token at each generation step."}
+{"input":"why is greedy decoding useful","output":"Greedy decoding chooses the highest-scoring next token at each generation step. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about greedy decoding","output":"Greedy decoding chooses the highest-scoring next token at each generation step. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about greedy decoding","output":"Greedy decoding chooses the highest-scoring next token at each generation step. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving greedy decoding","output":"For example, a user can ask about greedy decoding, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is temperature","output":"Sampling temperature changes how sharply a probability distribution favors high-scoring tokens."}
+{"input":"explain temperature simply","output":"Sampling temperature changes how sharply a probability distribution favors high-scoring tokens."}
+{"input":"why is temperature useful","output":"Sampling temperature changes how sharply a probability distribution favors high-scoring tokens. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about temperature","output":"Sampling temperature changes how sharply a probability distribution favors high-scoring tokens. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about temperature","output":"Sampling temperature changes how sharply a probability distribution favors high-scoring tokens. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving temperature","output":"For example, a user can ask about temperature, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is top-k sampling","output":"Top-k sampling restricts random selection to the k highest-scoring candidate tokens."}
+{"input":"explain top-k sampling simply","output":"Top-k sampling restricts random selection to the k highest-scoring candidate tokens."}
+{"input":"why is top-k sampling useful","output":"Top-k sampling restricts random selection to the k highest-scoring candidate tokens. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about top-k sampling","output":"Top-k sampling restricts random selection to the k highest-scoring candidate tokens. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about top-k sampling","output":"Top-k sampling restricts random selection to the k highest-scoring candidate tokens. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving top-k sampling","output":"For example, a user can ask about top-k sampling, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is Android 11","output":"Android 11 is an Android platform release that provides APIs and system behavior for compatible devices."}
+{"input":"explain Android 11 simply","output":"Android 11 is an Android platform release that provides APIs and system behavior for compatible devices."}
+{"input":"why is Android 11 useful","output":"Android 11 is an Android platform release that provides APIs and system behavior for compatible devices. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about Android 11","output":"Android 11 is an Android platform release that provides APIs and system behavior for compatible devices. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about Android 11","output":"Android 11 is an Android platform release that provides APIs and system behavior for compatible devices. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving Android 11","output":"For example, a user can ask about Android 11, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is ARMv7a","output":"ARMv7a is a 32-bit ARM architecture used by some older and embedded mobile devices."}
+{"input":"explain ARMv7a simply","output":"ARMv7a is a 32-bit ARM architecture used by some older and embedded mobile devices."}
+{"input":"why is ARMv7a useful","output":"ARMv7a is a 32-bit ARM architecture used by some older and embedded mobile devices. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about ARMv7a","output":"ARMv7a is a 32-bit ARM architecture used by some older and embedded mobile devices. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about ARMv7a","output":"ARMv7a is a 32-bit ARM architecture used by some older and embedded mobile devices. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving ARMv7a","output":"For example, a user can ask about ARMv7a, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is 32-bit","output":"A 32-bit application uses 32-bit native data and instruction conventions where applicable."}
+{"input":"explain 32-bit simply","output":"A 32-bit application uses 32-bit native data and instruction conventions where applicable."}
+{"input":"why is 32-bit useful","output":"A 32-bit application uses 32-bit native data and instruction conventions where applicable. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about 32-bit","output":"A 32-bit application uses 32-bit native data and instruction conventions where applicable. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about 32-bit","output":"A 32-bit application uses 32-bit native data and instruction conventions where applicable. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving 32-bit","output":"For example, a user can ask about 32-bit, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is local AI","output":"A local AI system performs supported computation on the device instead of requiring every operation to be sent to a server."}
+{"input":"explain local AI simply","output":"A local AI system performs supported computation on the device instead of requiring every operation to be sent to a server."}
+{"input":"why is local AI useful","output":"A local AI system performs supported computation on the device instead of requiring every operation to be sent to a server. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about local AI","output":"A local AI system performs supported computation on the device instead of requiring every operation to be sent to a server. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about local AI","output":"A local AI system performs supported computation on the device instead of requiring every operation to be sent to a server. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving local AI","output":"For example, a user can ask about local AI, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is tool routing","output":"Tool routing selects the subsystem that best matches the user's request."}
+{"input":"explain tool routing simply","output":"Tool routing selects the subsystem that best matches the user's request."}
+{"input":"why is tool routing useful","output":"Tool routing selects the subsystem that best matches the user's request. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about tool routing","output":"Tool routing selects the subsystem that best matches the user's request. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about tool routing","output":"Tool routing selects the subsystem that best matches the user's request. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving tool routing","output":"For example, a user can ask about tool routing, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is device control","output":"Device control means invoking only phone actions that the application and Android permissions expose."}
+{"input":"explain device control simply","output":"Device control means invoking only phone actions that the application and Android permissions expose."}
+{"input":"why is device control useful","output":"Device control means invoking only phone actions that the application and Android permissions expose. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about device control","output":"Device control means invoking only phone actions that the application and Android permissions expose. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about device control","output":"Device control means invoking only phone actions that the application and Android permissions expose. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving device control","output":"For example, a user can ask about device control, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is screen context","output":"Screen context is information obtained from supported accessibility or screen-reading facilities."}
+{"input":"explain screen context simply","output":"Screen context is information obtained from supported accessibility or screen-reading facilities."}
+{"input":"why is screen context useful","output":"Screen context is information obtained from supported accessibility or screen-reading facilities. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about screen context","output":"Screen context is information obtained from supported accessibility or screen-reading facilities. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about screen context","output":"Screen context is information obtained from supported accessibility or screen-reading facilities. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving screen context","output":"For example, a user can ask about screen context, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is conversation","output":"Conversation is an exchange of messages in which context can be carried from one turn to another."}
+{"input":"explain conversation simply","output":"Conversation is an exchange of messages in which context can be carried from one turn to another."}
+{"input":"why is conversation useful","output":"Conversation is an exchange of messages in which context can be carried from one turn to another. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about conversation","output":"Conversation is an exchange of messages in which context can be carried from one turn to another. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about conversation","output":"Conversation is an exchange of messages in which context can be carried from one turn to another. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving conversation","output":"For example, a user can ask about conversation, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is persona","output":"A persona is a consistent communication style and behavioral specification for an assistant."}
+{"input":"explain persona simply","output":"A persona is a consistent communication style and behavioral specification for an assistant."}
+{"input":"why is persona useful","output":"A persona is a consistent communication style and behavioral specification for an assistant. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about persona","output":"A persona is a consistent communication style and behavioral specification for an assistant. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about persona","output":"A persona is a consistent communication style and behavioral specification for an assistant. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving persona","output":"For example, a user can ask about persona, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is identity","output":"Assistant identity describes what the system is, where it runs, and what it can legitimately do."}
+{"input":"explain identity simply","output":"Assistant identity describes what the system is, where it runs, and what it can legitimately do."}
+{"input":"why is identity useful","output":"Assistant identity describes what the system is, where it runs, and what it can legitimately do. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about identity","output":"Assistant identity describes what the system is, where it runs, and what it can legitimately do. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about identity","output":"Assistant identity describes what the system is, where it runs, and what it can legitimately do. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving identity","output":"For example, a user can ask about identity, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is current information","output":"Current information should be checked against fresh sources because facts can change over time."}
+{"input":"explain current information simply","output":"Current information should be checked against fresh sources because facts can change over time."}
+{"input":"why is current information useful","output":"Current information should be checked against fresh sources because facts can change over time. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about current information","output":"Current information should be checked against fresh sources because facts can change over time. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about current information","output":"Current information should be checked against fresh sources because facts can change over time. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving current information","output":"For example, a user can ask about current information, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is stable knowledge","output":"Stable knowledge can often be answered from stored information when no recent change is expected."}
+{"input":"explain stable knowledge simply","output":"Stable knowledge can often be answered from stored information when no recent change is expected."}
+{"input":"why is stable knowledge useful","output":"Stable knowledge can often be answered from stored information when no recent change is expected. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about stable knowledge","output":"Stable knowledge can often be answered from stored information when no recent change is expected. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about stable knowledge","output":"Stable knowledge can often be answered from stored information when no recent change is expected. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving stable knowledge","output":"For example, a user can ask about stable knowledge, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is a good assistant","output":"A useful assistant understands the request, chooses an appropriate tool, preserves relevant context, and avoids fabrication."}
+{"input":"explain a good assistant simply","output":"A useful assistant understands the request, chooses an appropriate tool, preserves relevant context, and avoids fabrication."}
+{"input":"why is a good assistant useful","output":"A useful assistant understands the request, chooses an appropriate tool, preserves relevant context, and avoids fabrication. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about a good assistant","output":"A useful assistant understands the request, chooses an appropriate tool, preserves relevant context, and avoids fabrication. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about a good assistant","output":"A useful assistant understands the request, chooses an appropriate tool, preserves relevant context, and avoids fabrication. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving a good assistant","output":"For example, a user can ask about a good assistant, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is an ambiguous command","output":"An ambiguous command should be clarified before a consequential action is taken."}
+{"input":"explain an ambiguous command simply","output":"An ambiguous command should be clarified before a consequential action is taken."}
+{"input":"why is an ambiguous command useful","output":"An ambiguous command should be clarified before a consequential action is taken. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about an ambiguous command","output":"An ambiguous command should be clarified before a consequential action is taken. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about an ambiguous command","output":"An ambiguous command should be clarified before a consequential action is taken. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving an ambiguous command","output":"For example, a user can ask about an ambiguous command, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is private information","output":"Private information should be used only as needed for the requested task and disclosed as little as possible."}
+{"input":"explain private information simply","output":"Private information should be used only as needed for the requested task and disclosed as little as possible."}
+{"input":"why is private information useful","output":"Private information should be used only as needed for the requested task and disclosed as little as possible. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about private information","output":"Private information should be used only as needed for the requested task and disclosed as little as possible. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about private information","output":"Private information should be used only as needed for the requested task and disclosed as little as possible. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving private information","output":"For example, a user can ask about private information, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is conflicting sources","output":"Conflicting sources should be compared for date, authority, scope, and evidence rather than silently blended."}
+{"input":"explain conflicting sources simply","output":"Conflicting sources should be compared for date, authority, scope, and evidence rather than silently blended."}
+{"input":"why is conflicting sources useful","output":"Conflicting sources should be compared for date, authority, scope, and evidence rather than silently blended. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about conflicting sources","output":"Conflicting sources should be compared for date, authority, scope, and evidence rather than silently blended. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about conflicting sources","output":"Conflicting sources should be compared for date, authority, scope, and evidence rather than silently blended. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving conflicting sources","output":"For example, a user can ask about conflicting sources, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is a correction","output":"A correction should update the current understanding instead of being ignored."}
+{"input":"explain a correction simply","output":"A correction should update the current understanding instead of being ignored."}
+{"input":"why is a correction useful","output":"A correction should update the current understanding instead of being ignored. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about a correction","output":"A correction should update the current understanding instead of being ignored. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about a correction","output":"A correction should update the current understanding instead of being ignored. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving a correction","output":"For example, a user can ask about a correction, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is a hypothesis","output":"A hypothesis is a proposed explanation that can be tested against evidence."}
+{"input":"explain a hypothesis simply","output":"A hypothesis is a proposed explanation that can be tested against evidence."}
+{"input":"why is a hypothesis useful","output":"A hypothesis is a proposed explanation that can be tested against evidence. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about a hypothesis","output":"A hypothesis is a proposed explanation that can be tested against evidence. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about a hypothesis","output":"A hypothesis is a proposed explanation that can be tested against evidence. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving a hypothesis","output":"For example, a user can ask about a hypothesis, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is a definition","output":"A definition explains the meaning or scope of a term."}
+{"input":"explain a definition simply","output":"A definition explains the meaning or scope of a term."}
+{"input":"why is a definition useful","output":"A definition explains the meaning or scope of a term. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about a definition","output":"A definition explains the meaning or scope of a term. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about a definition","output":"A definition explains the meaning or scope of a term. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving a definition","output":"For example, a user can ask about a definition, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is a comparison","output":"A comparison identifies relevant similarities and differences without pretending all criteria are identical."}
+{"input":"explain a comparison simply","output":"A comparison identifies relevant similarities and differences without pretending all criteria are identical."}
+{"input":"why is a comparison useful","output":"A comparison identifies relevant similarities and differences without pretending all criteria are identical. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about a comparison","output":"A comparison identifies relevant similarities and differences without pretending all criteria are identical. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about a comparison","output":"A comparison identifies relevant similarities and differences without pretending all criteria are identical. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving a comparison","output":"For example, a user can ask about a comparison, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is a cause","output":"A cause is a factor that contributes to producing an effect."}
+{"input":"explain a cause simply","output":"A cause is a factor that contributes to producing an effect."}
+{"input":"why is a cause useful","output":"A cause is a factor that contributes to producing an effect. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about a cause","output":"A cause is a factor that contributes to producing an effect. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about a cause","output":"A cause is a factor that contributes to producing an effect. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving a cause","output":"For example, a user can ask about a cause, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"what is an effect","output":"An effect is an outcome produced or influenced by one or more causes."}
+{"input":"explain an effect simply","output":"An effect is an outcome produced or influenced by one or more causes."}
+{"input":"why is an effect useful","output":"An effect is an outcome produced or influenced by one or more causes. It is useful when understanding or working with related tasks."}
+{"input":"how should you think about an effect","output":"An effect is an outcome produced or influenced by one or more causes. Keep the definition separate from assumptions and verify details when they matter."}
+{"input":"what should an assistant know about an effect","output":"An effect is an outcome produced or influenced by one or more causes. The assistant should state uncertainty when the available information is incomplete."}
+{"input":"give an example involving an effect","output":"For example, a user can ask about an effect, and the assistant can explain the concept, identify uncertainty, and use an appropriate tool when more information is required."}
+{"input":"if all birds have wings and a robin is a bird what follows","output":"Under those assumptions, the robin has wings."}
+{"input":"if every engineer studies mathematics and Alex is an engineer what follows","output":"Under those assumptions, Alex studies mathematics."}
+{"input":"if the battery is low what should the assistant do","output":"The assistant should report the battery state and, if asked, suggest reducing unnecessary power use or connecting a charger."}
+{"input":"if a command could send a message to the wrong person what should happen","output":"The assistant should confirm the recipient and message before sending it."}
+{"input":"if two sources disagree about a current event what should happen","output":"The assistant should compare the sources, check their dates and authority, and avoid presenting an unresolved conflict as certainty."}
+{"input":"if the user gives a correction what should happen","output":"The assistant should treat the correction as current context and revise its response when the correction is supported."}
+{"input":"if a question asks for current news what tool should be used","output":"Web research should be used because current information can change."}
+{"input":"if a question asks for a stable definition what should be used","output":"Local knowledge can be used when it is sufficient and current information is not required."}
+{"input":"if a phone action is ambiguous what should happen","output":"The assistant should ask for the missing detail before taking a consequential action."}
+{"input":"if the user asks for formal inference what should happen","output":"The reasoning tool should be used when available rather than pretending ordinary conversation generation is formal proof."}
+{"input":"if a claim has no evidence what should the assistant say","output":"The assistant should distinguish the claim from verified evidence and state the uncertainty."}
+{"input":"if a web page contains private information unrelated to the task what should happen","output":"The assistant should avoid unnecessary disclosure and use only information relevant to the requested task."}
+{"input":"!nars what follows if every bird has wings and a robin is a bird","output":"NARS can represent the premises and derive the conclusion that the robin has wings."}
+{"input":"!cog what is atomspace","output":"AtomSpace is the structured knowledge graph used by the local OpenCog-style bridge."}
+{"input":"!opencog explain atomspace","output":"The OpenCog-style bridge uses AtomSpace-like structured atoms and relationships for symbolic knowledge."}
+{"input":"!ona create a goal to check the battery","output":"The ONA-style goal system can queue a battery-check goal and use the available reasoning and device tools."}
+{"input":"what should NARS be used for","output":"NARS should be used for explicit reasoning tasks involving premises, conclusions, uncertainty, or inference."}
+{"input":"what should AtomSpace be used for","output":"AtomSpace should store and query structured relationships and symbolic knowledge."}
+{"input":"what should ONA be used for","output":"An ONA-style layer can manage application goals and combine reasoning with actions."}
+{"input":"should NARS run on every greeting","output":"No. Ordinary greetings do not require formal reasoning."}
+{"input":"should web search run for every question","output":"No. Stable questions can use local knowledge when sufficient; current questions should use web research."}
+{"input":"should device actions happen without confirmation when ambiguous","output":"No. Ambiguous consequential actions should be clarified first."}
