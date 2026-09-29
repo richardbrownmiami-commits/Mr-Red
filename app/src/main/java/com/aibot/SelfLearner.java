@@ -38,8 +38,8 @@ public class SelfLearner {
         return count>0?total/count:0f;
     }
 
-    public void learnFromDataset(List<DatasetLoader.TrainingSample> samples,LearningCallback cb){
-        if(isTraining){if(cb!=null)cb.onError("Already training");return;}
+    public synchronized void learnFromDataset(List<DatasetLoader.TrainingSample> samples,LearningCallback cb){
+        if(isTraining){if(cb!=null)cb.onError("Already training");return;}\n        isTraining=true;
         final List<DatasetLoader.TrainingSample> data=new ArrayList<>(samples.subList(0,Math.min(samples.size(),MAX_DATASET_SAMPLES)));
         new Thread(()->{
             isTraining=true;int total=data.size()*TRAIN_EPOCHS,step=0;float epochLoss=0;
