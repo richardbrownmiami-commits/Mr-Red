@@ -78,7 +78,7 @@ jobs:
           rm -rf build/pretrainer app/src/main/assets/pretrained
           mkdir -p build/pretrainer app/src/main/assets/pretrained
           javac -d build/pretrainer             app/src/main/java/com/aibot/NeuralNetwork.java             app/src/main/java/com/aibot/Tokenizer.java             app/src/main/java/com/aibot/FullBackpropTrainer.java             tools/HostPretrainer.java
-          java -cp build/pretrainer com.aibot.HostPretrainer             build/pretrained             app/src/main/res/raw/core_assistant.jsonl             app/src/main/res/raw/whisper_personality.jsonl
+          java -cp build/pretrainer com.aibot.HostPretrainer             build/pretrained             app/src/main/res/raw/core_assistant.jsonl 
           cp build/pretrained/model.bin app/src/main/assets/pretrained/model.bin
           cp build/pretrained/vocab.txt app/src/main/assets/pretrained/vocab.txt
           cp build/pretrained/TRAINED.txt app/src/main/assets/pretrained/TRAINED.txt
