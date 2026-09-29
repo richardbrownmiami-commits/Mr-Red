@@ -468,6 +468,17 @@ public class MainActivity extends AppCompatActivity {
                 return memoryAnswer;
             }
 
+            // Knowledge questions have a hard routing boundary: never send them
+            // through the custom Transformer. The Transformer is not a factual
+            // database and an ungrounded answer here can become random text.
+            String lowerInput = input.toLowerCase(java.util.Locale.US).trim();
+            if (isFactualQuestion(lowerInput)) {
+                trace("ROUTE KNOWLEDGE -> WEB/COGNITIVE (NO NN)");
+                String factualAnswer = answerFactualQuestion(input);
+                trace("KNOWLEDGE ANSWER chars=" + (factualAnswer == null ? 0 : factualAnswer.length()));
+                return factualAnswer;
+            }
+
             String topic = convManager.extractTopic(input);
             userMemory.recordTopic(topic);
 
@@ -586,6 +597,58 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             trace("NN TURN ERROR: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             return convManager.buildCasualResponse(input);
+        }
+    }
+
+    private boolean isFactualQuestion(String s) {
+        return s.contains("what is ") || s.startsWith("what is") ||
+               s.contains("what are ") || s.startsWith("what are") ||
+               s.contains("define ") || s.startsWith("define") ||
+               s.contains("tell me about ") || s.startsWith("tell me about") ||
+               s.contains("who is ") || s.startsWith("who is") ||
+               s.contains("who are ") || s.startsWith("who are");
+    }
+
+    private String answerFactualQuestion(String input) {
+        try {
+            setStatus("Researching");
+            if (webSearch != null) {
+                List<WebSearch.SearchResult> results = webSearch.search(input);
+                trace("KNOWLEDGE WEB results=" + results.size());
+                if (!results.isEmpty()) {
+                    String evidence = webSearch.summarizeResults(results);
+                    try {
+                        if (selfLearner != null)
+                            selfLearner.learnFromWebResults(webSearch.extractFacts(results));
+                        for (WebSearch.SearchResult x : results) {
+                            if (nars != null) nars.parseAndLearn(x.snippet);
+                            if (openCog != null) openCog.learn(x.snippet);
+                        }
+                    } catch (Throwable learningError) {
+                        trace("KNOWLEDGE LEARNING SKIPPED " +
+                              learningError.getClass().getSimpleName());
+                    }
+                    return evidence;
+                }
+            }
+
+            // Web unavailable: use only stored cognitive knowledge. Never fall
+            // through to neural generation for a factual question.
+            String local = cognitiveContext != null
+                ? cognitiveContext.retrieve(input, true, false, true, false)
+                : "";
+            if (local != null && local.trim().length() > 20) {
+                trace("KNOWLEDGE LOCAL FALLBACK");
+                return local.trim();
+            }
+
+            trace("KNOWLEDGE NO EVIDENCE");
+            return "I couldn't retrieve reliable information for that question right now.";
+        } catch (Throwable e) {
+            trace("KNOWLEDGE ERROR " + e.getClass().getSimpleName() +
+                  ": " + e.getMessage());
+            Log.e(TAG, "knowledge route failed", e);
+            return "I couldn't retrieve reliable information for that question right now.";
         }
     }
 
