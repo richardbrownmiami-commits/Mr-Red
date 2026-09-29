@@ -74,26 +74,20 @@ public class ToolRouter {
         boolean factual = isKnowledgeLike(s);
         if (factual && !memory && !reasoning) web = true;
 
-        boolean semantic = onnx != null && onnx.isSemanticModelAvailable();
+        boolean semantic = false;
 
-        // For ambiguous knowledge requests, use the embedded ONNX encoder as
-        // a lightweight semantic signal. It does not generate the answer.
-        if (semantic && !web && !reasoning && !memory && isKnowledgeLike(s)) {
-            float currentScore = semanticSimilarity(q,
-                "latest current news today recent update what happened now");
-            if (currentScore >= 0.62f) web = true;
-        }
-
-        // Semantic retrieval is useful for ordinary knowledge and memory
-        // matching, but it does not force a web search or a reasoning tool.
+        // Do not load the ONNX encoder on every factual question. It is an
+        // embedding model, not a generator, and loading it on ARMv7 can add
+        // substantial memory pressure. Factual answers are handled explicitly
+        // by MainActivity using web evidence or local cognitive stores.
         if (semantic && (memory || isKnowledgeLike(s))) {
             return new Decision(memory, true, reasoning, web, false,
                 web ? "current_knowledge" : (memory ? "memory" : "knowledge"), 0.92f);
         }
 
-        if (web) {
+        if (web || isKnowledgeLike(s)) {
             return new Decision(memory, semantic, reasoning, true, false,
-                "current_knowledge", 0.96f);
+                "knowledge_research", 0.96f);
         }
 
         if (reasoning) {
