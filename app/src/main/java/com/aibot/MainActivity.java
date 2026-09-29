@@ -504,7 +504,13 @@ public class MainActivity extends AppCompatActivity {
 
             // Current/fresh questions go to web first. The neural network then
             // turns the retrieved evidence into the final natural response.
-            if (decision.web) {
+            if (decision.web || "knowledge_research".equals(decision.intent)) {
+                if (topic == null || topic.trim().isEmpty() || topic.equalsIgnoreCase(input.trim())) {
+                    trace("KNOWLEDGE CLARIFICATION");
+                    return "What would you like me to explain?";
+                }
+                setStatus("Researching " + topic);
+                trace("KNOWLEDGE ROUTE -> WEB");
                 setStatus("Researching " + topic);
                 trace("WEB ROUTE");
                 List<WebSearch.SearchResult> results = webSearch.search(input);
@@ -516,16 +522,10 @@ public class MainActivity extends AppCompatActivity {
                         if (openCog != null) openCog.learn(x.snippet);
                     }
 
-                    String nnWeb = generateFromNNWithContext(
-                        input, "Current web evidence:\n" + evidence);
-                    if (isUsableNeuralResponse(nnWeb, input)) {
-                        trace("WEB EVIDENCE -> NN");
-                        return convManager.buildNaturalResponse(
-                            personalityEngine.styleResponse(
-                                nnWeb, input, emotionSystem.getMood()),
-                            topic, true, false);
-                    }
-                    trace("WEB NN FALLBACK");
+                    // Factual turns use retrieved evidence directly. The tiny
+                    // local Transformer must never invent an answer from weak
+                    // or untrained weights just because retrieval succeeded.
+                    trace("WEB EVIDENCE -> DIRECT");
                     return evidence;
                 }
                 trace("WEB EMPTY");
