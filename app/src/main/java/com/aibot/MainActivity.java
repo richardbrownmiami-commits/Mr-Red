@@ -505,30 +505,45 @@ public class MainActivity extends AppCompatActivity {
             // Current/fresh questions go to web first. The neural network then
             // turns the retrieved evidence into the final natural response.
             if (decision.web || "knowledge_research".equals(decision.intent)) {
+                // HARD ROUTE BOUNDARY: factual/current questions never fall through
+                // to the custom Transformer. The Transformer is not a knowledge
+                // retrieval system and must not manufacture an answer when evidence
+                // is unavailable.
+                boolean factualRoute = "knowledge_research".equals(decision.intent)
+                        || convManager.isKnowledgeQuestion(input)
+                        || decision.web;
                 if (topic == null || topic.trim().isEmpty() || topic.equalsIgnoreCase(input.trim())) {
-                    trace("KNOWLEDGE CLARIFICATION");
+                    trace("FACTUAL ROUTE -> CLARIFICATION (NO NN)");
                     return "What would you like me to explain?";
                 }
                 setStatus("Researching " + topic);
-                trace("KNOWLEDGE ROUTE -> WEB");
-                setStatus("Researching " + topic);
-                trace("WEB ROUTE");
-                List<WebSearch.SearchResult> results = webSearch.search(input);
-                if (!results.isEmpty()) {
-                    String evidence = webSearch.summarizeResults(results);
-                    selfLearner.learnFromWebResults(webSearch.extractFacts(results));
-                    for (WebSearch.SearchResult x : results) {
-                        if (nars != null) nars.parseAndLearn(x.snippet);
-                        if (openCog != null) openCog.learn(x.snippet);
+                trace("FACTUAL ROUTE -> WEB (NO NN)");
+                try {
+                    List<WebSearch.SearchResult> results = webSearch.search(input);
+                    if (!results.isEmpty()) {
+                        String evidence = webSearch.summarizeResults(results);
+                        if (evidence != null && !evidence.trim().isEmpty()) {
+                            selfLearner.learnFromWebResults(webSearch.extractFacts(results));
+                            for (WebSearch.SearchResult x : results) {
+                                if (nars != null) nars.parseAndLearn(x.snippet);
+                                if (openCog != null) openCog.learn(x.snippet);
+                            }
+                            trace("FACTUAL ROUTE -> WEB EVIDENCE -> DIRECT (NO NN)");
+                            return evidence;
+                        }
+                        trace("FACTUAL ROUTE -> WEB EMPTY SUMMARY (NO NN)");
+                    } else {
+                        trace("FACTUAL ROUTE -> WEB NO RESULTS (NO NN)");
                     }
-
-                    // Factual turns use retrieved evidence directly. The tiny
-                    // local Transformer must never invent an answer from weak
-                    // or untrained weights just because retrieval succeeded.
-                    trace("WEB EVIDENCE -> DIRECT");
-                    return evidence;
+                } catch (Exception webError) {
+                    trace("FACTUAL ROUTE -> WEB ERROR (NO NN): " +
+                            webError.getClass().getSimpleName() + ": " + webError.getMessage());
                 }
-                trace("WEB EMPTY");
+
+                // Never send an unanswered factual question to the Transformer.
+                trace("FACTUAL ROUTE -> SAFE FALLBACK (NO NN)");
+                return "I couldn't retrieve reliable information about " + topic +
+                        " right now. I won't guess.";
             }
 
             // Only retrieve the cognitive systems selected by the router.
