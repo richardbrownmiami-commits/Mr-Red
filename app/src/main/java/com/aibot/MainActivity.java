@@ -149,6 +149,7 @@ public class MainActivity extends AppCompatActivity {
                 webFetch = new WebFetch();
                 datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
                 copyBundledDatasetIfMissing();
+                installBundledPretrainedWeightsIfMissing();
                 onnxEngine = new OnnxEngine(MainActivity.this, weightManager);
                 // Activate the bundled quantized MiniLM encoder once at startup.
                 // It is used for semantic routing/retrieval, never as the chat generator.
@@ -693,7 +694,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (selfLearner == null || datasetLoader == null) return;
             android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
-            if (p.getBoolean("core_trained_v7", false) && weightManager.hasExistingWeights() &&
+            if (p.getBoolean("core_trained_v8", false) && weightManager.hasExistingWeights() &&
                 new File(weightManager.getModelPath(), "vocab.txt").exists()) return;
 
             File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
@@ -724,7 +725,7 @@ public class MainActivity extends AppCompatActivity {
                             });
                         }
                         public void onComplete(float avg, int steps) {
-                            if (weightManager.hasExistingWeights()) p.edit().putBoolean("core_trained_v7", true).apply();
+                            if (weightManager.hasExistingWeights()) p.edit().putBoolean("core_trained_v8", true).apply();
                             mainHandler.post(() -> {
                                 baselineTraining = false;
                                 if (progressBar != null) progressBar.setVisibility(View.GONE);
@@ -808,6 +809,40 @@ public class MainActivity extends AppCompatActivity {
         StringBuilder sb=new StringBuilder(title).append(":\\n");
         for(HuggingFaceHub.Item item:items) sb.append("• ").append(item.toString()).append("\\n");
         return sb.toString().trim();
+    }
+
+    private void installBundledPretrainedWeightsIfMissing() {
+        try {
+            if (weightManager == null) return;
+            File dir = new File(weightManager.getModelPath());
+            File model = new File(dir, "model.bin");
+            File vocab = new File(dir, "vocab.txt");
+            if (model.exists() && model.length() > 1000 && vocab.exists() && vocab.length() > 20) {
+                return;
+            }
+            if (!dir.exists()) dir.mkdirs();
+            copyAssetFile("pretrained/model.bin", model);
+            copyAssetFile("pretrained/vocab.txt", vocab);
+            File trained = new File(dir, "TRAINED.txt");
+            try {
+                copyAssetFile("pretrained/TRAINED.txt", trained);
+            } catch (Exception ignored) {}
+            getSharedPreferences("brain_state", MODE_PRIVATE).edit()
+                .putBoolean("core_trained_v8", true).apply();
+            Log.i(TAG, "Installed build-time pretrained neural model: " + model.length() + " bytes");
+        } catch (Exception e) {
+            Log.e(TAG, "pretrained model install", e);
+        }
+    }
+
+    private void copyAssetFile(String assetPath, File dest) throws Exception {
+        if (dest.getParentFile() != null && !dest.getParentFile().exists()) dest.getParentFile().mkdirs();
+        try (InputStream is = getAssets().open(assetPath);
+             FileOutputStream fos = new FileOutputStream(dest)) {
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = is.read(buf)) > 0) fos.write(buf, 0, len);
+        }
     }
 
     private void copyBundledDatasetIfMissing() {
