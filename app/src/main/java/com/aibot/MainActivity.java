@@ -43,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private SelfLearner selfLearner;
     private LearningState learningState;
     private WebSearch webSearch;
+    private KnowledgeBase knowledgeBase;
     private WebFetch webFetch;
     private DatasetLoader datasetLoader;
     private OnnxEngine onnxEngine;
@@ -146,10 +147,11 @@ public class MainActivity extends AppCompatActivity {
                 learningState = new LearningState(new File(getFilesDir(), "aibot_learning"));
                 selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace, learningState);
                 webSearch = new WebSearch();
+                knowledgeBase = new KnowledgeBase(MainActivity.this);
+                trace("OFFLINE KNOWLEDGE entries=" + knowledgeBase.size());
                 webFetch = new WebFetch();
                 datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
                 copyBundledDatasetIfMissing();
-                installBundledPretrainedWeightsIfMissing();
                 onnxEngine = new OnnxEngine(MainActivity.this, weightManager);
                 // Activate the bundled quantized MiniLM encoder once at startup.
                 // It is used for semantic routing/retrieval, never as the chat generator.
@@ -649,6 +651,25 @@ public class MainActivity extends AppCompatActivity {
 
     private String answerFactualQuestion(String input) {
         try {
+            String normalized = input == null ? "" : input.trim().toLowerCase(java.util.Locale.US);
+            if (normalized.equals("what is") || normalized.equals("what are") ||
+                normalized.equals("define") || normalized.equals("tell me about") ||
+                normalized.equals("who is") || normalized.equals("who are")) {
+                trace("KNOWLEDGE CLARIFY missing topic; NO NETWORK; NO NN");
+                return "What would you like me to explain?";
+            }
+
+            // First source: the unified corpus shipped inside the APK. This is
+            // deterministic, instant, offline, and never invokes the neural generator.
+            if (knowledgeBase != null) {
+                String local = knowledgeBase.lookup(input);
+                if (local != null && local.trim().length() > 0) {
+                    trace("KNOWLEDGE LOCAL CORPUS HIT -> DIRECT (NO NN)");
+                    return local.trim();
+                }
+                trace("KNOWLEDGE LOCAL CORPUS MISS");
+            }
+
             setStatus("Researching");
             if (webSearch != null) {
                 List<WebSearch.SearchResult> direct = webSearch.searchKnowledge(input);
