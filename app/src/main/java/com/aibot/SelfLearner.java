@@ -5,7 +5,7 @@ import java.util.*;
 
 public class SelfLearner {
     private static final String TAG="SelfLearner";
-    private static final int TRAIN_EPOCHS=1, MAX_DATASET_SAMPLES=600, SAVE_INTERVAL=25;
+    private static final int TRAIN_EPOCHS=2, MAX_DATASET_SAMPLES=600, SAVE_INTERVAL=25;
     private final NeuralNetwork nn; private final Tokenizer tokenizer; private final NARSEngine nars;
     private final WeightManager weightManager; private final CognitiveMemory memory; private final AtomSpaceLite atomSpace;
     private final FullBackpropTrainer trainer; private final LearningState state;
@@ -45,15 +45,20 @@ public class SelfLearner {
         new Thread(()->{
             isTraining=true;int total=data.size()*TRAIN_EPOCHS,step=0;float epochLoss=0;
             stateUpdate("Preparing training data",0,TRAIN_EPOCHS,0,total,0,data.size(),true);
+            // Build the complete vocabulary before gradient updates so the output head
+            // has one stable active vocabulary for the entire baseline run.
+            for(DatasetLoader.TrainingSample s:data){tokenizer.learnFromText(s.input);tokenizer.learnFromText(s.output);}
+            nn.setActiveVocabSize(tokenizer.getVocabSize());
             try{
                 for(int epoch=0;epoch<TRAIN_EPOCHS;epoch++){
                     Collections.shuffle(data,new Random(1000+epoch));
                     for(DatasetLoader.TrainingSample s:data){
-                        tokenizer.learnFromText(s.input);tokenizer.learnFromText(s.output);nn.setActiveVocabSize(tokenizer.getVocabSize());
+                        stateUpdate("Training sample "+(step+1)+"/"+total,epoch+1,TRAIN_EPOCHS,step,total,step>0?epochLoss/step:0,data.size(),true);
+                        nn.setActiveVocabSize(tokenizer.getVocabSize());
                         if(atomSpace!=null){atomSpace.learnSentence(s.input);atomSpace.learnSentence(s.output);if(s.context!=null&&!s.context.isEmpty())atomSpace.learnSentence(s.context);}
                         float loss=trainOnPair(s.input,s.output);epochLoss+=loss;step++;float avg=epochLoss/step;
                         stateUpdate("Training neural network",epoch+1,TRAIN_EPOCHS,step,total,avg,data.size(),true);
-                        if(cb!=null&&(step%2==0||step==total))cb.onProgress(step,total,avg,"Epoch "+(epoch+1)+"/"+TRAIN_EPOCHS);
+                        if(cb!=null)cb.onProgress(step,total,avg,"Epoch "+(epoch+1)+"/"+TRAIN_EPOCHS);
                         if(memory!=null)memory.remember(s.input,s.output,"dataset");if(step%SAVE_INTERVAL==0)weightManager.saveAll();
                     }
                 }
