@@ -38,6 +38,11 @@
         </activity>
 
         <activity
+            android:name=".LearningActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"/>
+
+        <activity
             android:name=".MainActivity"
             android:exported="false"
             android:showWhenLocked="true"
