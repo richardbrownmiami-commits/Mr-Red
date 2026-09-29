@@ -3,234 +3,80 @@ package com.aibot;
 import android.util.Log;
 import java.util.*;
 
-/**
- * SelfLearner - trains the neural network and updates NARS beliefs
- * from conversations and loaded datasets
- */
 public class SelfLearner {
-
-    private static final String TAG = "SelfLearner";
-    private static final int TRAIN_EPOCHS   = 1;
-    private static final int MAX_DATASET_SAMPLES = 600;
-    private static final int SAVE_INTERVAL  = 50; // save every N samples
-
-    private NeuralNetwork nn;
-    private Tokenizer     tokenizer;
-    private NARSEngine    nars;
-    private WeightManager weightManager;
-    private CognitiveMemory memory;
-    private AtomSpaceLite atomSpace;
-
-    private float totalLoss   = 0;
-    private int   trainSteps  = 0;
-    private boolean isTraining = false;
+    private static final String TAG="SelfLearner";
+    private static final int TRAIN_EPOCHS=1, MAX_DATASET_SAMPLES=600, SAVE_INTERVAL=25;
+    private final NeuralNetwork nn; private final Tokenizer tokenizer; private final NARSEngine nars;
+    private final WeightManager weightManager; private final CognitiveMemory memory; private final AtomSpaceLite atomSpace;
+    private final FullBackpropTrainer trainer; private final LearningState state;
+    private volatile float totalLoss=0; private volatile int trainSteps=0; private volatile boolean isTraining=false;
 
     public interface LearningCallback {
-        void onProgress(int step, int total, float loss, String status);
-        void onComplete(float avgLoss, int steps);
+        void onProgress(int step,int total,float loss,String status);
+        void onComplete(float avgLoss,int steps);
         void onError(String error);
     }
 
-    public SelfLearner(NeuralNetwork nn, Tokenizer tokenizer,
-                       NARSEngine nars, WeightManager wm) {
-        this(nn, tokenizer, nars, wm, null, null);
+    public SelfLearner(NeuralNetwork n,Tokenizer t,NARSEngine na,WeightManager w){this(n,t,na,w,null,null,null);}
+    public SelfLearner(NeuralNetwork n,Tokenizer t,NARSEngine na,WeightManager w,CognitiveMemory m,AtomSpaceLite a){this(n,t,na,w,m,a,null);}
+    public SelfLearner(NeuralNetwork n,Tokenizer t,NARSEngine na,WeightManager w,CognitiveMemory m,AtomSpaceLite a,LearningState s){
+        nn=n;tokenizer=t;nars=na;weightManager=w;memory=m;atomSpace=a;trainer=new FullBackpropTrainer(nn);state=s;
     }
 
-    public SelfLearner(NeuralNetwork nn, Tokenizer tokenizer,
-                       NARSEngine nars, WeightManager wm,
-                       CognitiveMemory memory, AtomSpaceLite atomSpace) {
-        this.nn            = nn;
-        this.tokenizer     = tokenizer;
-        this.nars          = nars;
-        this.weightManager = wm;
-        this.memory        = memory;
-        this.atomSpace     = atomSpace;
+    public void learnFromMessage(String user,String bot){
+        new Thread(()->{try{tokenizer.learnFromText(user);tokenizer.learnFromText(bot);trainOnPair(user,bot);
+            if(memory!=null)memory.remember(user,bot,"conversation");if(trainSteps%SAVE_INTERVAL==0)weightManager.saveAll();
+        }catch(Exception e){Log.e(TAG,"conversation learning",e);}},"AIBot-ConversationLearner").start();
     }
 
-    // ─── LEARN FROM CONVERSATION ──────────────────────────────────────────────
-
-    /**
-     * Learn from a single user message immediately
-     * Called after every user input
-     */
-    public void learnFromMessage(String userMessage, String botResponse) {
-        new Thread(() -> {
-            // 1. Update tokenizer vocabulary
-            tokenizer.learnFromText(userMessage);
-            tokenizer.learnFromText(botResponse);
-
-            // NARS is an explicit reasoning tool; normal conversation does not
-            // automatically enter every message into the reasoning engine.
-
-            // 2. Train neural network on this exchange
-            trainOnPair(userMessage, botResponse);
-            if (memory != null) memory.remember(userMessage, botResponse, "conversation");
-
-            // 3. Save periodically
-            if (trainSteps % SAVE_INTERVAL == 0) {
-                weightManager.saveAll();
-            }
-        }).start();
+    public synchronized float trainOnPair(String input,String output){
+        tokenizer.learnFromText(input+" "+output);nn.setActiveVocabSize(tokenizer.getVocabSize());
+        int[] in=tokenizer.encode(input,true,false),out=tokenizer.encode(output,false,true),full=concat(in,out);
+        float total=0;int count=0;
+        for(int i=in.length;i<full.length-1;i++){int target=full[i+1];if(target<0||target>=NeuralNetwork.VOCAB_SIZE)continue;
+            float loss=trainer.train(Arrays.copyOfRange(full,0,i+1),target);total+=loss;count++;trainSteps++;totalLoss+=loss;}
+        return count>0?total/count:0f;
     }
 
-    /**
-     * Train on a single input→output pair
-     */
-    public float trainOnPair(String input, String output) {
-        // Combine: encode input + output as sequence
-        String combined = input + " " + output;
-        tokenizer.learnFromText(combined);
-        nn.setActiveVocabSize(tokenizer.getVocabSize());
-
-        int[] inputIds  = tokenizer.encode(input,  true, false);
-        int[] outputIds = tokenizer.encode(output, false, true);
-
-        // Train: for each output token, predict it given all previous tokens
-        float totalPairLoss = 0;
-        int count = 0;
-
-        // Build full sequence
-        int[] fullSeq = concat(inputIds, outputIds);
-
-        for (int i = inputIds.length; i < fullSeq.length - 1; i++) {
-            // Input is everything up to position i
-            int[] contextTokens = Arrays.copyOfRange(fullSeq, 0, i + 1);
-            int   targetToken   = fullSeq[i + 1];
-
-            if (targetToken >= NeuralNetwork.VOCAB_SIZE) continue;
-
-            float loss = nn.trainFast(contextTokens, targetToken);
-            totalPairLoss += loss;
-            count++;
-            trainSteps++;
-            totalLoss += loss;
-        }
-
-        return count > 0 ? totalPairLoss / count : 0f;
-    }
-
-    // ─── LEARN FROM DATASET ───────────────────────────────────────────────────
-
-    /**
-     * Train on a full dataset asynchronously
-     */
-    public void learnFromDataset(List<DatasetLoader.TrainingSample> samples,
-                                  LearningCallback callback) {
-        if (isTraining) {
-            if (callback != null) callback.onError("Already training!");
-            return;
-        }
-
-        final List<DatasetLoader.TrainingSample> trainingSamples;
-        int usable = Math.min(samples.size(), MAX_DATASET_SAMPLES);
-        trainingSamples = usable < samples.size()
-            ? new ArrayList<>(samples.subList(0, usable))
-            : new ArrayList<>(samples);
-
-        Thread trainingThread = new Thread(() -> {
-            isTraining = true;
-            int total  = trainingSamples.size() * TRAIN_EPOCHS;
-            int step   = 0;
-            float epochLoss = 0;
-
-            try {
-                for (int epoch = 0; epoch < TRAIN_EPOCHS; epoch++) {
-                    // Shuffle for each epoch
-                    Collections.shuffle(trainingSamples);
-
-                    for (DatasetLoader.TrainingSample sample : trainingSamples) {
-                        // Learn vocabulary
-                        tokenizer.learnFromText(sample.input);
-                        tokenizer.learnFromText(sample.output);
-                        nn.setActiveVocabSize(tokenizer.getVocabSize());
-
-                        // Dataset knowledge feeds the learned model and long-term
-                        // memory. Formal NARS inference stays an explicit tool.
-                        if (atomSpace != null) {
-                            atomSpace.learnSentence(sample.input);
-                            atomSpace.learnSentence(sample.output);
-                            if (!sample.context.isEmpty()) atomSpace.learnSentence(sample.context);
-                        }
-
-                        // Train neural network
-                        float loss = trainOnPair(sample.input, sample.output);
-                        if (memory != null) memory.remember(sample.input, sample.output, "dataset");
-                        epochLoss += loss;
-                        step++;
-
-                        // Report progress
-                        if (callback != null && (step % 5 == 0 || step == total)) {
-                            float avgLoss = step > 0 ? epochLoss / step : 0;
-                            callback.onProgress(step, total, avgLoss,
-                                "Epoch " + (epoch+1) + "/" + TRAIN_EPOCHS);
-                        }
-
-                        // Save periodically
-                        if (step % SAVE_INTERVAL == 0) {
-                            weightManager.saveAll();
-                        }
+    public void learnFromDataset(List<DatasetLoader.TrainingSample> samples,LearningCallback cb){
+        if(isTraining){if(cb!=null)cb.onError("Already training");return;}
+        final List<DatasetLoader.TrainingSample> data=new ArrayList<>(samples.subList(0,Math.min(samples.size(),MAX_DATASET_SAMPLES)));
+        new Thread(()->{
+            isTraining=true;int total=data.size()*TRAIN_EPOCHS,step=0;float epochLoss=0;
+            stateUpdate("Preparing training data",0,TRAIN_EPOCHS,0,total,0,data.size(),true);
+            try{
+                for(int epoch=0;epoch<TRAIN_EPOCHS;epoch++){
+                    Collections.shuffle(data,new Random(1000+epoch));
+                    for(DatasetLoader.TrainingSample s:data){
+                        tokenizer.learnFromText(s.input);tokenizer.learnFromText(s.output);nn.setActiveVocabSize(tokenizer.getVocabSize());
+                        if(atomSpace!=null){atomSpace.learnSentence(s.input);atomSpace.learnSentence(s.output);if(s.context!=null&&!s.context.isEmpty())atomSpace.learnSentence(s.context);}
+                        float loss=trainOnPair(s.input,s.output);epochLoss+=loss;step++;float avg=epochLoss/step;
+                        stateUpdate("Training neural network",epoch+1,TRAIN_EPOCHS,step,total,avg,data.size(),true);
+                        if(cb!=null&&(step%2==0||step==total))cb.onProgress(step,total,avg,"Epoch "+(epoch+1)+"/"+TRAIN_EPOCHS);
+                        if(memory!=null)memory.remember(s.input,s.output,"dataset");if(step%SAVE_INTERVAL==0)weightManager.saveAll();
                     }
                 }
-
-                // Final save
-                if (memory != null) memory.flush();
-                weightManager.saveAll();
-                float avgLoss = step > 0 ? epochLoss / step : 0;
-                if (callback != null) callback.onComplete(avgLoss, step);
-
-            } catch (Exception e) {
-                Log.e(TAG, "Training error: " + e.getMessage());
-                if (callback != null) callback.onError(e.getMessage());
-            } finally {
-                isTraining = false;
-            }
-        }, "AIBot-BaselineTrainer");
-        trainingThread.setPriority(Thread.MIN_PRIORITY);
-        trainingThread.start();
+                if(memory!=null)memory.flush();weightManager.saveAll();float avg=step>0?epochLoss/step:0;
+                stateUpdate("Training complete",TRAIN_EPOCHS,TRAIN_EPOCHS,step,total,avg,data.size(),false);if(cb!=null)cb.onComplete(avg,step);
+            }catch(Throwable e){
+                Log.e(TAG,"training error",e);stateUpdate("Training error: "+e.getClass().getSimpleName(),0,TRAIN_EPOCHS,step,total,step>0?epochLoss/step:0,data.size(),false);
+                if(cb!=null)cb.onError(String.valueOf(e.getMessage()));
+            }finally{isTraining=false;}
+        },"AIBot-FullBackpropTrainer").start();
     }
 
-    // ─── LEARN FROM WEB ───────────────────────────────────────────────────────
-
-    /**
-     * Learn from web search results
-     */
-    public void learnFromWebResults(List<String> facts) {
-        new Thread(() -> {
-            for (String fact : facts) {
-                tokenizer.learnFromText(fact);
-                nn.setActiveVocabSize(tokenizer.getVocabSize());
-                if (atomSpace != null) atomSpace.learnSentence(fact);
-
-                // Train neural network on facts
-                if (fact.length() > 10) {
-                    int[] tokens = tokenizer.encode(fact);
-                    for (int i = 0; i < tokens.length - 1; i++) {
-                        int[] context = Arrays.copyOfRange(tokens, 0, i + 1);
-                        nn.trainFast(context, tokens[i + 1]);
-                        trainSteps++;
-                    }
-                }
-            }
-            Log.d(TAG, "Learned from " + facts.size() + " web facts");
-        }).start();
+    public void learnFromWebResults(List<String> facts){
+        new Thread(()->{for(String fact:facts){if(fact==null||fact.length()<2)continue;tokenizer.learnFromText(fact);nn.setActiveVocabSize(tokenizer.getVocabSize());
+            if(atomSpace!=null)atomSpace.learnSentence(fact);if(fact.length()>10){int[] t=tokenizer.encode(fact);
+                for(int i=0;i<t.length-1;i++){trainer.train(Arrays.copyOfRange(t,0,i+1),t[i+1]);trainSteps++;}}}weightManager.saveAll();
+        },"AIBot-WebLearner").start();
     }
 
-    // ─── STATS ────────────────────────────────────────────────────────────────
-
-    public float getAverageLoss() {
-        return trainSteps > 0 ? totalLoss / trainSteps : 0;
+    private void stateUpdate(String status,int epoch,int totalEpochs,int step,int total,float loss,int samples,boolean training){
+        if(state!=null)state.update(status,epoch,totalEpochs,step,total,loss,samples,training);
     }
-
-    public int getTrainSteps() { return trainSteps; }
-
-    public boolean isTraining() { return isTraining; }
-
-    // ─── HELPERS ──────────────────────────────────────────────────────────────
-
-    private int[] concat(int[] a, int[] b) {
-        int[] result = new int[a.length + b.length];
-        System.arraycopy(a, 0, result, 0, a.length);
-        System.arraycopy(b, 0, result, a.length, b.length);
-        return result;
-    }
+    public float getAverageLoss(){return trainSteps>0?totalLoss/trainSteps:0f;}
+    public int getTrainSteps(){return trainSteps;}
+    public boolean isTraining(){return isTraining;}
+    private int[] concat(int[] a,int[] b){int[] r=new int[a.length+b.length];System.arraycopy(a,0,r,0,a.length);System.arraycopy(b,0,r,a.length,b.length);return r;}
 }
