@@ -33,7 +33,7 @@ public class SelfLearner {
         tokenizer.learnFromText(input+" "+output);nn.setActiveVocabSize(tokenizer.getVocabSize());
         int[] in=tokenizer.encode(input,true,false),out=tokenizer.encode(output,false,true),full=concat(in,out);
         float total=0;int count=0;
-        for(int i=in.length;i<full.length-1;i++){int target=full[i+1];if(target<0||target>=NeuralNetwork.VOCAB_SIZE)continue;
+        for(int i=Math.max(0,in.length-1);i<full.length-1;i++){int target=full[i+1];if(target<0||target>=NeuralNetwork.VOCAB_SIZE)continue;
             float loss=trainer.train(Arrays.copyOfRange(full,0,i+1),target);total+=loss;count++;trainSteps++;totalLoss+=loss;}
         return count>0?total/count:0f;
     }
