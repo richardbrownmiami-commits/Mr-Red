@@ -13,18 +13,18 @@ import java.util.Random;
 public class NeuralNetwork {
 
     // Model dimensions (tiny for ARMv7a)
-    public static final int VOCAB_SIZE    = 12000;
-    public static final int EMBED_DIM     = 160;
+    public static final int VOCAB_SIZE    = 8000;
+    public static final int EMBED_DIM     = 128;
     public static final int NUM_HEADS     = 4;
     public static final int HEAD_DIM      = EMBED_DIM / NUM_HEADS; // 32
-    public static final int FF_DIM        = 512;
-    public static final int NUM_LAYERS    = 3;
-    public static final int MAX_SEQ_LEN   = 160;
+    public static final int FF_DIM        = 256;
+    public static final int NUM_LAYERS    = 2;
+    public static final int MAX_SEQ_LEN   = 128;
     public static final float LEARN_RATE  = 0.0010f;
     private static final int MEMORY_DIM = 64;
-    private static final int TOP_K = 32;
+    private static final int TOP_K = 12;
     private static final int MODEL_MAGIC = 0x4D524544; // MRED
-    private static final int MODEL_VERSION = 3;
+    private static final int MODEL_VERSION = 4;
     private int activeVocabSize = VOCAB_SIZE;
     float[][] contextIn;
     float[][] contextOut;
@@ -298,7 +298,22 @@ public class NeuralNetwork {
         logits[Tokenizer.PAD_TOKEN] = -1.0e9f;
         logits[Tokenizer.BOS_TOKEN] = -1.0e9f;
         logits[Tokenizer.SEP_TOKEN] = -1.0e9f;
-        if (temperature <= 0f) temperature = 0.8f;
+        logits[Tokenizer.UNK_TOKEN] = -1.0e9f;
+        // temperature <= 0 means deterministic greedy decoding.
+        if (temperature <= 0f) {
+            int best = Tokenizer.UNK_TOKEN;
+            float bestValue = Float.NEGATIVE_INFINITY;
+            for (int i = 0; i < activeVocabSize; i++) {
+                if (i == Tokenizer.PAD_TOKEN || i == Tokenizer.BOS_TOKEN ||
+                    i == Tokenizer.SEP_TOKEN || i == Tokenizer.UNK_TOKEN ||
+                    i == Tokenizer.EOS_TOKEN) continue;
+                if (logits[i] > bestValue) {
+                    bestValue = logits[i];
+                    best = i;
+                }
+            }
+            return best;
+        }
         int k = Math.min(TOP_K, logits.length);
         int[] top = new int[k];
         float[] topValues = new float[k];
