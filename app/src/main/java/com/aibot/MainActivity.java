@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
     private ToolRouter toolRouter;
     private HuggingFaceHub huggingFaceHub;
     private final StringBuilder neuralTrace = new StringBuilder();
+    private volatile boolean baselineTraining = false;
     private static final int TRACE_MAX = 12000;
 
     private RecyclerView chatRecycler;
@@ -449,6 +450,7 @@ public class MainActivity extends AppCompatActivity {
 
     private String generateHumanResponse(String input) {
         try {
+            if (baselineTraining) return "I am still training my local neural model. Please wait until the Learning Center says training is complete.";
             trace("TURN input: " + input);
 
             ToolRouter.Decision decision = toolRouter != null
@@ -691,14 +693,15 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (selfLearner == null || datasetLoader == null) return;
             android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
-            if (p.getBoolean("core_trained_v6", false) && weightManager.hasExistingWeights() &&
+            if (p.getBoolean("core_trained_v7", false) && weightManager.hasExistingWeights() &&
                 new File(weightManager.getModelPath(), "vocab.txt").exists()) return;
 
             File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
             if (!core.exists()) copyBundledDatasetIfMissing();
             if (!core.exists()) return;
 
-            addBotMessage("Learning center: building the built-in language and knowledge base...");
+            baselineTraining = true;
+            addBotMessage("Learning center: training the built-in language and knowledge base. I will not use the untrained neural generator while this runs...");
             if (progressBar != null) {
                 progressBar.setVisibility(View.VISIBLE);
                 progressBar.setIndeterminate(true);
@@ -721,8 +724,9 @@ public class MainActivity extends AppCompatActivity {
                             });
                         }
                         public void onComplete(float avg, int steps) {
-                            if (weightManager.hasExistingWeights()) p.edit().putBoolean("core_trained_v6", true).apply();
+                            if (weightManager.hasExistingWeights()) p.edit().putBoolean("core_trained_v7", true).apply();
                             mainHandler.post(() -> {
+                                baselineTraining = false;
                                 if (progressBar != null) progressBar.setVisibility(View.GONE);
                                 addBotMessage("Learning complete. The trained weights and persistent memory are saved on-device.");
                                 setStatus(getMoodStatus());
@@ -730,6 +734,7 @@ public class MainActivity extends AppCompatActivity {
                         }
                         public void onError(String error) {
                             mainHandler.post(() -> {
+                                baselineTraining = false;
                                 if (progressBar != null) progressBar.setVisibility(View.GONE);
                                 setStatus("Baseline training error");
                             });
@@ -738,6 +743,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 public void onError(String error) {
                     mainHandler.post(() -> {
+                        baselineTraining = false;
                         if (progressBar != null) progressBar.setVisibility(View.GONE);
                         setStatus("Baseline load error");
                     });
