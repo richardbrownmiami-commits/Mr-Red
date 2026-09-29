@@ -453,6 +453,20 @@ public class MainActivity extends AppCompatActivity {
         try {
             trace("TURN input: " + input);
 
+            // HARD ROUTING ORDER: classify the request before invoking any
+            // optional semantic/agent subsystem. Factual questions must never
+            // touch the neural generator or ONNX router.
+            String lowerInput = input.toLowerCase(java.util.Locale.US).trim();
+            if (isFactualQuestion(lowerInput)) {
+                trace("ROUTE FACTUAL_FIRST");
+                String factual = answerFactualQuestion(input);
+                trace("ROUTE FACTUAL_FIRST RESULT chars=" +
+                        (factual == null ? 0 : factual.length()));
+                return factual == null || factual.trim().isEmpty()
+                        ? "I couldn't retrieve reliable information for that question right now."
+                        : factual.trim();
+            }
+
             ToolRouter.Decision decision = toolRouter != null
                 ? toolRouter.decide(input)
                 : new ToolRouter(null).decide(input);
@@ -467,7 +481,6 @@ public class MainActivity extends AppCompatActivity {
                 return memoryAnswer;
             }
 
-            String lowerInput = input.toLowerCase(java.util.Locale.US).trim();
             String topic = convManager.extractTopic(input);
             userMemory.recordTopic(topic);
 
