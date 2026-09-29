@@ -693,7 +693,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (selfLearner == null || datasetLoader == null) return;
             android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
-            if (p.getBoolean("core_trained_v6", false)) return;
+            if (p.getBoolean("core_trained_v6", false) && weightManager.hasExistingWeights() &&\n                new File(weightManager.getModelPath(), "vocab.txt").exists()) return;
 
             File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
             if (!core.exists()) copyBundledDatasetIfMissing();
@@ -722,7 +722,7 @@ public class MainActivity extends AppCompatActivity {
                             });
                         }
                         public void onComplete(float avg, int steps) {
-                            p.edit().putBoolean("core_trained_v6", true).apply();
+                            if (weightManager.hasExistingWeights()) p.edit().putBoolean("core_trained_v6", true).apply();
                             mainHandler.post(() -> {
                                 if (progressBar != null) progressBar.setVisibility(View.GONE);
                                 addBotMessage("Learning complete. The trained weights and persistent memory are saved on-device.");
@@ -892,24 +892,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String handleReset() {
-        weightManager.resetAll();
-        nn = new NeuralNetwork();
-        tokenizer = new Tokenizer();
-        nars = new NARSEngine();
-        weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
-        cognitiveMemory = new CognitiveMemory(new File(getFilesDir(), "aibot_memory"), nn, tokenizer);
-        atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
-        openCog = new OpenCogBridge(atomSpace);
-        onaEngine = new OnaEngine(nars, atomSpace);
-        narsTool = new NarsTool(nars, atomSpace);
-        huggingFaceHub = new HuggingFaceHub();
-        selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
-        datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
-        onnxEngine = new OnnxEngine(MainActivity.this, weightManager);
-        personalityEngine = new PersonalityEngine(onnxEngine, tokenizer);
-        convManager.clearPending();
-        getSharedPreferences("brain_state", MODE_PRIVATE).edit().remove("core_trained_v2").remove("core_trained_v4").apply();
-        return "Brain wiped. The built-in baseline will rebuild automatically.";
+        try {
+            if (weightManager != null) weightManager.resetAll();
+            deleteQuietly(new File(getFilesDir(), "aibot_memory/conversation_memory.bin"));
+            deleteQuietly(new File(getFilesDir(), "aibot_memory/atomspace.bin"));
+            deleteQuietly(new File(getFilesDir(), "aibot_learning/learning.properties"));
+            getSharedPreferences("brain_state", MODE_PRIVATE).edit().clear().apply();
+
+            nn = new NeuralNetwork();
+            tokenizer = new Tokenizer();
+            nars = new NARSEngine();
+            weightManager = new WeightManager(MainActivity.this, nn, tokenizer, nars);
+            cognitiveMemory = new CognitiveMemory(new File(getFilesDir(), "aibot_memory"), nn, tokenizer);
+            atomSpace = new AtomSpaceLite(new File(getFilesDir(), "aibot_memory"));
+            openCog = new OpenCogBridge(atomSpace);
+            onaEngine = new OnaEngine(nars, atomSpace);
+            narsTool = new NarsTool(nars, atomSpace);
+            learningState = new LearningState(new File(getFilesDir(), "aibot_learning"));
+            selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace, learningState);
+            datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
+            onnxEngine = new OnnxEngine(MainActivity.this, weightManager);
+            personalityEngine = new PersonalityEngine(onnxEngine, tokenizer);
+            toolRouter = new ToolRouter(onnxEngine);
+            cognitiveContext = new CognitiveContext(cognitiveMemory, nars, atomSpace, onaEngine);
+            convManager.clearPending();
+            return "Brain wiped. Model, learned memory, AtomSpace, beliefs, and training state were reset. The built-in baseline will rebuild automatically.";
+        } catch (Exception e) {
+            Log.e(TAG, "reset brain", e);
+            return "Reset failed: " + e.getMessage();
+        }
+    }
+
+    private void deleteQuietly(File file) {
+        try { if (file.exists()) file.delete(); } catch (Exception ignored) {}
     }
 
     private void showMenu() {
