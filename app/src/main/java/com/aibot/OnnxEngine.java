@@ -90,6 +90,11 @@ public class OnnxEngine {
         return sessionMini != null;
     }
 
+    public boolean isSemanticModelAvailable() {
+        return isEnabled() && new File(modelDir, "minilm.onnx").exists() &&
+               new File(modelDir, "minilm-vocab.txt").exists();
+    }
+
     private void copyAsset(String assetPath, File destination) throws IOException {
         File parent = destination.getParentFile();
         if (parent != null && !parent.exists()) parent.mkdirs();
