@@ -691,7 +691,8 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (selfLearner == null || datasetLoader == null) return;
             android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
-            if (p.getBoolean("core_trained_v6", false) && weightManager.hasExistingWeights() &&\n                new File(weightManager.getModelPath(), "vocab.txt").exists()) return;
+            if (p.getBoolean("core_trained_v6", false) && weightManager.hasExistingWeights() &&
+                new File(weightManager.getModelPath(), "vocab.txt").exists()) return;
 
             File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
             if (!core.exists()) copyBundledDatasetIfMissing();
