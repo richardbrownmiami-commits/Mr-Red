@@ -71,6 +71,23 @@ jobs:
           test "$(wc -c < "$dir/minilm.onnx")" -lt 30000000
           sha256sum "$dir/minilm.onnx"
           du -h "$dir"/*
+      - name: Pretrain custom neural network on CI runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build/pretrainer app/src/main/assets/pretrained
+          mkdir -p build/pretrainer app/src/main/assets/pretrained
+          javac -d build/pretrainer             app/src/main/java/com/aibot/NeuralNetwork.java             app/src/main/java/com/aibot/Tokenizer.java             app/src/main/java/com/aibot/FullBackpropTrainer.java             tools/HostPretrainer.java
+          java -cp build/pretrainer com.aibot.HostPretrainer             build/pretrained             app/src/main/res/raw/core_assistant.jsonl             app/src/main/res/raw/whisper_personality.jsonl
+          cp build/pretrained/model.bin app/src/main/assets/pretrained/model.bin
+          cp build/pretrained/vocab.txt app/src/main/assets/pretrained/vocab.txt
+          cp build/pretrained/TRAINED.txt app/src/main/assets/pretrained/TRAINED.txt
+          test -s app/src/main/assets/pretrained/model.bin
+          test -s app/src/main/assets/pretrained/vocab.txt
+          echo "Packaged pretrained model:"
+          ls -lh app/src/main/assets/pretrained/
+          cat app/src/main/assets/pretrained/TRAINED.txt
+
       - name: Build normal ARMv7a APK
         run: gradle --no-daemon --stacktrace clean assembleNormal
 
