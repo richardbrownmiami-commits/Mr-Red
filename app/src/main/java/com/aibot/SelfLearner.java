@@ -184,7 +184,9 @@ public class SelfLearner {
             } finally {
                 isTraining = false;
             }
-        }).start();
+        }, "AIBot-BaselineTrainer");
+        trainingThread.setPriority(Thread.MIN_PRIORITY);
+        trainingThread.start();
     }
 
     // ─── LEARN FROM WEB ───────────────────────────────────────────────────────
