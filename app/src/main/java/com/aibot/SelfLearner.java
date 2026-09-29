@@ -127,7 +127,7 @@ public class SelfLearner {
             ? new ArrayList<>(samples.subList(0, usable))
             : new ArrayList<>(samples);
 
-        new Thread(() -> {
+        Thread trainingThread = new Thread(() -> {
             isTraining = true;
             int total  = trainingSamples.size() * TRAIN_EPOCHS;
             int step   = 0;
