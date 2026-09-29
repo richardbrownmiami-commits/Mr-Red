@@ -26,6 +26,14 @@
             android:fontFamily="sans"/>
 
         <ImageButton
+            android:id="@+id/learningButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:src="@android:drawable/ic_menu_manage"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="#9e9e9e"/>
+
+        <ImageButton
             android:id="@+id/menuButton"
             android:layout_width="40dp"
             android:layout_height="40dp"
