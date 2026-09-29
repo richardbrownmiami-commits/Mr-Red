@@ -280,8 +280,6 @@ public class MainActivity extends AppCompatActivity {
                     setStatus(getMoodStatus());
                     if (overlayManager!= null && emotionSystem!= null)
                         overlayManager.updateMood(emotionSystem.getMoodEmoji());
-                    if (emotionSystem!= null && emotionSystem.shouldShareRandomFact())
-                        scheduleProactiveFact();
                 } catch (Exception e) {
                     Log.e(TAG, "post response crash", e);
                 }
@@ -1273,5 +1271,5 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {}
     }
 
-    private void scheduleProactiveFact() {}
+
 }
