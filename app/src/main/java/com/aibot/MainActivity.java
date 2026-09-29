@@ -451,7 +451,6 @@ public class MainActivity extends AppCompatActivity {
 
     private String generateHumanResponse(String input) {
         try {
-            if (baselineTraining) return "I am still training my local neural model. Please wait until the Learning Center says training is complete.";
             trace("TURN input: " + input);
 
             ToolRouter.Decision decision = toolRouter != null
@@ -468,41 +467,43 @@ public class MainActivity extends AppCompatActivity {
                 return memoryAnswer;
             }
 
-            // Knowledge questions have a hard routing boundary: never send them
-            // through the custom Transformer. The Transformer is not a factual
-            // database and an ungrounded answer here can become random text.
             String lowerInput = input.toLowerCase(java.util.Locale.US).trim();
-            if (isFactualQuestion(lowerInput)) {
-                trace("ROUTE KNOWLEDGE -> WEB/COGNITIVE (NO NN)");
-                String factualAnswer = answerFactualQuestion(input);
-                trace("KNOWLEDGE ANSWER chars=" + (factualAnswer == null ? 0 : factualAnswer.length()));
-                return factualAnswer;
-            }
-
             String topic = convManager.extractTopic(input);
             userMemory.recordTopic(topic);
 
+            // Identity is deterministic local handling even when phrased as "what is".
             String name = userMemory.detectName(input);
             if (name != null) {
                 userMemory.setName(name);
-                trace("IDENTITY HANDLER");
+                trace("PHASE1 IDENTITY");
                 return convManager.buildNameResponse(name);
             }
 
-            String lower = input.toLowerCase().trim();
-
-            if (lower.contains("who are you") || lower.contains("what are you")) {
-                trace("IDENTITY HANDLER");
+            if (lowerInput.contains("who are you") || lowerInput.contains("what are you") ||
+                lowerInput.equals("what's your name") ||
+                lowerInput.equals("what is your name") ||
+                lowerInput.equals("your name")) {
+                trace("PHASE1 IDENTITY");
+                if (lowerInput.equals("what's your name") ||
+                    lowerInput.equals("what is your name") ||
+                    lowerInput.equals("your name")) {
+                    return "My name is " + birthStory.getBotName() + ".";
+                }
                 return birthStory.getSelfIntroduction(
                     birthStory.getBotName(), userMemory.getName());
             }
 
-            if (lower.equals("what's your name") ||
-                lower.equals("what is your name") ||
-                lower.equals("your name")) {
-                trace("IDENTITY HANDLER");
-                return "My name is " + birthStory.getBotName() + ".";
+            // PHASE 1 HARD BOUNDARY: factual questions use retrieval only.
+            // They are never passed to the custom Transformer.
+            if (isFactualQuestion(lowerInput)) {
+                trace("PHASE1 KNOWLEDGE -> WEB/COGNITIVE (NO NN)");
+                String factualAnswer = answerFactualQuestion(input);
+                trace("PHASE1 KNOWLEDGE ANSWER chars=" +
+                    (factualAnswer == null ? 0 : factualAnswer.length()));
+                return factualAnswer;
             }
+
+            String lower = input.toLowerCase().trim();
 
             if (lower.contains("what can you do") ||
                 lower.contains("what do you do") ||
@@ -608,6 +609,10 @@ public class MainActivity extends AppCompatActivity {
 
             // Do not web-search ordinary conversation. The template is only a
             // last-resort safety fallback when the custom NN has no usable text.
+            if (baselineTraining) {
+                trace("NN BLOCKED: BASELINE TRAINING");
+                return "My local neural model is still training. The retrieved and tool-based parts of the assistant remain available.";
+            }
             trace("TEMPLATE FALLBACK");
             return convManager.buildCasualResponse(input);
         } catch (Exception e) {
@@ -617,12 +622,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private boolean isFactualQuestion(String s) {
-        return s.contains("what is ") || s.startsWith("what is") ||
-               s.contains("what are ") || s.startsWith("what are") ||
-               s.contains("define ") || s.startsWith("define") ||
-               s.contains("tell me about ") || s.startsWith("tell me about") ||
-               s.contains("who is ") || s.startsWith("who is") ||
-               s.contains("who are ") || s.startsWith("who are");
+        if (s == null) return false;
+        String q = s.trim().toLowerCase(java.util.Locale.US);
+        if (q.equals("what is") || q.equals("what are") ||
+            q.equals("define") || q.equals("tell me about") ||
+            q.equals("who is") || q.equals("who are")) return true;
+        return q.startsWith("what is ") || q.startsWith("what are ") ||
+               q.startsWith("what's ") || q.startsWith("define ") ||
+               q.startsWith("tell me about ") || q.startsWith("who is ") ||
+               q.startsWith("who are ") || q.startsWith("explain ") ||
+               q.startsWith("meaning of ");
     }
 
     private String answerFactualQuestion(String input) {
@@ -633,17 +642,7 @@ public class MainActivity extends AppCompatActivity {
                 trace("KNOWLEDGE WEB results=" + results.size());
                 if (!results.isEmpty()) {
                     String evidence = webSearch.summarizeResults(results);
-                    try {
-                        if (selfLearner != null)
-                            selfLearner.learnFromWebResults(webSearch.extractFacts(results));
-                        for (WebSearch.SearchResult x : results) {
-                            if (nars != null) nars.parseAndLearn(x.snippet);
-                            if (openCog != null) openCog.learn(x.snippet);
-                        }
-                    } catch (Throwable learningError) {
-                        trace("KNOWLEDGE LEARNING SKIPPED " +
-                              learningError.getClass().getSimpleName());
-                    }
+                    trace("PHASE1 KNOWLEDGE -> WEB EVIDENCE -> DIRECT (NO NN)");
                     return evidence;
                 }
             }
