@@ -41,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
     private NarsTool narsTool;
     private WeightManager weightManager;
     private SelfLearner selfLearner;
+    private LearningState learningState;
     private WebSearch webSearch;
     private WebFetch webFetch;
     private DatasetLoader datasetLoader;
@@ -67,6 +68,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText inputField;
     private ImageButton sendButton;
     private ImageButton menuButton;
+    private ImageButton learningButton;
     private TextView statusText;
     private ProgressBar progressBar;
 
@@ -106,6 +108,7 @@ public class MainActivity extends AppCompatActivity {
             inputField = findViewById(R.id.inputField);
             sendButton = findViewById(R.id.sendButton);
             menuButton = findViewById(R.id.menuButton);
+            learningButton = findViewById(R.id.learningButton);
             statusText = findViewById(R.id.statusText);
             progressBar = findViewById(R.id.progressBar);
             if (chatRecycler == null) return;
@@ -114,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
             chatRecycler.setLayoutManager(new LinearLayoutManager(this));
             if (sendButton!= null) sendButton.setOnClickListener(v -> onSendClicked());
             if (menuButton!= null) menuButton.setOnClickListener(v -> showMenu());
+            if (learningButton!= null) learningButton.setOnClickListener(v -> startActivity(new Intent(this, LearningActivity.class)));
             if (inputField!= null) inputField.setOnEditorActionListener((v, id, e) -> {
                 onSendClicked();
                 return true;
@@ -138,7 +142,8 @@ public class MainActivity extends AppCompatActivity {
                 cognitiveContext = new CognitiveContext(cognitiveMemory, nars, atomSpace, onaEngine);
                 narsTool = new NarsTool(nars, atomSpace);
                 huggingFaceHub = new HuggingFaceHub();
-                selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace);
+                learningState = new LearningState(new File(getFilesDir(), "aibot_learning"));
+                selfLearner = new SelfLearner(nn, tokenizer, nars, weightManager, cognitiveMemory, atomSpace, learningState);
                 webSearch = new WebSearch();
                 webFetch = new WebFetch();
                 datasetLoader = new DatasetLoader(weightManager.getDatasetDir());
@@ -688,13 +693,13 @@ public class MainActivity extends AppCompatActivity {
         try {
             if (selfLearner == null || datasetLoader == null) return;
             android.content.SharedPreferences p = getSharedPreferences("brain_state", MODE_PRIVATE);
-            if (p.getBoolean("core_trained_v5", false)) return;
+            if (p.getBoolean("core_trained_v6", false)) return;
 
             File core = new File(weightManager.getDatasetDir(), "core_assistant.jsonl");
             if (!core.exists()) copyBundledDatasetIfMissing();
             if (!core.exists()) return;
 
-            addBotMessage("Building my built-in language and knowledge base...");
+            addBotMessage("Learning center: building the built-in language and knowledge base...");
             if (progressBar != null) {
                 progressBar.setVisibility(View.VISIBLE);
                 progressBar.setIndeterminate(true);
@@ -712,15 +717,15 @@ public class MainActivity extends AppCompatActivity {
                                     progressBar.setMax(Math.max(1,total));
                                     progressBar.setProgress(Math.min(step,total));
                                 }
-                                setStatus("Baseline " + step + "/" + total + " | loss " +
+                                setStatus("Learning " + step + "/" + total + " | loss " +
                                     String.format(java.util.Locale.US, "%.4f", loss));
                             });
                         }
                         public void onComplete(float avg, int steps) {
-                            p.edit().putBoolean("core_trained_v4", true).apply();
+                            p.edit().putBoolean("core_trained_v6", true).apply();
                             mainHandler.post(() -> {
                                 if (progressBar != null) progressBar.setVisibility(View.GONE);
-                                addBotMessage("Baseline ready. Language, conversation, general knowledge, reasoning patterns, identity, and device behavior are loaded.");
+                                addBotMessage("Learning complete. The trained weights and persistent memory are saved on-device.");
                                 setStatus(getMoodStatus());
                             });
                         }
