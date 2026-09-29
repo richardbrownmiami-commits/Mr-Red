@@ -21,8 +21,8 @@ public class WeightManager {
         this.nars = nars;
         this.baseDir = new File(ctx.getFilesDir(), "aibot_weights");
         if (!baseDir.exists()) baseDir.mkdirs();
-        this.datasetDir = new File(ctx.getExternalFilesDir(null), "datasets");
-        if (datasetDir == null) datasetDir = new File(baseDir, "datasets");
+        File external = ctx.getExternalFilesDir(null);
+        this.datasetDir = external != null ? new File(external, "datasets") : new File(baseDir, "datasets");
         if (!datasetDir.exists()) datasetDir.mkdirs();
     }
 
@@ -60,24 +60,50 @@ public class WeightManager {
         }
     }
 
-    public synchronized void saveAll() {
+    public synchronized boolean saveAll() {
         try {
+            if (!baseDir.exists() && !baseDir.mkdirs()) throw new IOException("Cannot create weights directory");
             File model = new File(baseDir, "model.bin");
-            if (nn != null) nn.saveWeights(model);
-
             File vocab = new File(baseDir, "vocab.txt");
-            if (tokenizer != null) tokenizer.saveVocab(vocab);
-
             File bel = new File(baseDir, "beliefs.bin");
-            if (nars != null) nars.saveBeliefs(bel);
-
-            File marker = new File(baseDir, "weights.json");
-            FileWriter fw = new FileWriter(marker);
-            fw.write("{\"version\":2,\"model\":\"model.bin\",\"vocab\":\"vocab.txt\",\"beliefs\":\"beliefs.bin\"}");
-            fw.close();
+            if (nn != null) atomicModelSave(model);
+            if (tokenizer != null) atomicVocabSave(vocab);
+            if (nars != null) atomicBeliefSave(bel);
+            if (!model.exists() || model.length() <= 1000) throw new IOException("Model save incomplete");
+            try (FileWriter fw = new FileWriter(new File(baseDir, "weights.json"))) {
+                fw.write("{\"version\":3,\"model\":\"model.bin\",\"vocab\":\"vocab.txt\",\"beliefs\":\"beliefs.bin\"}");
+            }
+            return true;
         } catch (Exception e) {
             Log.e("WeightManager", "saveAll", e);
+            return false;
         }
+    }
+
+    private void atomicModelSave(File destination) throws IOException {
+        File tmp = new File(destination.getParentFile(), destination.getName() + ".part");
+        if (tmp.exists()) tmp.delete();
+        nn.saveWeights(tmp);
+        replaceAtomically(tmp, destination);
+    }
+
+    private void atomicVocabSave(File destination) throws IOException {
+        File tmp = new File(destination.getParentFile(), destination.getName() + ".part");
+        if (tmp.exists()) tmp.delete();
+        tokenizer.saveVocab(tmp);
+        replaceAtomically(tmp, destination);
+    }
+
+    private void atomicBeliefSave(File destination) throws IOException {
+        File tmp = new File(destination.getParentFile(), destination.getName() + ".part");
+        if (tmp.exists()) tmp.delete();
+        nars.saveBeliefs(tmp);
+        replaceAtomically(tmp, destination);
+    }
+
+    private void replaceAtomically(File tmp, File destination) throws IOException {
+        if (destination.exists() && !destination.delete()) throw new IOException("Cannot replace " + destination.getName());
+        if (!tmp.renameTo(destination)) throw new IOException("Cannot finalize " + destination.getName());
     }
 
     public void appendHistory(String input, String response) {
