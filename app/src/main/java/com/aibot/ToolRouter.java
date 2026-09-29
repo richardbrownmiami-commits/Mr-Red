@@ -69,6 +69,11 @@ public class ToolRouter {
             "weather", "stock price", "price today", "live score",
             "breaking", "update on", "what happened today", "who won today");
 
+        // Factual "what is/who is/explain/define" questions must not be answered by
+        // an ungrounded randomly initialized/local generator. Route them to evidence.
+        boolean factual = isKnowledgeLike(s);
+        if (factual && !memory && !reasoning) web = true;
+
         boolean semantic = onnx != null && onnx.isSemanticModelAvailable();
 
         // For ambiguous knowledge requests, use the embedded ONNX encoder as
