@@ -1,6 +1,7 @@
 package com.redmi9.offlineai
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.graphics.Typeface
 import android.view.Gravity
@@ -20,8 +21,12 @@ class AssistantConfigActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(14, 14, 14, 14) }
         root.addView(TextView(this).apply { text = "Assistant Persona"; textSize = 24f; typeface = Typeface.DEFAULT_BOLD })
         root.addView(TextView(this).apply {
-            text = "These settings are stored locally and applied to each new model request."
+            text = "Persona, behavior, memory and skills stay on this device. Skills are JSON workflows; arbitrary code is not executed."
             setPadding(0, 8, 0, 12)
+        })
+        root.addView(Button(this).apply {
+            text = "Skill Lab • teach a new workflow"
+            setOnClickListener { startActivity(Intent(this@AssistantConfigActivity, SkillsActivity::class.java)) }
         })
         name = editor(root, "Assistant name", PromptStore.get(this, PromptStore.PERSONA_NAME_KEY, "Mr-Red"), 1)
         persona = editor(root, "Personality and role", PromptStore.get(this, PromptStore.PERSONA_KEY, "A capable, honest, privacy-conscious offline Android assistant."), 4)
@@ -41,11 +46,7 @@ class AssistantConfigActivity : Activity() {
     private fun editor(root: LinearLayout, title: String, value: String, lines: Int): EditText {
         root.addView(TextView(this).apply { text = title; textSize = 16f; typeface = Typeface.DEFAULT_BOLD; setPadding(0, 10, 0, 4) })
         val e = EditText(this).apply {
-            setText(value)
-            gravity = Gravity.TOP
-            minLines = lines
-            maxLines = maxOf(lines, 12)
-            setPadding(12, 10, 12, 10)
+            setText(value); gravity = Gravity.TOP; minLines = lines; maxLines = maxOf(lines, 12); setPadding(12, 10, 12, 10)
         }
         root.addView(e, LinearLayout.LayoutParams(-1, -2))
         return e
