@@ -179,7 +179,7 @@ class MainActivity : Activity() {
             while (conversation.size > MAX_HISTORY_TURNS) conversation.removeAt(0)
         }
         val shown = streamBody?.text?.toString() ?: result
-        transcript.add(Bubble("Mekamaru AI", shown, false))
+        transcript.add(Bubble("Mr-Red", shown, false))
         streamBody = null
         updateSendState()
         status.text = modelStatus() + speedText()
@@ -200,7 +200,7 @@ class MainActivity : Activity() {
         val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(8)) }
         header.addView(makeIconButton(R.drawable.ic_menu, "Menu") { showMenu() }, LinearLayout.LayoutParams(dp(44), dp(44)))
         val title = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, 0, 0) }
-        title.addView(TextView(this).apply { text = "Mekamaru AI"; textSize = 21f; typeface = Typeface.DEFAULT_BOLD })
+        title.addView(TextView(this).apply { text = "Mr-Red"; textSize = 21f; typeface = Typeface.DEFAULT_BOLD })
         modelLabel = TextView(this).apply { text = modelName; textSize = 13f; setTextColor(Color.DKGRAY) }
         title.addView(modelLabel)
         header.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -238,7 +238,7 @@ class MainActivity : Activity() {
     private fun restoreStatus() { if (!generating && !modelBusy) status.text = modelStatus() }
     private fun updateSendState() { sendButton.isEnabled = !modelBusy; sendButton.alpha = if (modelBusy) 0.4f else 1f; sendButton.contentDescription = if (generating) "Stop generation" else "Send" }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
-    private fun copyToClipboard(text: String) { (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Mekamaru AI", text)); toast("Copied") }
+    private fun copyToClipboard(text: String) { (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Mr-Red", text)); toast("Copied") }
 
     private fun addBubble(sender: String, content: String, user: Boolean): TextView {
         val bubble = LinearLayout(this).apply {
@@ -255,7 +255,7 @@ class MainActivity : Activity() {
         return body
     }
 
-    private fun addNotice(text: String) { addBubble("Mekamaru AI", text, false) }
+    private fun addNotice(text: String) { addBubble("Mr-Red", text, false) }
     private fun encodeHistory(): String = conversation.takeLast(MAX_HISTORY_TURNS).joinToString("\u001e") { it.role + "\u001f" + it.content }
 
     private fun cancelGeneration() { if (!generating) return; status.text = "Stopping native generation..."; try { nativeCancelGeneration() } catch (_: Throwable) {} }
@@ -266,7 +266,7 @@ class MainActivity : Activity() {
         if (loadedModelFile == null) { showModels("Load a GGUF model before sending a message."); return }
         val historyForRequest = encodeHistory(); val systemContext = config.buildSystemContext(modelName)
         generating = true; pendingPrompt = prompt; streamBuffer = StringBuilder(); streamError = null; streamTokens = 0; streamFirstTokenAt = 0L; forceStick = true
-        addBubble("You", prompt, true); transcript.add(Bubble("You", prompt, true)); input.text.clear(); streamBody = addBubble("Mekamaru AI", "Waiting for first token...", false); updateSendState()
+        addBubble("You", prompt, true); transcript.add(Bubble("You", prompt, true)); input.text.clear(); streamBody = addBubble("Mr-Red", "Waiting for first token...", false); updateSendState()
         status.text = "CPU • $cpuThreads threads • Context $contextSize • Starting native stream"
         Thread {
             try {
@@ -296,7 +296,7 @@ class MainActivity : Activity() {
     private fun showMenu() {
         val labels = arrayOf("Models", "Agent task (accessibility)", "Model Tests", "Memory & History", "Settings", "Engine Info", "Assistant editor", "New chat", "Share chat")
         val icons = intArrayOf(R.drawable.ic_models, R.drawable.ic_debug, R.drawable.ic_debug, R.drawable.ic_memory, R.drawable.ic_settings, R.drawable.ic_debug, R.drawable.ic_edit, R.drawable.ic_edit, R.drawable.ic_send)
-        val dialog = AlertDialog.Builder(this).setTitle("Mekamaru AI").create(); val list = ListView(this); list.dividerHeight = 1
+        val dialog = AlertDialog.Builder(this).setTitle("Mr-Red").create(); val list = ListView(this); list.dividerHeight = 1
         list.adapter = object : BaseAdapter() { override fun getCount() = labels.size; override fun getItem(position: Int): Any = labels[position]; override fun getItemId(position: Int) = position.toLong(); override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = menuRow(labels[position], icons[position]) }
         list.setOnItemClickListener { _, _, which, _ -> dialog.dismiss(); when (which) { 0 -> showModels(); 1 -> showAgentTask(); 2 -> showModelTests(); 3 -> showHistory(); 4 -> showSettings(); 5 -> showEngine(); 6 -> startActivity(Intent(this, AssistantConfigActivity::class.java)); 7 -> newChat(); 8 -> shareChat() } }
         dialog.setView(list); dialog.show()
