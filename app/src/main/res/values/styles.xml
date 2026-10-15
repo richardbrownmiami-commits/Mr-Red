@@ -1,6 +1,17 @@
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <!-- Mr-Red visual system: deep-space canvas, ember-red action color, warm amber state accents. -->
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#444444</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#07090D</item>
+        <item name="android:navigationBarColor">#07090D</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:colorAccent">#FF3B30</item>
+        <item name="android:windowBackground">#080B10</item>
+        <item name="android:colorControlNormal">#8F9AA8</item>
+        <item name="android:colorControlActivated">#FF3B30</item>
+        <item name="android:colorControlHighlight">#26FF3B30</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
     </style>
 </resources>
