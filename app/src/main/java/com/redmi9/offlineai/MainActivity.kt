@@ -204,7 +204,7 @@ class MainActivity : Activity() {
         }
         val shown = streamBody?.text?.toString() ?: result
         transcript.add(Bubble("Mr-Red", shown, false))
-        if (!failed && result.isNotBlank()) persistConversation()
+        persistConversation()
         streamBody = null
         updateSendState()
         status.text = modelStatus() + speedText()
@@ -289,7 +289,7 @@ class MainActivity : Activity() {
         val prompt = input.text.toString().trim()
         if (prompt.isEmpty() || generating || modelBusy) return
         if (loadedModelFile == null) { showModels("Load a GGUF model before sending a message."); return }
-        val historyForRequest = encodeHistory(); val systemContext = config.buildSystemContext(modelName) + "\\n\\n" + conversationStore.relevantContext(prompt)
+        val historyForRequest = encodeHistory(); val systemContext = config.buildSystemContext(modelName) + "\n\n" + conversationStore.relevantContext(prompt)
         generating = true; pendingPrompt = prompt; streamBuffer = StringBuilder(); streamError = null; streamTokens = 0; streamFirstTokenAt = 0L; forceStick = true
         addBubble("You", prompt, true); transcript.add(Bubble("You", prompt, true)); conversation.add(ChatTurn("user", prompt)); persistConversation(); input.text.clear(); streamBody = addBubble("Mr-Red", "Waiting for first token...", false); updateSendState()
         status.text = "CPU • $cpuThreads threads • Context $contextSize • Starting native stream"
@@ -451,11 +451,34 @@ class MainActivity : Activity() {
     private fun showSettings() { AlertDialog.Builder(this).setTitle("Settings").setMessage("CPU default: 4\nContext default: 2048\nCurrent CPU: $cpuThreads\nCurrent Context: $contextSize\n\nSettings are saved. Reload the model to apply changes.").setPositiveButton("CPU threads") { _, _ -> chooseCpuThreads() }.setNeutralButton("Context") { _, _ -> chooseContext() }.setNegativeButton("Assistant editor") { _, _ -> startActivity(Intent(this, AssistantConfigActivity::class.java)) }.show() }
     private fun chooseCpuThreads() { val values = arrayOf("1", "2", "3", "4"); AlertDialog.Builder(this).setTitle("CPU threads").setSingleChoiceItems(values, cpuThreads - 1) { dialog, which -> cpuThreads = which + 1; saveSettings(); dialog.dismiss(); showSettings() }.show() }
     private fun chooseContext() { val values = CONTEXT_OPTIONS.map { it.toString() }.toTypedArray(); val checked = CONTEXT_OPTIONS.indexOf(contextSize).coerceAtLeast(0); AlertDialog.Builder(this).setTitle("Context length").setSingleChoiceItems(values, checked) { dialog, which -> contextSize = CONTEXT_OPTIONS[which]; saveSettings(); dialog.dismiss(); showSettings() }.show() }
-    private fun showHistory() { AlertDialog.Builder(this).setTitle("Memory & History").setMessage("The current chat keeps the latest $MAX_HISTORY_TURNS turns in the active conversation. Long-term memory is not used for inference yet.\n\nChats are not saved when the app closes.").setPositiveButton("OK", null).show() }
-
-    private fun showEngine() {
-        if (generating || modelBusy) toast("Engine info will appear when the current task finishes.")
-        Thread { val info = try { nativeEngineInfo() + "\n\n" + nativeModelInfo() } catch (e: Throwable) { "Engine info unavailable: ${e.message ?: "native error"}" }; runOnUiThread { if (!isFinishing) AlertDialog.Builder(this).setTitle("Engine Info").setMessage(info).setPositiveButton("OK", null).show() } }.start()
+    private fun showHistory() {
+        val sessions = conversationStore.listSessions()
+        if (sessions.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("Conversation memory")
+                .setMessage("Chats are stored locally on this device. Relevant excerpts from older chats can be recalled when a new question overlaps.")
+                .setPositiveButton("OK", null).show()
+            return
+        }
+        val labels = sessions.map { session ->
+            val preview = session.bubbles.lastOrNull()?.text.orEmpty().replace(Regex("\\s+"), " ").take(58)
+            val date = java.text.SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(java.util.Date(session.updatedAt))
+            "${session.title}\\n${date} • ${preview}"
+        }.toTypedArray()
+        AlertDialog.Builder(this).setTitle("Saved conversations")
+            .setItems(labels) { _, which ->
+                val selected = conversationStore.switchTo(sessions[which].id) ?: return@setItems
+                conversation.clear()
+                conversation.addAll(selected.turns.map { ChatTurn(it.role, it.content) })
+                transcript.clear()
+                transcript.addAll(selected.bubbles.map { Bubble(it.sender, it.text, it.user) })
+                messages.removeAllViews()
+                if (transcript.isEmpty()) addNotice(welcomeText()) else transcript.forEach { addBubble(it.sender, it.text, it.user) }
+                scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+                toast("Conversation restored")
+            }
+            .setPositiveButton("Done", null)
+            .setNeutralButton("New chat") { _, _ -> newChat() }
+            .show()
     }
 
     private fun queryDisplayName(uri: Uri): String? { var cursor: Cursor? = null; return try { cursor = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null); if (cursor != null && cursor.moveToFirst()) cursor.getString(0) else null } finally { cursor?.close() } }
