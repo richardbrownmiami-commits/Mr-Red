@@ -85,7 +85,7 @@ if "benchmark" not in native_text.lower():
 
 if "assembleRelease" not in workflow_text or "assembleDebug" in workflow_text:
     raise SystemExit("AUDIT FAIL: workflow is not release-only")
-if "app/build/outputs/apk/release/app-release.apk" not in workflow_text:
+if "app/build/outputs/apk/release/Mr-Red.apk" not in workflow_text:
     raise SystemExit("AUDIT FAIL: release APK path missing")
 
 print("AUDIT/PREPARE PASS: JNI, logger removal, prompt-only assistant config, EOS/EOG stopping, prompt/KV reuse, automatic context fitting, conversation history encoding, benchmark tokens/sec, model lifecycle and release APK workflow verified.")
