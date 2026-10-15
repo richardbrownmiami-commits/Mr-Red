@@ -19,7 +19,7 @@ class SkillRuntime(private val service: AgentAccessibilityService) {
             val values = step.texts.map { substitute(it, input) }
             if (step.requiresConfirmation && isRisky(step.action, value, values)) {
                 return SkillRunResult(true, false,
-                    "Skill “${skill.name}” is ready for step ${index + 1}, but that step can publish, send, delete, purchase, or otherwise change external data. Review and perform that step manually.", skill.id)
+                    "Skill ${skill.name} is ready for step ${index + 1}, but that step can publish, send, delete, purchase, or otherwise change external data. Review and perform that step manually.", skill.id)
             }
 
             val result = when (step.action) {
@@ -36,16 +36,16 @@ class SkillRuntime(private val service: AgentAccessibilityService) {
             }
 
             if (!result) {
-                val target = if (value.isNotBlank()) " on “$value”" else ""
+                val target = if (value.isNotBlank()) " on '$value'" else ""
                 return SkillRunResult(true, false,
-                    "Skill “${skill.name}” stopped at step ${index + 1}. Could not complete action “${step.action}"$target.${traceText(trace)}",
+                    "Skill ${skill.name} stopped at step ${index + 1}. Could not complete action '${step.action}'$target. ${traceText(trace)}",
                     skill.id)
             }
             trace += describe(step, value, values)
             if (step.action != "wait") SystemClock.sleep(350L)
         }
 
-        return SkillRunResult(true, true, "Skill “${skill.name}” completed.${traceText(trace)}", skill.id)
+        return SkillRunResult(true, true, "Skill ${skill.name} completed. ${traceText(trace)}", skill.id)
     }
 
     private fun launch(packageName: String): Boolean {
@@ -68,7 +68,7 @@ class SkillRuntime(private val service: AgentAccessibilityService) {
 
     private fun describe(step: SkillStep, value: String, values: List<String>): String = when (step.action) {
         "click_text_any" -> "Clicked one of: ${values.joinToString()}."
-        "click_text" -> "Clicked “$value”."
+        "click_text" -> "Clicked '$value'."
         "type_text" -> "Entered text into the focused field."
         "launch_app" -> "Opened ${step.packageName}."
         "read_screen" -> "Read the visible screen."
@@ -79,5 +79,5 @@ class SkillRuntime(private val service: AgentAccessibilityService) {
         else -> step.action
     }
 
-    private fun traceText(trace: List<String>): String = if (trace.isEmpty()) "" else "\n\nSteps:\n" + trace.joinToString("\n") { "• $it" }
+    private fun traceText(trace: List<String>): String = if (trace.isEmpty()) "" else "Steps:\n" + trace.joinToString("\n") { "• $it" }
 }
