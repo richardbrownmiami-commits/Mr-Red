@@ -80,8 +80,13 @@ class MainActivity : Activity() {
         private const val PREFS = "mekamaru_ui"
         private const val NO_MODEL = "No GGUF model loaded"
         private val CONTEXT_OPTIONS = listOf(512, 1024, 2048, 3072, 4096)
-        private val ACCENT = Color.rgb(45, 105, 180)
-        private val AI_BUBBLE = Color.rgb(236, 239, 244)
+        private val ACCENT = Color.rgb(0, 196, 106)
+        private val AI_BUBBLE = Color.rgb(22, 27, 34)
+        private val BACKGROUND = Color.rgb(8, 12, 16)
+        private val SURFACE = Color.rgb(13, 17, 23)
+        private val TEXT_PRIMARY = Color.rgb(240, 246, 252)
+        private val TEXT_SECONDARY = Color.rgb(139, 148, 158)
+        private val NEON = Color.rgb(0, 255, 136)
 
         private var loadedModelFile: File? = null
     }
@@ -221,19 +226,19 @@ class MainActivity : Activity() {
     }
 
     private fun buildChatUi() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE); fitsSystemWindows = true }
-        val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(8)) }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BACKGROUND); fitsSystemWindows = true }
+        val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(8), dp(10), dp(8)); setBackgroundColor(SURFACE) }
         header.addView(makeIconButton(R.drawable.ic_menu, "Menu") { showMenu() }, LinearLayout.LayoutParams(dp(44), dp(44)))
         val title = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, 0, 0) }
-        title.addView(TextView(this).apply { text = "Mr-Red"; textSize = 21f; typeface = Typeface.DEFAULT_BOLD })
-        modelLabel = TextView(this).apply { text = modelName; textSize = 13f; setTextColor(Color.DKGRAY) }
+        title.addView(TextView(this).apply { text = PromptStore.get(this@MainActivity, PromptStore.PERSONA_NAME_KEY, "Mr-Red").ifBlank { "Mr-Red" }; textSize = 21f; typeface = Typeface.DEFAULT_BOLD; setTextColor(TEXT_PRIMARY) })
+        modelLabel = TextView(this).apply { text = modelName; textSize = 13f; setTextColor(TEXT_SECONDARY) }
         title.addView(modelLabel)
         header.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         header.addView(makeIconButton(R.drawable.ic_settings, "Settings") { showSettings() }, LinearLayout.LayoutParams(dp(44), dp(44)))
         root.addView(header)
-        root.addView(View(this).apply { setBackgroundColor(Color.rgb(224, 224, 224)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1))
+        root.addView(View(this).apply { setBackgroundColor(Color.rgb(48, 54, 61)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1))
         scroll = ScrollView(this)
-        messages = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(14), dp(12), dp(14)) }
+        messages = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(14), dp(12), dp(14)); setBackgroundColor(BACKGROUND) }
         scroll.addView(messages)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         messages.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
@@ -244,12 +249,19 @@ class MainActivity : Activity() {
         }
         addNotice(welcomeText())
         val composer = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(4)) }
-        input = EditText(this).apply { hint = "Message..."; maxLines = 4; setPadding(dp(12), dp(8), dp(12), dp(8)) }
+        input = EditText(this).apply {
+            hint = "Message..."
+            maxLines = 4
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setTextColor(TEXT_PRIMARY)
+            setHintTextColor(TEXT_SECONDARY)
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(SURFACE); setStroke(dp(1), Color.rgb(48, 54, 61)) }
+        }
         composer.addView(input, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         sendButton = makeIconButton(R.drawable.ic_send, "Send") { if (generating) cancelGeneration() else sendMessage() }
         composer.addView(sendButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply { leftMargin = dp(8) })
         root.addView(composer)
-        status = TextView(this).apply { textSize = 12f; setTextColor(Color.DKGRAY); setPadding(dp(14), dp(2), dp(14), dp(8)) }
+        status = TextView(this).apply { textSize = 12f; setTextColor(TEXT_SECONDARY); setPadding(dp(14), dp(2), dp(14), dp(8)) }
         root.addView(status)
         setContentView(root)
     }
@@ -271,8 +283,8 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(if (user) ACCENT else AI_BUBBLE) }
             setPadding(dp(12), dp(8), dp(12), dp(10))
         }
-        val senderView = TextView(this).apply { text = sender; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (user) Color.argb(200, 255, 255, 255) else Color.GRAY) }
-        val body = TextView(this).apply { text = content; textSize = 16f; setTextColor(if (user) Color.WHITE else Color.rgb(30, 30, 30)) }
+        val senderView = TextView(this).apply { text = sender; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (user) Color.rgb(8, 12, 16) else NEON) }
+        val body = TextView(this).apply { text = content; textSize = 16f; setTextColor(if (user) Color.rgb(8, 12, 16) else TEXT_PRIMARY) }
         bubble.addView(senderView); bubble.addView(body)
         bubble.setOnLongClickListener { copyToClipboard(body.text.toString()); true }
         val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { gravity = if (user) Gravity.END else Gravity.START; setMargins(if (user) dp(48) else 0, dp(5), if (user) 0 else dp(48), dp(5)) }
@@ -314,7 +326,7 @@ class MainActivity : Activity() {
     }
 
     private fun menuRow(textValue: String, iconRes: Int): TextView = TextView(this).apply {
-        text = textValue; textSize = 17f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(20), dp(14), dp(20), dp(14))
+        text = textValue; textSize = 17f; gravity = Gravity.CENTER_VERTICAL; setTextColor(TEXT_PRIMARY); setBackgroundColor(SURFACE); setPadding(dp(20), dp(14), dp(20), dp(14))
         val icon = getDrawable(iconRes)?.mutate(); icon?.setTint(Color.DKGRAY); setCompoundDrawablesWithIntrinsicBounds(icon, null, null, null); compoundDrawablePadding = dp(16)
     }
 
