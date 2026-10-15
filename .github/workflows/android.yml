@@ -1,4 +1,4 @@
-name: Build Redmi 9 Offline AI
+name: Build Mr-Red Android APK
 
 on:
   push:
@@ -54,7 +54,9 @@ jobs:
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
       - name: Build release APK
-        run: gradle --no-daemon :app:assembleRelease --stacktrace
+        run: |
+          gradle --no-daemon :app:assembleRelease --stacktrace
+          mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Mr-Red.apk
       - name: Verify native libraries before packaging
         run: |
           set -e
@@ -71,7 +73,7 @@ jobs:
           echo "Native library audit passed: no 64-bit ELF libraries found."
       - name: Verify release APK ABI
         run: |
-          APK="app/build/outputs/apk/release/app-release.apk"
+          APK="app/build/outputs/apk/release/Mr-Red.apk"
           test -f "$APK"
           unzip -l "$APK" | grep -E 'lib/.*/.*\.so$' || true
           if unzip -l "$APK" | grep -E 'lib/(arm64-v8a|x86|x86_64)/'; then exit 1; fi
@@ -80,6 +82,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Mekamaru-release-armeabi-v7a
-          path: app/build/outputs/apk/release/app-release.apk
+          name: Mr-Red-release-armeabi-v7a
+          path: app/build/outputs/apk/release/Mr-Red.apk
           if-no-files-found: error
