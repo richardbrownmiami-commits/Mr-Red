@@ -498,6 +498,17 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun showEngine() {
+        if (generating || modelBusy) toast("Engine info will appear when the current task finishes.")
+        Thread {
+            val info = try { nativeEngineInfo() + "\n\n" + nativeModelInfo() }
+            catch (e: Throwable) { "Engine info unavailable: ${e.message ?: "native error"}" }
+            runOnUiThread {
+                if (!isFinishing) AlertDialog.Builder(this).setTitle("Engine Info").setMessage(info).setPositiveButton("OK", null).show()
+            }
+        }.start()
+    }
+
     private fun queryDisplayName(uri: Uri): String? { var cursor: Cursor? = null; return try { cursor = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null); if (cursor != null && cursor.moveToFirst()) cursor.getString(0) else null } finally { cursor?.close() } }
     private fun contentLength(uri: Uri): Long { var cursor: Cursor? = null; return try { cursor = contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null); if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L } finally { cursor?.close() } }
     private fun formatBytes(bytes: Long): String { if (bytes < 0) return "unknown size"; if (bytes < 1024L * 1024L) return (bytes / 1024L).toString() + " KB"; return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0)) }
