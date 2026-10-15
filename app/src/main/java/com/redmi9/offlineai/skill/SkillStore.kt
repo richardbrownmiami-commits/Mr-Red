@@ -27,7 +27,8 @@ class SkillStore(private val context: Context) {
     fun delete(id: String): Boolean = File(root, "$id.json").delete()
 
     fun findMatch(task: String): Pair<SkillDefinition, String>? {
-        val normalized = task.trim().lowercase()
+        val original = task.trim()
+        val normalized = original.lowercase()
         if (normalized.isEmpty()) return null
         val candidates = list().flatMap { skill ->
             skill.triggers.mapNotNull { trigger ->
@@ -36,7 +37,9 @@ class SkillStore(private val context: Context) {
             }
         }.sortedByDescending { it.second.length }
         val match = candidates.firstOrNull() ?: return null
-        val remainder = normalized.removeRange(normalized.indexOf(match.second), normalized.indexOf(match.second) + match.second.length).trim(' ', ':', '-', '"', '\'')
+        val start = normalized.indexOf(match.second)
+        val end = start + match.second.length
+        val remainder = if (start >= 0) original.removeRange(start, end).trim(' ', ':', '-', '"', '\'') else ""
         return match.first to remainder
     }
 
