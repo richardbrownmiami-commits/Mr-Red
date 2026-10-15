@@ -1,0 +1,15 @@
+{
+  "id": "instagram_post",
+  "name": "Instagram post helper",
+  "description": "Opens Instagram, starts a post flow, enters the supplied text, then stops before the final publish action.",
+  "triggers": ["instagram post", "post on instagram", "write instagram post"],
+  "steps": [
+    {"action": "launch_app", "package": "com.instagram.android"},
+    {"action": "wait", "ms": 1600},
+    {"action": "click_text_any", "texts": ["Create", "New post", "Post"]},
+    {"action": "wait", "ms": 800},
+    {"action": "click_text_any", "texts": ["Post", "Feed", "Write a caption"]},
+    {"action": "type_text", "text": "${input}"},
+    {"action": "respond", "text": "Caption entered. Review the media and final publish controls yourself before posting."}
+  ]
+}
