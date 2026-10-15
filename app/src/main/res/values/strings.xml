@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="agent_accessibility_description">Allows the user-enabled AI agent to read visible screen text and click text-labeled controls when requested.</string>
+</resources>
