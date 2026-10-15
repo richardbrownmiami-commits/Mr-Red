@@ -386,12 +386,17 @@ class MainActivity : Activity() {
                 status.text = "Agent • planning locally"
                 updateSendState()
                 Thread {
-                    val result = runCatching { runBlocking { AgentRuntime().executeTask(task) } }
+                    val result = runCatching { runBlocking { AgentRuntime(config.buildSystemContext(modelName) + "\n\n" + conversationStore.relevantContext(task)).executeTask(task) } }
                         .getOrElse { "Agent error: ${it.message ?: "unknown error"}" }
                     runOnUiThread {
                         modelBusy = false
+                        addBubble("You", "[Agent task] $task", true)
+                        transcript.add(Bubble("You", "[Agent task] $task", true))
+                        conversation.add(ChatTurn("user", "[Agent task] $task"))
                         addBubble("Agent", result, false)
                         transcript.add(Bubble("Agent", result, false))
+                        conversation.add(ChatTurn("assistant", result))
+                        persistConversation()
                         status.text = modelStatus()
                         updateSendState()
                     }

@@ -13,6 +13,7 @@ import org.json.JSONObject
  * on an explicit allow-list rather than granting arbitrary Android control.
  */
 class AgentRuntime(
+    private val systemContext: String = "",
     private val provider: LlamaAgentProvider = LlamaAgentProvider()
 ) {
     suspend fun executeTask(task: String): String {
@@ -118,6 +119,8 @@ class AgentRuntime(
 
     private fun buildSystemPrompt(task: String, screen: String, trace: List<String>, step: Int): String =
         """
+        $systemContext
+
         You are Mr-Red, a cautious Android task agent. Work toward the user's explicit task over multiple
         small steps. This is decision $step of $MAX_DECISIONS. Choose exactly one action and output ONLY
         one JSON object. Never claim an action succeeded unless the execution history confirms it.
