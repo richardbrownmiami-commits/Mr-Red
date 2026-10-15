@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
+        android:name=".MrRedVisualApplication"
         android:theme="@style/AppTheme"
         android:label="Mr-Red"
         android:icon="@drawable/ic_mekamaru"
@@ -13,7 +14,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-            <service
+        <service
             android:name=".agent.AgentAccessibilityService"
             android:label="AI Agent Screen Access"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
