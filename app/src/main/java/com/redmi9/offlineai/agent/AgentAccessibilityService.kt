@@ -1,8 +1,9 @@
 package com.redmi9.offlineai.agent
 
 import android.accessibilityservice.AccessibilityService
-import android.view.accessibility.AccessibilityNodeInfo
+import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 
 /**
  * User-opt-in accessibility bridge for agent screen inspection and text-targeted taps.
@@ -37,16 +38,28 @@ class AgentAccessibilityService : AccessibilityService() {
         return out.toString().ifBlank { "No readable text found in the active window." }
     }
 
-    /**
-     * Clicks the first visible, enabled node whose text or content description contains [label].
-     * The click is performed only after an agent/user explicitly requests this method.
-     */
     fun clickByText(label: String): Boolean {
         val query = label.trim()
         if (query.isEmpty()) return false
         val root = rootInActiveWindow ?: return false
         return try {
             findAndClick(root, query.lowercase())
+        } finally {
+            root.recycle()
+        }
+    }
+
+    /** Types into the currently focused editable accessibility node. */
+    fun typeText(value: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        return try {
+            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: findEditable(root)
+                ?: return false
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
+            }
+            focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
         } finally {
             root.recycle()
         }
@@ -77,6 +90,16 @@ class AgentAccessibilityService : AccessibilityService() {
                 child.recycle()
             }
         }
+    }
+
+    private fun findEditable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.isVisibleToUser && node.isEnabled && node.isEditable) return AccessibilityNodeInfo.obtain(node)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = try { findEditable(child) } finally { child.recycle() }
+            if (found != null) return found
+        }
+        return null
     }
 
     private fun findAndClick(node: AccessibilityNodeInfo, query: String): Boolean {
