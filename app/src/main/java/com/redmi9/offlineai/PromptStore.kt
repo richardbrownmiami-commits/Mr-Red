@@ -16,4 +16,8 @@ object PromptStore {
     fun prompt(context: Context, fallback: String) = get(context, PROMPT, fallback)
 
     const val PROMPT_KEY = PROMPT
+    const val PERSONA_NAME_KEY = "persona_name"
+    const val PERSONA_KEY = "persona"
+    const val STYLE_KEY = "response_style"
+    const val RULES_KEY = "behavior_rules"
 }

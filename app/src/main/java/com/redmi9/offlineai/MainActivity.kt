@@ -43,6 +43,7 @@ class MainActivity : Activity() {
     private data class Bubble(val sender: String, val text: String, val user: Boolean)
 
     private lateinit var config: AiConfiguration
+    private lateinit var conversationStore: ConversationStore
     private lateinit var messages: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var input: EditText
@@ -90,11 +91,35 @@ class MainActivity : Activity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         System.loadLibrary("offlineai")
         config = AiConfiguration(this)
+        conversationStore = ConversationStore(this)
         modelsDir = File(filesDir, "models")
         modelsDir.mkdirs()
         loadSettings()
         buildChatUi()
+        restoreConversation()
         refreshHeader()
+    }
+
+    private fun restoreConversation() {
+        val saved = conversationStore.loadCurrent()
+        conversation.clear()
+        conversation.addAll(saved.turns.map { ChatTurn(it.role, it.content) })
+        transcript.clear()
+        transcript.addAll(saved.bubbles.map { Bubble(it.sender, it.text, it.user) })
+        messages.removeAllViews()
+        if (transcript.isEmpty()) {
+            addNotice(welcomeText())
+        } else {
+            transcript.forEach { addBubble(it.sender, it.text, it.user) }
+            scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+        }
+    }
+
+    private fun persistConversation() {
+        conversationStore.saveCurrent(
+            conversation.map { StoredTurn(it.role, it.content) },
+            transcript.map { StoredBubble(it.sender, it.text, it.user) }
+        )
     }
 
     private fun loadSettings() {
@@ -174,12 +199,12 @@ class MainActivity : Activity() {
         renderStream()
         if (!failed && result.isBlank()) streamBody?.text = "(empty reply)"
         if (!failed && result.isNotBlank()) {
-            conversation.add(ChatTurn("user", pendingPrompt))
             conversation.add(ChatTurn("assistant", result))
-            while (conversation.size > MAX_HISTORY_TURNS) conversation.removeAt(0)
+            while (conversation.size > MAX_HISTORY_TURNS * 2) conversation.removeAt(0)
         }
         val shown = streamBody?.text?.toString() ?: result
         transcript.add(Bubble("Mr-Red", shown, false))
+        if (!failed && result.isNotBlank()) persistConversation()
         streamBody = null
         updateSendState()
         status.text = modelStatus() + speedText()
@@ -264,9 +289,9 @@ class MainActivity : Activity() {
         val prompt = input.text.toString().trim()
         if (prompt.isEmpty() || generating || modelBusy) return
         if (loadedModelFile == null) { showModels("Load a GGUF model before sending a message."); return }
-        val historyForRequest = encodeHistory(); val systemContext = config.buildSystemContext(modelName)
+        val historyForRequest = encodeHistory(); val systemContext = config.buildSystemContext(modelName) + "\\n\\n" + conversationStore.relevantContext(prompt)
         generating = true; pendingPrompt = prompt; streamBuffer = StringBuilder(); streamError = null; streamTokens = 0; streamFirstTokenAt = 0L; forceStick = true
-        addBubble("You", prompt, true); transcript.add(Bubble("You", prompt, true)); input.text.clear(); streamBody = addBubble("Mr-Red", "Waiting for first token...", false); updateSendState()
+        addBubble("You", prompt, true); transcript.add(Bubble("You", prompt, true)); conversation.add(ChatTurn("user", prompt)); persistConversation(); input.text.clear(); streamBody = addBubble("Mr-Red", "Waiting for first token...", false); updateSendState()
         status.text = "CPU • $cpuThreads threads • Context $contextSize • Starting native stream"
         Thread {
             try {
@@ -302,7 +327,7 @@ class MainActivity : Activity() {
         dialog.setView(list); dialog.show()
     }
 
-    private fun newChat() { if (generating || modelBusy) { toast("Wait for the current task to finish."); return }; conversation.clear(); transcript.clear(); messages.removeAllViews(); addNotice(welcomeText()); status.text = modelStatus() }
+    private fun newChat() { if (generating || modelBusy) { toast("Wait for the current task to finish."); return }; conversationStore.startNew(); conversation.clear(); transcript.clear(); messages.removeAllViews(); addNotice(welcomeText()); status.text = modelStatus() }
     private fun shareChat() { if (transcript.isEmpty()) { toast("Nothing to share yet."); return }; val text = transcript.joinToString("\n\n") { it.sender + ": " + it.text }; val send = Intent(Intent.ACTION_SEND); send.type = "text/plain"; send.putExtra(Intent.EXTRA_TEXT, text); startActivity(Intent.createChooser(send, "Share chat")) }
 
     private fun modelFiles(): List<File> { val found = modelsDir.listFiles { f -> f.isFile && f.name.lowercase(Locale.US).endsWith(".gguf") }; return found?.sortedBy { it.name.lowercase(Locale.US) } ?: emptyList() }
