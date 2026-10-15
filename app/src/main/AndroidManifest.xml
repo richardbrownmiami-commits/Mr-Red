@@ -7,14 +7,15 @@
         android:roundIcon="@drawable/ic_mekamaru"
         android:allowBackup="false"
         android:supportsRtl="true">
-        <activity android:name=".SkillsActivity" android:exported="false" />
-        <activity android:name=".AssistantConfigActivity" android:exported="false" />
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MrRedDashboardActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".SkillsActivity" android:exported="false" />
+        <activity android:name=".AssistantConfigActivity" android:exported="false" />
+        <activity android:name=".MainActivity" android:exported="false" />
         <service
             android:name=".agent.AgentAccessibilityService"
             android:label="AI Agent Screen Access"
