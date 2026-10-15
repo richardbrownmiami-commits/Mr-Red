@@ -9,7 +9,10 @@ import java.io.File
 class SkillStore(private val context: Context) {
     private val root = File(context.filesDir, "skills")
 
-    init { root.mkdirs() }
+    init {
+        root.mkdirs()
+        seedBundledSkills()
+    }
 
     fun list(): List<SkillDefinition> = files().mapNotNull { parse(it) }.sortedBy { it.name.lowercase() }
 
@@ -37,8 +40,15 @@ class SkillStore(private val context: Context) {
         return match.first to remainder
     }
 
-    private fun files(): List<File> = root.listFiles { file -> file.isFile && file.extension.equals("json", true) }?.toList() ?: emptyList()
+    private fun seedBundledSkills() {
+        val assetDir = runCatching { context.assets.list("skills") }.getOrNull() ?: return
+        assetDir.filter { it.endsWith(".json", true) }.forEach { name ->
+            val target = File(root, name)
+            if (!target.exists()) runCatching { context.assets.open("skills/$name").use { input -> target.outputStream().use { input.copyTo(it) } } }
+        }
+    }
 
+    private fun files(): List<File> = root.listFiles { file -> file.isFile && file.extension.equals("json", true) }?.toList() ?: emptyList()
     private fun parse(file: File): SkillDefinition? = runCatching { parseJson(file.readText(Charsets.UTF_8)) }.getOrNull()
 
     private fun parseJson(json: String): SkillDefinition {
