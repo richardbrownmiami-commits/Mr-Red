@@ -7,6 +7,7 @@
         android:roundIcon="@drawable/ic_mekamaru"
         android:allowBackup="false"
         android:supportsRtl="true">
+        <activity android:name=".SkillsActivity" android:exported="false" />
         <activity android:name=".AssistantConfigActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
