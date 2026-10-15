@@ -1,13 +1,11 @@
 package com.redmi9.offlineai.skill
 
-import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.os.SystemClock
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.redmi9.offlineai.agent.AgentAccessibilityService
 
-/** Executes only the small, allow-listed skill DSL. It never evaluates arbitrary code from a skill file. */
-class SkillRuntime(private val service: AccessibilityService) {
+/** Executes only the allow-listed skill DSL. It never evaluates arbitrary code from a skill file. */
+class SkillRuntime(private val service: AgentAccessibilityService) {
     private val store = SkillStore(service)
 
     suspend fun tryExecute(task: String): SkillRunResult {
@@ -38,8 +36,9 @@ class SkillRuntime(private val service: AccessibilityService) {
             }
 
             if (!result) {
+                val target = if (value.isNotBlank()) " on “$value”" else ""
                 return SkillRunResult(true, false,
-                    "Skill “${skill.name}” stopped at step ${index + 1}. Could not complete action “${step.action}"${if (value.isNotBlank()) " on “$value”" else ""}.${traceText(trace)}",
+                    "Skill “${skill.name}” stopped at step ${index + 1}. Could not complete action “${step.action}"$target.${traceText(trace)}",
                     skill.id)
             }
             trace += describe(step, value, values)
