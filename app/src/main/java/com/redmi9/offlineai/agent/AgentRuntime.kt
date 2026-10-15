@@ -1,16 +1,13 @@
 package com.redmi9.offlineai.agent
 
+import com.redmi9.offlineai.skill.SkillRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
- * Bounded multi-step Android task loop.
- *
- * The local model plans one small action at a time from the current accessible
- * screen. The screen is refreshed after every device action so the next
- * decision is based on the resulting UI, not stale screen text. Actions remain
- * on an explicit allow-list rather than granting arbitrary Android control.
+ * Bounded multi-step Android task loop plus user-installed declarative skills.
+ * Skills are checked first; if none matches, the model uses the normal decision loop.
  */
 class AgentRuntime(
     private val systemContext: String = "",
@@ -24,6 +21,9 @@ class AgentRuntime(
         }
         val service = AgentAccessibilityService.current()
             ?: return "Screen automation is disabled. Enable “AI Agent Screen Access” in Android Accessibility settings, then retry."
+
+        val skillResult = SkillRuntime(service).tryExecute(normalizedTask)
+        if (skillResult.matched) return skillResult.message
 
         var screen = readScreen(service)
         val trace = mutableListOf<String>()
@@ -52,78 +52,52 @@ class AgentRuntime(
                     val message = decision.optString("message").ifBlank { "Task finished." }
                     return withTrace(message, trace)
                 }
-
                 "read_screen" -> {
-                    if (!seenActions.add("read_screen")) {
-                        return stopWithTrace("Agent stopped because the model repeated the same screen-read action.", trace)
-                    }
+                    if (!seenActions.add("read_screen")) return stopWithTrace("Agent stopped because the model repeated the same screen-read action.", trace)
                     screen = readScreen(service)
                     trace += "Read the current screen."
                 }
-
                 "back" -> {
-                    if (!seenActions.add("back")) {
-                        return stopWithTrace("Agent stopped to avoid repeating Back navigation.", trace)
-                    }
+                    if (!seenActions.add("back")) return stopWithTrace("Agent stopped to avoid repeating Back navigation.", trace)
                     val ok = withContext(Dispatchers.Main) { service.goBack() }
                     trace += if (ok) "Pressed Back." else "Android rejected Back."
                     if (!ok) return stopWithTrace("Agent could not navigate Back.", trace)
                     screen = readScreen(service)
                 }
-
                 "home" -> {
-                    if (!seenActions.add("home")) {
-                        return stopWithTrace("Agent stopped to avoid repeatedly leaving the current app.", trace)
-                    }
+                    if (!seenActions.add("home")) return stopWithTrace("Agent stopped to avoid repeatedly leaving the current app.", trace)
                     val ok = withContext(Dispatchers.Main) { service.goHome() }
                     trace += if (ok) "Pressed Home." else "Android rejected Home."
                     if (!ok) return stopWithTrace("Android rejected Home.", trace)
                     screen = readScreen(service)
                 }
-
                 "click_text" -> {
                     val label = decision.optString("text").trim()
-                    if (label.isEmpty()) {
-                        return stopWithTrace("The model returned click_text without a target label.", trace)
-                    }
-                    if (isSensitiveLabel(label)) {
-                        return stopWithTrace(
-                            "Safety stop: “$label” may submit, authorize, delete, purchase, contact someone, or expose information. Complete that step manually.",
-                            trace
-                        )
-                    }
+                    if (label.isEmpty()) return stopWithTrace("The model returned click_text without a target label.", trace)
+                    if (isSensitiveLabel(label)) return stopWithTrace("Safety stop: “$label” may submit, authorize, delete, purchase, contact someone, or expose information. Complete that step manually.", trace)
                     val signature = "click:${label.lowercase()}"
-                    if (!seenActions.add(signature)) {
-                        return stopWithTrace("Agent stopped to avoid clicking “$label” repeatedly.", trace)
-                    }
+                    if (!seenActions.add(signature)) return stopWithTrace("Agent stopped to avoid clicking “$label” repeatedly.", trace)
                     val clicked = withContext(Dispatchers.Main) { service.clickByText(label) }
                     trace += if (clicked) "Clicked visible control “$label”." else "No clickable visible control matched “$label”."
                     screen = readScreen(service)
                 }
-
-                else -> return stopWithTrace(
-                    "The model selected unsupported action “$action”. No further device action was performed.",
-                    trace
-                )
+                else -> return stopWithTrace("The model selected unsupported action “$action”. No further device action was performed.", trace)
             }
         }
 
-        return stopWithTrace(
-            "Agent reached its safe limit of $MAX_DECISIONS decisions. Review the steps and give it a more specific task if needed.",
-            trace
-        )
+        return stopWithTrace("Agent reached its safe limit of $MAX_DECISIONS decisions. Review the steps and give it a more specific task if needed.", trace)
     }
 
-    private suspend fun readScreen(service: AgentAccessibilityService): String =
-        withContext(Dispatchers.Main) { service.readActiveWindow(MAX_SCREEN_CHARS) }
+    private suspend fun readScreen(service: AgentAccessibilityService): String = withContext(Dispatchers.Main) { service.readActiveWindow(MAX_SCREEN_CHARS) }
 
     private fun buildSystemPrompt(task: String, screen: String, trace: List<String>, step: Int): String =
         """
         $systemContext
 
-        You are Mr-Red, a cautious Android task agent. Work toward the user's explicit task over multiple
+        You are Mr-Red, a cautious Android task agent. Installed declarative skills have already been
+        checked for this task. If no skill matched, work toward the user's explicit task over multiple
         small steps. This is decision $step of $MAX_DECISIONS. Choose exactly one action and output ONLY
-        one JSON object. Never claim an action succeeded unless the execution history confirms it.
+        one JSON object.
 
         Allowed actions:
         {"action":"respond","message":"explain the result or ask the user for a needed step"}
@@ -135,7 +109,7 @@ class AgentRuntime(
         Safety rules:
         - Use only controls shown in the current visible screen text. Never invent labels.
         - Never click controls involving pay, purchase, send, delete, remove, transfer, submit, confirm,
-          install, allow, grant, call, buy, order, share, or other irreversible/private actions.
+          install, allow, grant, call, buy, order, share, post, publish, comment, reply, or other irreversible/private actions.
         - Do not repeat an action already present in the execution history.
         - If the task requires a risky action, missing permission, or unavailable screen information,
           respond with a clear explanation and let the user take over.
@@ -171,10 +145,7 @@ class AgentRuntime(
 
     private fun isSensitiveLabel(label: String): Boolean {
         val normalized = label.lowercase()
-        return listOf(
-            "pay", "purchase", "send", "delete", "remove", "transfer", "submit",
-            "confirm", "install", "allow", "grant", "call", "buy", "order", "share"
-        ).any { normalized.contains(it) }
+        return listOf("pay", "purchase", "send", "delete", "remove", "transfer", "submit", "confirm", "install", "allow", "grant", "call", "buy", "order", "share", "post", "publish", "comment", "reply").any { normalized.contains(it) }
     }
 
     private companion object {
