@@ -174,8 +174,7 @@ class TopicResearchClient(private val store: KnowledgeStore) {
                 val sb = StringBuilder()
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    sb.append(line).append("
-")
+                    sb.append(line).append('\n')
                 }
                 reader.close()
                 sb.toString()
