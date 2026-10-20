@@ -333,6 +333,63 @@ class MainActivity : Activity() {
     private fun handleKnowledgeOption(option: String, query: String) {
         val normalized = option.lowercase()
         when {
+            normalized.contains("call ") || normalized.startsWith("📞") -> {
+                val intent = DeviceAgentEngine.lastCallIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("Unable to open dialer: ${it.message}") }
+                } else {
+                    val number = option.replace(Regex("[^0-9+]"), "")
+                    if (number.isNotEmpty()) {
+                        startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")))
+                    } else {
+                        toast("No phone number specified.")
+                    }
+                }
+            }
+            normalized.contains("whatsapp") || normalized.startsWith("🟢") -> {
+                val intent = DeviceAgentEngine.lastWhatsAppIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("WhatsApp is not installed or accessible: ${it.message}") }
+                } else {
+                    toast("No active WhatsApp draft.")
+                }
+            }
+            normalized.contains("sms") || normalized.startsWith("💬") -> {
+                val intent = DeviceAgentEngine.lastSmsIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("Unable to open messaging app: ${it.message}") }
+                } else {
+                    toast("No active SMS draft.")
+                }
+            }
+            normalized.contains("launch ") || normalized.startsWith("🚀") -> {
+                val intent = DeviceAgentEngine.lastLaunchIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("Unable to launch app: ${it.message}") }
+                } else {
+                    toast("No app launch intent ready.")
+                }
+            }
+            normalized == "cancel" || normalized == "❌ cancel" -> {
+                DeviceAgentEngine.clearPendingSlot()
+                toast("Action cancelled.")
+            }
+            normalized == "check storage" -> {
+                input.setText("my storage")
+                sendMessage()
+            }
+            normalized == "check battery" -> {
+                input.setText("my battery")
+                sendMessage()
+            }
+            normalized == "check ram" -> {
+                input.setText("my ram")
+                sendMessage()
+            }
+            normalized == "device overview" -> {
+                input.setText("device status")
+                sendMessage()
+            }
             normalized.contains("confirm") || normalized.contains("save this summary") -> {
                 val cached = knowledgeStore.findTopicEntries(query).firstOrNull()
                 if (cached == null) {
@@ -396,6 +453,20 @@ class MainActivity : Activity() {
     private fun sendMessage() {
         val prompt = input.text.toString().trim()
         if (prompt.isEmpty() || generating || modelBusy) return
+
+        val deviceResult = DeviceAgentEngine.process(prompt, this)
+        if (deviceResult != null) {
+            addBubble("You", prompt, true)
+            transcript.add(Bubble("You", prompt, true))
+            conversation.add(ChatTurn("user", prompt))
+            addBubble("Mr-Red", deviceResult.reply, false, deviceResult.candidateOptions, prompt)
+            transcript.add(Bubble("Mr-Red", deviceResult.reply, false))
+            conversation.add(ChatTurn("assistant", deviceResult.reply))
+            persistConversation()
+            input.text.clear()
+            return
+        }
+
         if (loadedModelFile == null) {
             lastKnowledgeQuery = prompt
             val localResult = reasoningEngine.evaluate(prompt)

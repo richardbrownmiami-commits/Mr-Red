@@ -9,3 +9,7 @@ Each capability is declared here so the orchestrator can expose only tools that 
 - memory_search: Retrieve relevant locally stored long-term memory.
 - conversation_history: Retrieve relevant local conversation history.
 - model_info: Read current model and inference runtime information.
+- device_vitals: Check phone hardware vitals (battery, storage, RAM, temperature, clock).
+- send_sms: Draft or send SMS text messages via Android SMS intents.
+- send_whatsapp: Draft or send WhatsApp messages via WhatsApp intents.
+- phone_call: Initiate phone calls via Android dialer intents.
