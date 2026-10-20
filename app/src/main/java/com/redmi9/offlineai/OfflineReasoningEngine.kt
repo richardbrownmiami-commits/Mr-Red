@@ -139,8 +139,7 @@ class OfflineReasoningEngine(private val store: KnowledgeStore) {
     /**
      * Compact offline knowledge snippet for injecting into system prompt.
      */
-    fun relevantKnowledgeContext(query: String): String {
-        val result = evaluate(query)
+    fun relevantKnowledgeContext(query: String, result: ReasoningResult = evaluate(query)): String {
         if (!result.matched) return ""
 
         return buildString {

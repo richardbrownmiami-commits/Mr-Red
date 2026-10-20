@@ -66,6 +66,7 @@ class MainActivity : Activity() {
     private var forceStick = false
 
     private var pendingPrompt = ""
+    private var lastKnowledgeQuery: String = ""
     private var streamBuffer = StringBuilder()
     private var streamBody: TextView? = null
     private var streamError: String? = null
@@ -103,6 +104,7 @@ class MainActivity : Activity() {
         knowledgeStore = KnowledgeStore(this)
         reasoningEngine = OfflineReasoningEngine(knowledgeStore)
         researchClient = TopicResearchClient(knowledgeStore)
+        TriageResearchWorker.schedule(this)
         modelsDir = File(filesDir, "models")
         modelsDir.mkdirs()
         loadSettings()
@@ -283,7 +285,7 @@ class MainActivity : Activity() {
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
     private fun copyToClipboard(text: String) { (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Mr-Red", text)); toast("Copied") }
 
-    private fun addBubble(sender: String, content: String, user: Boolean): TextView {
+    private fun addBubble(sender: String, content: String, user: Boolean, candidateOptions: List<String> = emptyList(), knowledgeQuery: String = lastKnowledgeQuery): TextView {
         val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(if (user) ACCENT else AI_BUBBLE) }
@@ -292,10 +294,98 @@ class MainActivity : Activity() {
         val senderView = TextView(this).apply { text = sender; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (user) Color.rgb(8, 12, 16) else NEON) }
         val body = TextView(this).apply { text = content; textSize = 16f; setTextColor(if (user) Color.rgb(8, 12, 16) else TEXT_PRIMARY) }
         bubble.addView(senderView); bubble.addView(body)
+
+        if (!user && candidateOptions.isNotEmpty()) {
+            val chipContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, dp(8), 0, 0)
+            }
+            candidateOptions.forEachIndexed { index, option ->
+                val chip = TextView(this).apply {
+                    text = option
+                    textSize = 13f
+                    setTextColor(Color.WHITE)
+                    setPadding(dp(10), dp(8), dp(10), dp(8))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(16).toFloat()
+                        setColor(Color.rgb(35, 44, 54))
+                        setStroke(dp(1), ACCENT)
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { handleKnowledgeOption(option, knowledgeQuery) }
+                }
+                val chipParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(4)
+                    bottomMargin = dp(2)
+                }
+                chipContainer.addView(chip, chipParams)
+            }
+            bubble.addView(chipContainer)
+        }
+
         bubble.setOnLongClickListener { copyToClipboard(body.text.toString()); true }
         val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { gravity = if (user) Gravity.END else Gravity.START; setMargins(if (user) dp(48) else 0, dp(5), if (user) 0 else dp(48), dp(5)) }
         messages.addView(bubble, params)
         return body
+    }
+
+    private fun handleKnowledgeOption(option: String, query: String) {
+        val normalized = option.lowercase()
+        when {
+            normalized.contains("confirm") || normalized.contains("save this summary") -> {
+                val cached = knowledgeStore.findTopicEntries(query).firstOrNull()
+                if (cached == null) {
+                    toast("No cached summary to confirm.")
+                    return
+                }
+                val question = "What is ${cached.topic}?"
+                reasoningEngine.learnConfirmedAnswer(question, cached.summary, cached.topic)
+                toast("Saved as a confirmed offline answer.")
+            }
+            normalized.contains("research") || normalized.contains("online") || normalized.contains("update") || normalized.contains("fetch") -> {
+                knowledgeStore.logTriage(query, "needs_online_fetch", "User requested an online refresh from an in-chat option.")
+                TriageResearchWorker.schedule(this)
+                toast("Research queued. It will run when internet is available.")
+            }
+            normalized.contains("refine") || normalized.contains("update this answer") -> {
+                showTeachAnswerDialog(query)
+            }
+            normalized.contains("teach") || normalized.contains("answer") -> {
+                showTeachAnswerDialog(query)
+            }
+            normalized.contains("rephrase") || normalized.contains("clarify") -> {
+                input.setText(query)
+                input.setSelection(input.text.length)
+                input.requestFocus()
+            }
+            else -> {
+                val topic = query.ifBlank { option.substringAfterLast("about ").trim() }
+                input.setText("Tell me about $topic")
+                input.setSelection(input.text.length)
+                input.requestFocus()
+            }
+        }
+    }
+
+    private fun showTeachAnswerDialog(question: String) {
+        val answerInput = EditText(this).apply { hint = "Enter the answer to save offline"; minLines = 3 }
+        AlertDialog.Builder(this)
+            .setTitle("Teach Mr-Red")
+            .setMessage(question)
+            .setView(answerInput)
+            .setPositiveButton("Save confirmed answer") { _, _ ->
+                val answer = answerInput.text.toString().trim()
+                if (answer.isNotBlank()) {
+                    val topic = TopicResearchClient(knowledgeStore).extractResearchTopic(question)
+                    reasoningEngine.learnConfirmedAnswer(question, answer, topic)
+                    toast("Saved as a confirmed offline answer.")
+                } else {
+                    toast("Answer cannot be empty.")
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun addNotice(text: String) { addBubble("Mr-Red", text, false) }
@@ -307,24 +397,29 @@ class MainActivity : Activity() {
         val prompt = input.text.toString().trim()
         if (prompt.isEmpty() || generating || modelBusy) return
         if (loadedModelFile == null) {
+            lastKnowledgeQuery = prompt
             val localResult = reasoningEngine.evaluate(prompt)
-            if (localResult.matched) {
-                addBubble("You", prompt, true)
-                transcript.add(Bubble("You", prompt, true))
-                conversation.add(ChatTurn("user", prompt))
-                val reply = localResult.formattedResponse()
-                addBubble("Mr-Red (Local Knowledge)", reply, false)
-                transcript.add(Bubble("Mr-Red (Local Knowledge)", reply, false))
-                conversation.add(ChatTurn("assistant", reply))
-                persistConversation()
-                input.text.clear()
-                return
+            addBubble("You", prompt, true)
+            transcript.add(Bubble("You", prompt, true))
+            conversation.add(ChatTurn("user", prompt))
+            val reply = localResult.formattedResponse()
+            addBubble("Mr-Red (Local Knowledge)", reply, false, localResult.candidateOptions, prompt)
+            transcript.add(Bubble("Mr-Red (Local Knowledge)", reply, false))
+            conversation.add(ChatTurn("assistant", reply))
+            persistConversation()
+            input.text.clear()
+            if (!localResult.matched) {
+                TriageResearchWorker.schedule(this)
+                status.text = "Question saved; online research will run when a network is available."
             }
-            showModels("Load a GGUF model or research this topic under Menu > Topic Research & Knowledge.")
             return
         }
         val historyForRequest = encodeHistory()
-        val localContext = reasoningEngine.relevantKnowledgeContext(prompt)
+        val localKnowledgeResult = reasoningEngine.evaluate(prompt)
+        if (!localKnowledgeResult.matched) {
+            TriageResearchWorker.schedule(this)
+        }
+        val localContext = reasoningEngine.relevantKnowledgeContext(prompt, localKnowledgeResult)
         val systemContext = config.buildSystemContext(modelName) +
             (if (localContext.isNotEmpty()) "\n\n" + localContext else "") +
             "\n\n" + conversationStore.relevantContext(prompt)

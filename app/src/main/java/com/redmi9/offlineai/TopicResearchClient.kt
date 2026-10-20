@@ -27,8 +27,22 @@ data class ResearchResult(
  */
 class TopicResearchClient(private val store: KnowledgeStore) {
 
-    suspend fun researchAndStore(topic: String): ResearchResult = withContext(Dispatchers.IO) {
-        val cleanTopic = topic.trim()
+    fun extractResearchTopic(rawQuery: String): String {
+        var clean = rawQuery.trim().replace(Regex("[?!.,;:]+$"), "").trim()
+        val patterns = listOf(
+            Regex("^(what is|what are|who is|who was|who were|where is|where are)\\s+(the\\s+|a\\s+|an\\s+)?", RegexOption.IGNORE_CASE),
+            Regex("^(tell me about|explain|define|describe|search for)\\s+(the\\s+|a\\s+|an\\s+)?", RegexOption.IGNORE_CASE),
+            Regex("^(how does|how do|how is)\\s+", RegexOption.IGNORE_CASE),
+            Regex("\\\s+work$", RegexOption.IGNORE_CASE)
+        )
+        for (pattern in patterns) {
+            clean = clean.replace(pattern, "")
+        }
+        return clean.trim().ifBlank { rawQuery.trim() }
+    }
+
+    suspend fun researchAndStore(topic: String, queueOnFailure: Boolean = true): ResearchResult = withContext(Dispatchers.IO) {
+        val cleanTopic = extractResearchTopic(topic)
         if (cleanTopic.isBlank()) {
             return@withContext ResearchResult(false, "", "", "", 0, "Topic cannot be empty.")
         }
@@ -46,7 +60,6 @@ class TopicResearchClient(private val store: KnowledgeStore) {
                 mainSummary = abstractText
                 if (heading.isNotEmpty()) mainTitle = heading
                 store.saveTopicCache(cleanTopic, mainTitle, abstractText, "duckduckgo", ddgData.toString())
-                store.saveConfirmedQa("What is $cleanTopic?", abstractText, cleanTopic, 0.95)
                 store.saveTriple(cleanTopic, "is", abstractText.take(120), cleanTopic, 0.9)
                 factsCount++
             }
@@ -77,7 +90,6 @@ class TopicResearchClient(private val store: KnowledgeStore) {
                 if (title.isNotEmpty()) mainTitle = title
 
                 store.saveTopicCache(cleanTopic, mainTitle, extract, "wikipedia", wikiData.toString())
-                store.saveConfirmedQa("Who or what is $cleanTopic?", extract, cleanTopic, 1.0)
                 if (description.isNotEmpty()) {
                     store.saveTriple(cleanTopic, "description", description, cleanTopic, 0.9)
                     factsCount++
@@ -98,7 +110,9 @@ class TopicResearchClient(private val store: KnowledgeStore) {
                 message = "Learned and cached '$cleanTopic' with $factsCount facts for offline answering."
             )
         } else {
-            store.logTriage(cleanTopic, "needs_online_fetch", "No instant summary found via Wikipedia or DuckDuckGo.")
+            if (queueOnFailure) {
+                store.logTriage(cleanTopic, "needs_online_fetch", "No instant summary found via Wikipedia or DuckDuckGo.")
+            }
             ResearchResult(
                 success = false,
                 topic = cleanTopic,
@@ -108,6 +122,22 @@ class TopicResearchClient(private val store: KnowledgeStore) {
                 message = "Could not find instant definitions for '$cleanTopic'. Saved to triage queue."
             )
         }
+    }
+
+    suspend fun processPendingTriage(limit: Int = 5): Int = withContext(Dispatchers.IO) {
+        val pending = store.getPendingTriageEntries(limit)
+        var successCount = 0
+        for (entry in pending) {
+            val topic = extractResearchTopic(entry.rawQuery)
+            val result = researchAndStore(topic, queueOnFailure = false)
+            if (result.success) {
+                store.updateTriageStatus(entry.id, "resolved", "Auto-researched: ${result.title} (${result.factsLearned} facts)")
+                successCount++
+            } else {
+                store.updateTriageStatus(entry.id, "attempted_not_found", "No instant summary online.")
+            }
+        }
+        successCount
     }
 
     private fun fetchDuckDuckGo(query: String): JSONObject? {
@@ -144,7 +174,8 @@ class TopicResearchClient(private val store: KnowledgeStore) {
                 val sb = StringBuilder()
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    sb.append(line).append("\n")
+                    sb.append(line).append("
+")
                 }
                 reader.close()
                 sb.toString()
