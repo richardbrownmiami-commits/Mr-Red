@@ -343,13 +343,13 @@ class MainActivity : Activity() {
                 reasoningEngine.learnConfirmedAnswer(question, cached.summary, cached.topic)
                 toast("Saved as a confirmed offline answer.")
             }
+            normalized.contains("refine") || normalized.contains("update this answer") -> {
+                showTeachAnswerDialog(query)
+            }
             normalized.contains("research") || normalized.contains("online") || normalized.contains("update") || normalized.contains("fetch") -> {
                 knowledgeStore.logTriage(query, "needs_online_fetch", "User requested an online refresh from an in-chat option.")
                 TriageResearchWorker.schedule(this)
                 toast("Research queued. It will run when internet is available.")
-            }
-            normalized.contains("refine") || normalized.contains("update this answer") -> {
-                showTeachAnswerDialog(query)
             }
             normalized.contains("teach") || normalized.contains("answer") -> {
                 showTeachAnswerDialog(query)
