@@ -347,6 +347,141 @@ class KnowledgeStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null
         return results.sortedByDescending { it.second }.map { it.first }
     }
 
+    data class FuzzyTopicMatch(
+        val entry: TopicEntry,
+        val matchedTerm: String,
+        val originalTerm: String,
+        val distance: Int
+    )
+
+    data class FuzzyQaMatch(
+        val entry: QaEntry,
+        val matchedTerm: String,
+        val originalTerm: String,
+        val distance: Int
+    )
+
+    fun levenshteinDistance(s1: String, s2: String): Int {
+        if (s1 == s2) return 0
+        if (s1.isEmpty()) return s2.length
+        if (s2.isEmpty()) return s1.length
+        val dp = IntArray(s2.length + 1) { it }
+        for (i in 1..s1.length) {
+            var prev = dp[0]
+            dp[0] = i
+            for (j in 1..s2.length) {
+                val temp = dp[j]
+                dp[j] = if (s1[i - 1] == s2[j - 1]) {
+                    prev
+                } else {
+                    1 + minOf(prev, dp[j], dp[j - 1])
+                }
+                prev = temp
+            }
+        }
+        return dp[s2.length]
+    }
+
+    @Synchronized
+    fun findFuzzyTopicEntries(query: String): List<FuzzyTopicMatch> {
+        val clean = query.trim()
+        val terms = extractKeywords(clean)
+        if (terms.isEmpty()) return emptyList()
+
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT id, topic, title, summary, source, created_at FROM topic_cache ORDER BY created_at DESC LIMIT 60", null)
+        val results = mutableListOf<FuzzyTopicMatch>()
+
+        cursor.use {
+            while (it.moveToNext()) {
+                val entry = TopicEntry(
+                    id = it.getLong(0),
+                    topic = it.getString(1),
+                    title = it.getString(2),
+                    summary = it.getString(3),
+                    source = it.getString(4),
+                    createdAt = it.getLong(5)
+                )
+                val targetWords = Regex("[\\p{L}\\p{N}]{3,}").findAll("${entry.topic} ${entry.title}".lowercase())
+                    .map { m -> m.value }
+                    .filterNot { w -> w in STOP_WORDS }
+                    .toList()
+
+                for (term in terms) {
+                    val maxAllowed = when {
+                        term.length <= 4 -> 1
+                        term.length <= 7 -> 2
+                        else -> 3
+                    }
+                    var bestDist = 99
+                    var bestWord = ""
+                    for (word in targetWords) {
+                        if (Math.abs(term.length - word.length) > maxAllowed) continue
+                        val d = levenshteinDistance(term, word)
+                        if (d < bestDist) {
+                            bestDist = d
+                            bestWord = word
+                        }
+                    }
+                    if (bestDist in 1..maxAllowed) {
+                        results.add(FuzzyTopicMatch(entry, bestWord, term, bestDist))
+                    }
+                }
+            }
+        }
+        return results.sortedBy { it.distance }.distinctBy { it.entry.id }
+    }
+
+    @Synchronized
+    fun findFuzzyQaEntries(query: String): List<FuzzyQaMatch> {
+        val clean = query.trim()
+        val terms = extractKeywords(clean)
+        if (terms.isEmpty()) return emptyList()
+
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT id, question, answer, topic, confidence, created_at FROM confirmed_qa ORDER BY confidence DESC, created_at DESC LIMIT 60", null)
+        val results = mutableListOf<FuzzyQaMatch>()
+
+        cursor.use {
+            while (it.moveToNext()) {
+                val entry = QaEntry(
+                    id = it.getLong(0),
+                    question = it.getString(1),
+                    answer = it.getString(2),
+                    topic = it.getString(3),
+                    confidence = it.getDouble(4),
+                    createdAt = it.getLong(5)
+                )
+                val targetWords = Regex("[\\p{L}\\p{N}]{3,}").findAll("${entry.question} ${entry.topic}".lowercase())
+                    .map { m -> m.value }
+                    .filterNot { w -> w in STOP_WORDS }
+                    .toList()
+
+                for (term in terms) {
+                    val maxAllowed = when {
+                        term.length <= 4 -> 1
+                        term.length <= 7 -> 2
+                        else -> 3
+                    }
+                    var bestDist = 99
+                    var bestWord = ""
+                    for (word in targetWords) {
+                        if (Math.abs(term.length - word.length) > maxAllowed) continue
+                        val d = levenshteinDistance(term, word)
+                        if (d < bestDist) {
+                            bestDist = d
+                            bestWord = word
+                        }
+                    }
+                    if (bestDist in 1..maxAllowed) {
+                        results.add(FuzzyQaMatch(entry, bestWord, term, bestDist))
+                    }
+                }
+            }
+        }
+        return results.sortedBy { it.distance }.distinctBy { it.entry.id }
+    }
+
     @Synchronized
     fun saveTriple(subject: String, predicate: String, objectVal: String, topic: String, confidence: Double = 0.8): Long {
         val db = writableDatabase

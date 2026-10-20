@@ -115,7 +115,46 @@ class OfflineReasoningEngine(private val store: KnowledgeStore) {
             )
         }
 
-        // 4. Unmatched query -> triage
+        // 4. Fuzzy typo / misspelling fallback check
+        val fuzzyQa = store.findFuzzyQaEntries(cleanQuery).firstOrNull()
+        if (fuzzyQa != null) {
+            val qa = fuzzyQa.entry
+            val triples = store.findTriples(qa.topic).map { "${it.subject} ${it.predicate} ${it.objectVal}" }
+            return ReasoningResult(
+                matched = true,
+                directAnswer = "Did you mean '${fuzzyQa.matchedTerm}'? (matched '${qa.question}')\n\n${qa.answer}",
+                topicSummary = null,
+                relatedFacts = triples,
+                candidateOptions = listOf(
+                    "Confirm answer for '${cleanQuery}'",
+                    "Teach a different answer",
+                    "Research online when connected"
+                ),
+                confidence = 0.70,
+                source = "confirmed_qa (fuzzy match: '${fuzzyQa.originalTerm}' -> '${fuzzyQa.matchedTerm}')"
+            )
+        }
+
+        val fuzzyTopic = store.findFuzzyTopicEntries(cleanQuery).firstOrNull()
+        if (fuzzyTopic != null) {
+            val topTopic = fuzzyTopic.entry
+            val triples = store.findTriples(topTopic.topic).map { "${it.subject} ${it.predicate} ${it.objectVal}" }
+            return ReasoningResult(
+                matched = true,
+                directAnswer = "Did you mean '${fuzzyTopic.matchedTerm}'? (showing cached topic '${topTopic.title}')",
+                topicSummary = topTopic.summary,
+                relatedFacts = triples,
+                candidateOptions = listOf(
+                    "Save summary as confirmed answer",
+                    "Teach a different answer",
+                    "Research online when connected"
+                ),
+                confidence = 0.65,
+                source = "topic_cache (fuzzy match: '${fuzzyTopic.originalTerm}' -> '${fuzzyTopic.matchedTerm}')"
+            )
+        }
+
+        // 5. Unmatched query -> triage
         store.logTriage(cleanQuery, "needs_online_fetch", "No local match found offline.")
         return ReasoningResult(
             matched = false,
