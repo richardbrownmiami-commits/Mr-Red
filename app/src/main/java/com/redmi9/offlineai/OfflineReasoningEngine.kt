@@ -19,23 +19,16 @@ data class ReasoningResult(
         }
 
         if (relatedFacts.isNotEmpty()) {
-            append("
-
-Related local facts:
-")
+            append("\n\nRelated local facts:\n")
             relatedFacts.take(4).forEach { fact ->
-                append("• ").append(fact).append("
-")
+                append("• ").append(fact).append("\n")
             }
         }
 
         if (candidateOptions.isNotEmpty()) {
-            append("
-Options to explore or confirm:
-")
+            append("\n\nOptions to explore or confirm:\n")
             candidateOptions.forEachIndexed { idx, opt ->
-                append("${idx + 1}. ").append(opt).append("
-")
+                append("${idx + 1}. ").append(opt).append("\n")
             }
         }
     }.trimEnd()
@@ -95,8 +88,7 @@ class OfflineReasoningEngine(private val store: KnowledgeStore) {
             return ReasoningResult(
                 matched = true,
                 directAnswer = null,
-                topicSummary = "[Cached Topic: ${topTopic.title}]
-${topTopic.summary}",
+                topicSummary = "[Cached Topic: ${topTopic.title}]\n${topTopic.summary}",
                 relatedFacts = triples,
                 candidateOptions = options,
                 confidence = 0.75,
@@ -152,19 +144,15 @@ ${topTopic.summary}",
         if (!result.matched) return ""
 
         return buildString {
-            append("[Local Knowledge Base (Offline)]
-")
+            append("[Local Knowledge Base (Offline)]\n")
             if (!result.directAnswer.isNullOrBlank()) {
-                append("Verified Answer: ").append(result.directAnswer).append("
-")
+                append("Verified Answer: ").append(result.directAnswer).append("\n")
             }
             if (!result.topicSummary.isNullOrBlank()) {
-                append(result.topicSummary).append("
-")
+                append(result.topicSummary).append("\n")
             }
             if (result.relatedFacts.isNotEmpty()) {
-                append("Known Facts: ").append(result.relatedFacts.take(3).joinToString("; ")).append("
-")
+                append("Known Facts: ").append(result.relatedFacts.take(3).joinToString("; ")).append("\n")
             }
         }.trimEnd()
     }
