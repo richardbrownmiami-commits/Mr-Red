@@ -44,6 +44,9 @@ class MainActivity : Activity() {
 
     private lateinit var config: AiConfiguration
     private lateinit var conversationStore: ConversationStore
+    private lateinit var knowledgeStore: KnowledgeStore
+    private lateinit var reasoningEngine: OfflineReasoningEngine
+    private lateinit var researchClient: TopicResearchClient
     private lateinit var messages: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var input: EditText
@@ -97,6 +100,9 @@ class MainActivity : Activity() {
         System.loadLibrary("offlineai")
         config = AiConfiguration(this)
         conversationStore = ConversationStore(this)
+        knowledgeStore = KnowledgeStore(this)
+        reasoningEngine = OfflineReasoningEngine(knowledgeStore)
+        researchClient = TopicResearchClient(knowledgeStore)
         modelsDir = File(filesDir, "models")
         modelsDir.mkdirs()
         loadSettings()
@@ -300,8 +306,28 @@ class MainActivity : Activity() {
     private fun sendMessage() {
         val prompt = input.text.toString().trim()
         if (prompt.isEmpty() || generating || modelBusy) return
-        if (loadedModelFile == null) { showModels("Load a GGUF model before sending a message."); return }
-        val historyForRequest = encodeHistory(); val systemContext = config.buildSystemContext(modelName) + "\n\n" + conversationStore.relevantContext(prompt)
+        if (loadedModelFile == null) {
+            val localResult = reasoningEngine.evaluate(prompt)
+            if (localResult.matched) {
+                addBubble("You", prompt, true)
+                transcript.add(Bubble("You", prompt, true))
+                conversation.add(ChatTurn("user", prompt))
+                val reply = localResult.formattedResponse()
+                addBubble("Mr-Red (Local Knowledge)", reply, false)
+                transcript.add(Bubble("Mr-Red (Local Knowledge)", reply, false))
+                conversation.add(ChatTurn("assistant", reply))
+                persistConversation()
+                input.text.clear()
+                return
+            }
+            showModels("Load a GGUF model or research this topic under Menu > Topic Research & Knowledge.")
+            return
+        }
+        val historyForRequest = encodeHistory()
+        val localContext = reasoningEngine.relevantKnowledgeContext(prompt)
+        val systemContext = config.buildSystemContext(modelName) +
+            (if (localContext.isNotEmpty()) "\n\n" + localContext else "") +
+            "\n\n" + conversationStore.relevantContext(prompt)
         generating = true; pendingPrompt = prompt; streamBuffer = StringBuilder(); streamError = null; streamTokens = 0; streamFirstTokenAt = 0L; forceStick = true
         addBubble("You", prompt, true); transcript.add(Bubble("You", prompt, true)); conversation.add(ChatTurn("user", prompt)); persistConversation(); input.text.clear(); streamBody = addBubble("Mr-Red", "Waiting for first token...", false); updateSendState()
         status.text = "CPU • $cpuThreads threads • Context $contextSize • Starting native stream"
@@ -331,11 +357,11 @@ class MainActivity : Activity() {
     }
 
     private fun showMenu() {
-        val labels = arrayOf("Models", "Agent task (accessibility)", "Model Tests", "Memory & History", "Settings", "Engine Info", "Assistant editor", "New chat", "Share chat")
-        val icons = intArrayOf(R.drawable.ic_models, R.drawable.ic_debug, R.drawable.ic_debug, R.drawable.ic_memory, R.drawable.ic_settings, R.drawable.ic_debug, R.drawable.ic_edit, R.drawable.ic_edit, R.drawable.ic_send)
+        val labels = arrayOf("Models", "Topic Research & Knowledge", "Agent task (accessibility)", "Model Tests", "Memory & History", "Settings", "Engine Info", "Assistant editor", "New chat", "Share chat")
+        val icons = intArrayOf(R.drawable.ic_models, R.drawable.ic_memory, R.drawable.ic_debug, R.drawable.ic_debug, R.drawable.ic_memory, R.drawable.ic_settings, R.drawable.ic_debug, R.drawable.ic_edit, R.drawable.ic_edit, R.drawable.ic_send)
         val dialog = AlertDialog.Builder(this).setTitle("Mr-Red").create(); val list = ListView(this); list.dividerHeight = 1
         list.adapter = object : BaseAdapter() { override fun getCount() = labels.size; override fun getItem(position: Int): Any = labels[position]; override fun getItemId(position: Int) = position.toLong(); override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = menuRow(labels[position], icons[position]) }
-        list.setOnItemClickListener { _, _, which, _ -> dialog.dismiss(); when (which) { 0 -> showModels(); 1 -> showAgentTask(); 2 -> showModelTests(); 3 -> showHistory(); 4 -> showSettings(); 5 -> showEngine(); 6 -> startActivity(Intent(this, AssistantConfigActivity::class.java)); 7 -> newChat(); 8 -> shareChat() } }
+        list.setOnItemClickListener { _, _, which, _ -> dialog.dismiss(); when (which) { 0 -> showModels(); 1 -> showKnowledgeDialog(); 2 -> showAgentTask(); 3 -> showModelTests(); 4 -> showHistory(); 5 -> showSettings(); 6 -> showEngine(); 7 -> startActivity(Intent(this, AssistantConfigActivity::class.java)); 8 -> newChat(); 9 -> shareChat() } }
         dialog.setView(list); dialog.show()
     }
 
@@ -344,6 +370,48 @@ class MainActivity : Activity() {
 
     private fun modelFiles(): List<File> { val found = modelsDir.listFiles { f -> f.isFile && f.name.lowercase(Locale.US).endsWith(".gguf") }; return found?.sortedBy { it.name.lowercase(Locale.US) } ?: emptyList() }
 
+
+
+    private fun showKnowledgeDialog() {
+        val topics = knowledgeStore.listStoredTopics()
+        val summaryText = if (topics.isEmpty()) "No topics cached in local store yet." else "Cached topics (${topics.size}):\n• " + topics.joinToString("\n• ")
+        val topicInput = EditText(this).apply {
+            hint = "Enter topic to research (e.g. Android, Gravity)"
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(10), dp(20), dp(10))
+            addView(TextView(this@MainActivity).apply {
+                text = summaryText
+                textSize = 13f
+                setTextColor(TEXT_SECONDARY)
+                setPadding(0, 0, 0, dp(12))
+            })
+            addView(topicInput)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Topic Research & Knowledge")
+            .setView(layout)
+            .setPositiveButton("Research online") { _, _ ->
+                val topic = topicInput.text.toString().trim()
+                if (topic.isBlank()) { toast("Enter a topic first."); return@setPositiveButton }
+                toast("Fetching Wikipedia & DuckDuckGo for '$topic'...")
+                Thread {
+                    val result = kotlinx.coroutines.runBlocking { researchClient.researchAndStore(topic) }
+                    runOnUiThread {
+                        toast(result.message)
+                        if (result.success) {
+                            addBubble("Mr-Red (Knowledge Cached)", "[Learned '$topic']\n${result.summary}", false)
+                            transcript.add(Bubble("Mr-Red (Knowledge Cached)", "[Learned '$topic']\n${result.summary}", false))
+                            conversation.add(ChatTurn("assistant", "[Learned '$topic']\n${result.summary}"))
+                            persistConversation()
+                        }
+                    }
+                }.start()
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
 
     private fun showAgentTask() {
         if (generating || modelBusy) {
