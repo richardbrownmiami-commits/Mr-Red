@@ -33,7 +33,7 @@ class TopicResearchClient(private val store: KnowledgeStore) {
             Regex("^(what is|what are|who is|who was|who were|where is|where are)\\s+(the\\s+|a\\s+|an\\s+)?", RegexOption.IGNORE_CASE),
             Regex("^(tell me about|explain|define|describe|search for)\\s+(the\\s+|a\\s+|an\\s+)?", RegexOption.IGNORE_CASE),
             Regex("^(how does|how do|how is)\\s+", RegexOption.IGNORE_CASE),
-            Regex("\\\s+work$", RegexOption.IGNORE_CASE)
+            Regex("\\s+work$", RegexOption.IGNORE_CASE)
         )
         for (pattern in patterns) {
             clean = clean.replace(pattern, "")
