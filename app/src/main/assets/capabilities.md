@@ -13,3 +13,7 @@ Each capability is declared here so the orchestrator can expose only tools that 
 - send_sms: Draft or send SMS text messages via Android SMS intents.
 - send_whatsapp: Draft or send WhatsApp messages via WhatsApp intents.
 - phone_call: Initiate phone calls via Android dialer intents.
+- set_alarm: Set phone alarms through Android clock intents.
+- set_timer: Set count-down timers through Android clock intents.
+- map_search: Look up locations and directions through map intents.
+- share_text: Share text and messages to other installed Android apps.

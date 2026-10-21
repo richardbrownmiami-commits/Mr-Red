@@ -256,6 +256,57 @@ class MainActivity : Activity() {
             if (grew && (forceStick || nearBottom)) { forceStick = false; scroll.scrollTo(0, bottom) }
         }
         addNotice(welcomeText())
+        val quickBarScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+        }
+        val quickBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        fun addQuickChip(label: String, actionText: String, autoSend: Boolean = false) {
+            val chip = TextView(this).apply {
+                text = label
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(TEXT_PRIMARY)
+                setPadding(dp(10), dp(6), dp(10), dp(6))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(14).toFloat()
+                    setColor(Color.rgb(22, 27, 34))
+                    setStroke(dp(1), Color.rgb(48, 54, 61))
+                }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    input.setText(actionText)
+                    input.setSelection(actionText.length)
+                    if (autoSend) {
+                        sendMessage()
+                    } else {
+                        input.requestFocus()
+                    }
+                }
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                rightMargin = dp(6)
+            }
+            quickBar.addView(chip, lp)
+        }
+        addQuickChip("🔋 Battery", "my battery", autoSend = true)
+        addQuickChip("💾 Storage", "my storage", autoSend = true)
+        addQuickChip("🧠 RAM", "my ram", autoSend = true)
+        addQuickChip("🕒 Clock", "what time is it", autoSend = true)
+        addQuickChip("📱 Overview", "device status", autoSend = true)
+        addQuickChip("⏰ Alarm", "alarm 7:00 am")
+        addQuickChip("⏳ Timer", "timer 5 minutes", autoSend = true)
+        addQuickChip("💬 WhatsApp", "whatsapp ")
+        addQuickChip("📞 Call", "call ")
+        addQuickChip("🗺️ Map", "map ")
+        addQuickChip("🔍 Search", "search ")
+        quickBarScroll.addView(quickBar)
+        root.addView(quickBarScroll)
+
         val composer = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(10), dp(6), dp(10), dp(4)) }
         input = EditText(this).apply {
             hint = "Message..."
@@ -288,11 +339,24 @@ class MainActivity : Activity() {
     private fun addBubble(sender: String, content: String, user: Boolean, candidateOptions: List<String> = emptyList(), knowledgeQuery: String = lastKnowledgeQuery): TextView {
         val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(if (user) ACCENT else AI_BUBBLE) }
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(if (user) Color.rgb(30, 36, 46) else Color.rgb(18, 22, 28))
+                setStroke(dp(1), if (user) Color.rgb(55, 65, 81) else Color.rgb(35, 41, 54))
+            }
             setPadding(dp(12), dp(8), dp(12), dp(10))
         }
-        val senderView = TextView(this).apply { text = sender; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(if (user) Color.rgb(8, 12, 16) else NEON) }
-        val body = TextView(this).apply { text = content; textSize = 16f; setTextColor(if (user) Color.rgb(8, 12, 16) else TEXT_PRIMARY) }
+        val senderView = TextView(this).apply {
+            text = sender
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if (user) Color.rgb(156, 163, 175) else Color.rgb(255, 52, 76))
+        }
+        val body = TextView(this).apply {
+            text = content
+            textSize = 15f
+            setTextColor(TEXT_PRIMARY)
+        }
         bubble.addView(senderView); bubble.addView(body)
 
         if (!user && candidateOptions.isNotEmpty()) {
@@ -333,6 +397,46 @@ class MainActivity : Activity() {
     private fun handleKnowledgeOption(option: String, query: String) {
         val normalized = option.lowercase()
         when {
+            normalized.contains("alarm") || normalized.startsWith("⏰") -> {
+                val intent = DeviceAgentEngine.lastAlarmIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("Unable to set alarm: ${it.message}") }
+                } else {
+                    toast("No alarm intent ready.")
+                }
+            }
+            normalized.contains("timer") || normalized.startsWith("⏳") -> {
+                val intent = DeviceAgentEngine.lastTimerIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("Unable to start timer: ${it.message}") }
+                } else {
+                    toast("No timer intent ready.")
+                }
+            }
+            normalized.contains("search:") || normalized.startsWith("🔍") -> {
+                val intent = DeviceAgentEngine.lastSearchIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("Unable to open browser: ${it.message}") }
+                } else {
+                    toast("No search intent ready.")
+                }
+            }
+            normalized.contains("map:") || normalized.startsWith("🗺️") -> {
+                val intent = DeviceAgentEngine.lastMapIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("Unable to open map: ${it.message}") }
+                } else {
+                    toast("No map intent ready.")
+                }
+            }
+            normalized.contains("share") || normalized.startsWith("📤") -> {
+                val intent = DeviceAgentEngine.lastShareIntent
+                if (intent != null) {
+                    runCatching { startActivity(intent) }.onFailure { toast("Unable to share: ${it.message}") }
+                } else {
+                    toast("No share intent ready.")
+                }
+            }
             normalized.contains("call ") || normalized.startsWith("📞") -> {
                 val intent = DeviceAgentEngine.lastCallIntent
                 if (intent != null) {

@@ -1,9 +1,10 @@
 package com.redmi9.offlineai
 
+import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.AlarmClock
 import java.util.Locale
 import java.util.regex.Pattern
 
@@ -29,6 +30,12 @@ object DeviceAgentEngine {
     var lastWhatsAppIntent: Intent? = null
     var lastSmsIntent: Intent? = null
     var lastLaunchIntent: Intent? = null
+    var lastAlarmIntent: Intent? = null
+    var lastTimerIntent: Intent? = null
+    var lastSearchIntent: Intent? = null
+    var lastMapIntent: Intent? = null
+    var lastShareIntent: Intent? = null
+
     var pendingSlot: PendingSlot? = null
 
     fun clearPendingSlot() {
@@ -39,9 +46,10 @@ object DeviceAgentEngine {
         val trimmed = userInput.trim()
         if (trimmed.isEmpty()) return null
 
-        // 1. Check if user wants to cancel an ongoing action
         val lower = trimmed.lowercase(Locale.ROOT)
-        if (lower == "cancel" || lower == "stop" || lower == "never mind" || lower == "abort") {
+
+        // 1. Cancel ongoing action
+        if (lower == "cancel" || lower == "stop" || lower == "never mind" || lower == "abort" || lower == "clear") {
             if (pendingSlot != null) {
                 clearPendingSlot()
                 return DeviceAgentResult(
@@ -52,7 +60,7 @@ object DeviceAgentEngine {
             }
         }
 
-        // 2. Check if we have an active pending slot (e.g. waiting for message content)
+        // 2. Pending slot continuation (e.g. user typed recipient first, now providing body)
         val activeSlot = pendingSlot
         if (activeSlot != null) {
             clearPendingSlot()
@@ -61,7 +69,7 @@ object DeviceAgentEngine {
                 PendingSlotType.WHATSAPP -> {
                     val intent = createWhatsAppIntent(activeSlot.recipient, messageText)
                     lastWhatsAppIntent = intent
-                    DeviceAgentEngine.DeviceAgentResult(
+                    DeviceAgentResult(
                         handled = true,
                         reply = "I've drafted your WhatsApp message for ${activeSlot.recipient}:\n\n“$messageText”\n\nTap below to open WhatsApp and send:",
                         candidateOptions = listOf("🟢 Open WhatsApp & Send", "Cancel")
@@ -70,7 +78,7 @@ object DeviceAgentEngine {
                 PendingSlotType.SMS -> {
                     val intent = createSmsIntent(activeSlot.recipient, messageText)
                     lastSmsIntent = intent
-                    DeviceAgentEngine.DeviceAgentResult(
+                    DeviceAgentResult(
                         handled = true,
                         reply = "I've prepared your SMS text for ${activeSlot.recipient}:\n\n“$messageText”\n\nTap below to open your messaging app:",
                         candidateOptions = listOf("💬 Open SMS Draft", "Cancel")
@@ -135,7 +143,71 @@ object DeviceAgentEngine {
             )
         }
 
-        // 5. WhatsApp Messaging
+        // 5. Alarms
+        val alarmMatch = parseAlarmCommand(trimmed)
+        if (alarmMatch != null) {
+            val (hour, minute, label) = alarmMatch
+            val intent = createAlarmIntent(hour, minute, label)
+            lastAlarmIntent = intent
+            val displayTime = formatTime12h(hour, minute)
+            val labelNotice = if (label.isNotBlank()) " with label “$label”" else ""
+            return DeviceAgentResult(
+                handled = true,
+                reply = "I've prepared an alarm for $displayTime$labelNotice. Tap below to confirm and set it in your Clock app:",
+                candidateOptions = listOf("⏰ Set Alarm for $displayTime", "Cancel")
+            )
+        }
+
+        // 6. Timers
+        val timerMatch = parseTimerCommand(trimmed)
+        if (timerMatch != null) {
+            val (seconds, display) = timerMatch
+            val intent = createTimerIntent(seconds)
+            lastTimerIntent = intent
+            return DeviceAgentResult(
+                handled = true,
+                reply = "I've prepared a $display timer. Tap below to launch it in your Clock app:",
+                candidateOptions = listOf("⏳ Start Timer ($display)", "Cancel")
+            )
+        }
+
+        // 7. Maps & Navigation
+        val mapMatch = parseMapCommand(trimmed)
+        if (mapMatch != null) {
+            val intent = createMapIntent(mapMatch)
+            lastMapIntent = intent
+            return DeviceAgentResult(
+                handled = true,
+                reply = "I've located "$mapMatch". Tap below to open it in Google Maps:",
+                candidateOptions = listOf("🗺️ View on Map: $mapMatch", "Cancel")
+            )
+        }
+
+        // 8. Web Search
+        val searchMatch = parseSearchCommand(trimmed)
+        if (searchMatch != null) {
+            val intent = createSearchIntent(searchMatch)
+            lastSearchIntent = intent
+            return DeviceAgentResult(
+                handled = true,
+                reply = "I've prepared a web search for "$searchMatch". Tap below to open in your browser:",
+                candidateOptions = listOf("🔍 Search: $searchMatch", "Cancel")
+            )
+        }
+
+        // 9. Share Text
+        val shareMatch = parseShareCommand(trimmed)
+        if (shareMatch != null) {
+            val intent = createShareIntent(shareMatch)
+            lastShareIntent = intent
+            return DeviceAgentResult(
+                handled = true,
+                reply = "I've prepared to share your text:\n\n“$shareMatch”\n\nTap below to choose an app to share with:",
+                candidateOptions = listOf("📤 Share Text", "Cancel")
+            )
+        }
+
+        // 10. WhatsApp Messaging
         val waMatch = parseWhatsAppCommand(trimmed)
         if (waMatch != null) {
             val (recipient, body) = waMatch
@@ -157,7 +229,7 @@ object DeviceAgentEngine {
             }
         }
 
-        // 6. SMS Messaging
+        // 11. SMS Messaging
         val smsMatch = parseSmsCommand(trimmed)
         if (smsMatch != null) {
             val (recipient, body) = smsMatch
@@ -179,7 +251,7 @@ object DeviceAgentEngine {
             }
         }
 
-        // 7. Phone Calls
+        // 12. Phone Calls
         val callMatch = parseCallCommand(trimmed)
         if (callMatch != null) {
             val recipient = callMatch
@@ -192,7 +264,7 @@ object DeviceAgentEngine {
             )
         }
 
-        // 8. Open / Launch App
+        // 13. Open / Launch App
         val appMatch = parseAppLaunchCommand(trimmed)
         if (appMatch != null) {
             val appCandidate = findAppLaunchIntent(context, appMatch)
@@ -232,13 +304,79 @@ object DeviceAgentEngine {
         lower.contains("who are you") || lower.contains("how are you") || lower.contains("device status") ||
             lower.contains("phone status") || lower == "vitals" || lower == "status" || lower.contains("mr red")
 
+    private fun parseAlarmCommand(text: String): Triple<Int, Int, String>? {
+        val p = Pattern.compile("^(?:set\s+)?(?:an\s+)?alarm(?:\s+for)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(?:saying|labeled|label|called|for)\s+(.+))?$", Pattern.CASE_INSENSITIVE)
+        val m = p.matcher(text.trim())
+        if (m.matches()) {
+            var h = m.group(1)?.toIntOrNull() ?: return null
+            val min = m.group(2)?.toIntOrNull() ?: 0
+            val ampm = (m.group(3) ?: "").lowercase(Locale.ROOT)
+            val label = (m.group(4) ?: "").trim()
+            if (ampm == "pm" && h < 12) h += 12
+            else if (ampm == "am" && h == 12) h = 0
+            if (h in 0..23 && min in 0..59) {
+                return Triple(h, min, label)
+            }
+        }
+        return null
+    }
+
+    private fun parseTimerCommand(text: String): Pair<Int, String>? {
+        val p = Pattern.compile("^(?:set\s+)?(?:a\s+)?timer(?:\s+for)?\s+(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$", Pattern.CASE_INSENSITIVE)
+        val m = p.matcher(text.trim())
+        if (m.matches()) {
+            val amount = m.group(1)?.toIntOrNull() ?: return null
+            val unit = (m.group(2) ?: "").lowercase(Locale.ROOT)
+            val seconds = when {
+                unit.contains("sec") -> amount
+                unit.contains("min") -> amount * 60
+                unit.contains("hour") || unit.contains("hr") -> amount * 3600
+                else -> return null
+            }
+            val display = when {
+                unit.contains("sec") -> "${amount}s"
+                unit.contains("min") -> "${amount}m"
+                else -> "${amount}h"
+            }
+            return Pair(seconds, display)
+        }
+        return null
+    }
+
+    private fun parseMapCommand(text: String): String? {
+        val p = Pattern.compile("^(?:map|navigate\s+to|directions\s+to|where\s+is)\s+(.+)$", Pattern.CASE_INSENSITIVE)
+        val m = p.matcher(text.trim())
+        if (m.matches()) {
+            return (m.group(1) ?: "").trim()
+        }
+        return null
+    }
+
+    private fun parseSearchCommand(text: String): String? {
+        val p = Pattern.compile("^(?:search(?:\s+for|\s+web)?|google)\s+(.+)$", Pattern.CASE_INSENSITIVE)
+        val m = p.matcher(text.trim())
+        if (m.matches()) {
+            return (m.group(1) ?: "").trim()
+        }
+        return null
+    }
+
+    private fun parseShareCommand(text: String): String? {
+        val p = Pattern.compile("^(?:share|send\s+text)\s+(.+)$", Pattern.CASE_INSENSITIVE)
+        val m = p.matcher(text.trim())
+        if (m.matches()) {
+            return (m.group(1) ?: "").trim()
+        }
+        return null
+    }
+
     private fun parseWhatsAppCommand(text: String): Pair<String, String>? {
-        val p1 = Pattern.compile("^(?:send\\s+)?whatsapp(?:\\s+to)?\\s+([^\\s:]+)(?:\\s*[:]\\s*|\\s+(?:saying|that|with\\s+message|msg)\\s+)(.+)$", Pattern.CASE_INSENSITIVE)
+        val p1 = Pattern.compile("^(?:send\s+)?whatsapp(?:\s+to)?\s+([^\s:]+)(?:\s*[:]\s*|\s+(?:saying|that|with\s+message|msg)\s+)(.+)$", Pattern.CASE_INSENSITIVE)
         val m1 = p1.matcher(text)
         if (m1.matches()) {
             return Pair(m1.group(1) ?: "", (m1.group(2) ?: "").trim())
         }
-        val p2 = Pattern.compile("^(?:send\\s+)?whatsapp(?:\\s+to)?\\s+([^\\s:]+)$", Pattern.CASE_INSENSITIVE)
+        val p2 = Pattern.compile("^(?:send\s+)?whatsapp(?:\s+to)?\s+([^\s:]+)$", Pattern.CASE_INSENSITIVE)
         val m2 = p2.matcher(text)
         if (m2.matches()) {
             return Pair(m2.group(1) ?: "", "")
@@ -247,12 +385,12 @@ object DeviceAgentEngine {
     }
 
     private fun parseSmsCommand(text: String): Pair<String, String>? {
-        val p1 = Pattern.compile("^(?:send\\s+)?(?:sms|text)(?:\\s+to)?\\s+([^\\s:]+)(?:\\s*[:]\\s*|\\s+(?:saying|that|with\\s+message|msg)\\s+)(.+)$", Pattern.CASE_INSENSITIVE)
+        val p1 = Pattern.compile("^(?:send\s+)?(?:sms|text)(?:\s+to)?\s+([^\s:]+)(?:\s*[:]\s*|\s+(?:saying|that|with\s+message|msg)\s+)(.+)$", Pattern.CASE_INSENSITIVE)
         val m1 = p1.matcher(text)
         if (m1.matches()) {
             return Pair(m1.group(1) ?: "", (m1.group(2) ?: "").trim())
         }
-        val p2 = Pattern.compile("^(?:send\\s+)?(?:sms|text)(?:\\s+to)?\\s+([^\\s:]+)$", Pattern.CASE_INSENSITIVE)
+        val p2 = Pattern.compile("^(?:send\s+)?(?:sms|text)(?:\s+to)?\s+([^\s:]+)$", Pattern.CASE_INSENSITIVE)
         val m2 = p2.matcher(text)
         if (m2.matches()) {
             return Pair(m2.group(1) ?: "", "")
@@ -261,7 +399,7 @@ object DeviceAgentEngine {
     }
 
     private fun parseCallCommand(text: String): String? {
-        val p = Pattern.compile("^(?:call|dial|phone)\\s+([^\\s:]+)$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:call|dial|phone)\s+([^\s:]+)$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text)
         if (m.matches()) {
             return m.group(1) ?: ""
@@ -270,7 +408,7 @@ object DeviceAgentEngine {
     }
 
     private fun parseAppLaunchCommand(text: String): String? {
-        val p = Pattern.compile("^(?:open|launch)(?:\\s+the)?\\s+(.+)$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:open|launch)(?:\s+the)?\s+(.+)$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text)
         if (m.matches()) {
             val candidate = (m.group(1) ?: "").trim()
@@ -279,6 +417,49 @@ object DeviceAgentEngine {
             }
         }
         return null
+    }
+
+    private fun createAlarmIntent(hour: Int, minute: Int, message: String): Intent {
+        return Intent(AlarmClock.ACTION_SET_ALARM).apply {
+            putExtra(AlarmClock.EXTRA_HOUR, hour)
+            putExtra(AlarmClock.EXTRA_MINUTES, minute)
+            putExtra(AlarmClock.EXTRA_MESSAGE, message.ifBlank { "Mr-Red Alarm" })
+            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    private fun createTimerIntent(seconds: Int): Intent {
+        return Intent(AlarmClock.ACTION_SET_TIMER).apply {
+            putExtra(AlarmClock.EXTRA_LENGTH, seconds)
+            putExtra(AlarmClock.EXTRA_MESSAGE, "Mr-Red Timer")
+            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    private fun createMapIntent(place: String): Intent {
+        val uri = Uri.parse("geo:0,0?q=" + Uri.encode(place))
+        return Intent(Intent.ACTION_VIEW, uri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    private fun createSearchIntent(query: String): Intent {
+        return Intent(Intent.ACTION_WEB_SEARCH).apply {
+            putExtra(SearchManager.QUERY, query)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    private fun createShareIntent(text: String): Intent {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        return Intent.createChooser(sendIntent, "Share with").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
     }
 
     private fun createWhatsAppIntent(target: String, message: String): Intent {
@@ -314,6 +495,12 @@ object DeviceAgentEngine {
         return Intent(Intent.ACTION_DIAL, uri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+    }
+
+    private fun formatTime12h(hour: Int, minute: Int): String {
+        val period = if (hour >= 12) "PM" else "AM"
+        val h12 = if (hour % 12 == 0) 12 else hour % 12
+        return String.format(Locale.US, "%02d:%02d %s", h12, minute, period)
     }
 
     private fun findAppLaunchIntent(context: Context, appNameQuery: String): Pair<String, Intent>? {
@@ -366,7 +553,6 @@ object DeviceAgentEngine {
         val mCalc = calcPattern.matcher(t)
         val candidate = if (mCalc.matches()) (mCalc.group(1) ?: "").trim() else t
 
-        // Check for percentage e.g. "15% of 250"
         val pctPattern = Pattern.compile("^(\\d+(?:\\.\\d+)?)\\s*%\\s*(?:of|\\*)\\s*(\\d+(?:\\.\\d+)?)$", Pattern.CASE_INSENSITIVE)
         val mPct = pctPattern.matcher(candidate)
         if (mPct.matches()) {

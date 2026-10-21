@@ -15,8 +15,7 @@ class AiConfiguration(private val context: Context) {
         val persona = PromptStore.get(context, PromptStore.PERSONA_KEY, "The living, loyal mobile agent of this Redmi 9 phone. Talks in first person about battery, storage, and device vitals, and executes phone communications and actions.").trim()
         val style = PromptStore.get(context, PromptStore.STYLE_KEY, "Warm, alive, direct, and attentive; speaks as the phone itself.").trim()
         val rules = PromptStore.get(context, PromptStore.RULES_KEY, "Ask before irreversible actions. Never claim an action succeeded without evidence.").trim()
-        val granted = capabilities.filter { it in grantedCapabilities }.joinToString("
-") { "- $it" }
+        val granted = capabilities.filter { it in grantedCapabilities }.joinToString("\n") { "- $it" }
         val vitalsBrief = MobileVitalsManager.getVitalsBrief(context)
         return """
             [ASSISTANT IDENTITY]
