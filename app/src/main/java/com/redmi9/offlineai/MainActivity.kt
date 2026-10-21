@@ -14,6 +14,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.provider.Settings
@@ -78,7 +79,9 @@ class MainActivity : Activity() {
 
     companion object {
         private const val PICK_GGUF = 4101
-        private const val MAX_MODEL_BYTES = 900L * 1024L * 1024L
+        private const val MAX_MODEL_BYTES = 2L * 1024L * 1024L * 1024L
+        private const val LARGE_MODEL_WARNING_BYTES = 1024L * 1024L * 1024L
+        private const val MODEL_STORAGE_RESERVE_BYTES = 128L * 1024L * 1024L
         private const val MAX_HISTORY_TURNS = 6
         private const val MAX_REPLY_TOKENS = 96
         private const val PREFS = "mekamaru_ui"
@@ -105,8 +108,7 @@ class MainActivity : Activity() {
         reasoningEngine = OfflineReasoningEngine(knowledgeStore)
         researchClient = TopicResearchClient(knowledgeStore)
         TriageResearchWorker.schedule(this)
-        modelsDir = File(filesDir, "models")
-        modelsDir.mkdirs()
+        modelsDir = chooseModelsDirectory()
         loadSettings()
         buildChatUi()
         restoreConversation()
@@ -144,6 +146,14 @@ class MainActivity : Activity() {
         if (contextSize !in CONTEXT_OPTIONS) contextSize = defaultContext
     }
 
+    /** Prefer the app-private storage volume with the most free space (including an adopted/removable app-specific volume when available). */
+    private fun chooseModelsDirectory(): File {
+        val candidates = getExternalFilesDirs(null).filterNotNull().map { File(it, "models") } + File(filesDir, "models")
+        val selected = candidates.maxByOrNull { it.parentFile?.usableSpace ?: 0L } ?: File(filesDir, "models")
+        selected.mkdirs()
+        return selected
+    }
+
     private fun totalRamBytes(): Long {
         val info = ActivityManager.MemoryInfo()
         (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(info)
@@ -152,10 +162,12 @@ class MainActivity : Activity() {
 
     private fun recommendedContextSize(): Int {
         val total = totalRamBytes()
+        // ARMv7 has a tight per-process virtual-address ceiling. Start small,
+        // especially for 1+ GB mmap-backed weights; users can raise context later.
         return when {
-            total <= 3L * 1024L * 1024L * 1024L -> 1024
-            total <= 5L * 1024L * 1024L * 1024L -> 2048
-            else -> 3072
+            total <= 4L * 1024L * 1024L * 1024L -> 512
+            total <= 6L * 1024L * 1024L * 1024L -> 1024
+            else -> 2048
         }
     }
 
@@ -596,6 +608,7 @@ class MainActivity : Activity() {
         }
         val localContext = reasoningEngine.relevantKnowledgeContext(prompt, localKnowledgeResult)
         val systemContext = config.buildSystemContext(modelName) +
+            "\n\n" + knowledgeStore.memoryBrief() +
             (if (localContext.isNotEmpty()) "\n\n" + localContext else "") +
             "\n\n" + conversationStore.relevantContext(prompt)
         generating = true; pendingPrompt = prompt; streamBuffer = StringBuilder(); streamError = null; streamTokens = 0; streamFirstTokenAt = 0L; forceStick = true
@@ -751,12 +764,19 @@ class MainActivity : Activity() {
         val builder = AlertDialog.Builder(this).setTitle("Models"); builder.setItems(labels) { _, which -> if (files.isNotEmpty()) showModelActions(files[which]) }; builder.setNeutralButton("Import GGUF") { _, _ -> pickGguf() }; if (loadedModelFile != null) builder.setNegativeButton("Unload") { _, _ -> unloadModel() }; builder.show()
     }
 
-    private fun showModelActions(file: File) { val loaded = loadedModelFile?.canonicalPath == file.canonicalPath; AlertDialog.Builder(this).setTitle(file.name).setMessage("Size: ${formatBytes(file.length())}\nCPU: $cpuThreads threads\nContext: $contextSize").setPositiveButton(if (loaded) "Unload model" else "Load model") { _, _ -> if (loaded) unloadModel() else loadModel(file) }.setNeutralButton("Delete") { _, _ -> confirmDelete(file) }.setNegativeButton("Close", null).show() }
+    private fun showModelActions(file: File) { val loaded = loadedModelFile?.canonicalPath == file.canonicalPath; val volume = if (Environment.isExternalStorageRemovable(file)) "removable storage" else "app storage"; AlertDialog.Builder(this).setTitle(file.name).setMessage("Size: ${formatBytes(file.length())}\nLocation: $volume\nFree space here: ${formatBytes(modelsDir.usableSpace)}\nCPU: $cpuThreads threads\nContext: $contextSize\n\nLarge GGUF loading depends on available RAM and 32-bit address space. A 1.5 GB file can import successfully but may still fail to load on this phone.").setPositiveButton(if (loaded) "Unload model" else "Load model") { _, _ -> if (loaded) unloadModel() else loadModel(file) }.setNeutralButton("Delete") { _, _ -> confirmDelete(file) }.setNegativeButton("Close", null).show() }
     private fun confirmDelete(file: File) { if (generating || modelBusy) { toast("Wait for the current task to finish."); return }; if (loadedModelFile?.canonicalPath == file.canonicalPath) { showError("Delete model", "Unload this model before deleting it."); return }; AlertDialog.Builder(this).setTitle("Delete model?").setMessage(file.name + " (" + formatBytes(file.length()) + ") will be removed from this phone.").setPositiveButton("Delete") { _, _ -> toast(if (file.delete()) "Deleted" else "Could not delete the file") }.setNegativeButton("Cancel", null).show() }
 
-    private fun loadModel(file: File) {
+    private fun loadModel(file: File, largeModelConfirmed: Boolean = false) {
         if (generating || modelBusy) { toast("Wait for the current task to finish."); return }
-        if (file.length() >= MAX_MODEL_BYTES) { showError("Model too large", "This model must be under 900 MB."); return }
+        if (file.length() > MAX_MODEL_BYTES) { showError("Model too large", "Mr-Red can import GGUF files up to 2 GB. Loading still depends on available RAM and 32-bit address space."); return }
+        if (file.length() > LARGE_MODEL_WARNING_BYTES && !largeModelConfirmed) {
+            AlertDialog.Builder(this).setTitle("Large model on a 32-bit phone")
+                .setMessage("This file is ${formatBytes(file.length())}. Mr-Red will try to load it using memory-mapped model weights and a context of $contextSize tokens. Android's 32-bit address space and free RAM may still prevent loading. You can import and keep the file even if loading fails.")
+                .setPositiveButton("Try loading") { _, _ -> loadModel(file, largeModelConfirmed = true) }
+                .setNegativeButton("Cancel", null).show()
+            return
+        }
         modelBusy = true; updateSendState(); val threads = cpuThreads; val ctxSize = contextSize; status.text = "Loading ${file.name} • CPU $threads • Context $ctxSize"
         Thread {
             val ok = try { nativeLoadModel(file.absolutePath, ctxSize, threads) } catch (_: Throwable) { false }
@@ -796,8 +816,8 @@ class MainActivity : Activity() {
         Thread {
             var temp: File? = null
             try {
-                val name = queryDisplayName(uri) ?: "imported_model.gguf"; if (!name.lowercase(Locale.US).endsWith(".gguf")) throw IllegalArgumentException("Please select a .gguf file"); val expected = contentLength(uri); if (expected >= MAX_MODEL_BYTES) throw IllegalArgumentException("Model must be under 900 MB"); val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_"); var dest = File(modelsDir, safe); if (dest.exists()) dest = File(modelsDir, System.currentTimeMillis().toString() + "_" + safe); val part = File(modelsDir, "." + dest.name + ".part"); temp = part; var total = 0L; var lastReport = 0L
-                val stream = contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("Could not read selected file"); stream.use { source -> FileOutputStream(part).use { output -> val buffer = ByteArray(64 * 1024); while (true) { val n = source.read(buffer); if (n < 0) break; total += n; if (total >= MAX_MODEL_BYTES) throw IllegalArgumentException("Model is 900 MB or larger"); output.write(buffer, 0, n); if (total - lastReport >= 8L * 1024L * 1024L) { lastReport = total; val done = total; runOnUiThread { if (!generating && !modelBusy) status.text = "Importing model... " + (if (expected > 0) formatBytes(done) + " / " + formatBytes(expected) else formatBytes(done)) } } } } }
+                val name = queryDisplayName(uri) ?: "imported_model.gguf"; if (!name.lowercase(Locale.US).endsWith(".gguf")) throw IllegalArgumentException("Please select a .gguf file"); val expected = contentLength(uri); if (expected > MAX_MODEL_BYTES) throw IllegalArgumentException("Model must be 2 GB or smaller"); if (expected > 0 && modelsDir.usableSpace < expected + MODEL_STORAGE_RESERVE_BYTES) throw IllegalArgumentException("Not enough free space on the selected model storage. Keep at least 128 MB free after importing."); val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_"); var dest = File(modelsDir, safe); if (dest.exists()) dest = File(modelsDir, System.currentTimeMillis().toString() + "_" + safe); val part = File(modelsDir, "." + dest.name + ".part"); temp = part; var total = 0L; var lastReport = 0L
+                val stream = contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("Could not read selected file"); stream.use { source -> FileOutputStream(part).use { output -> val buffer = ByteArray(64 * 1024); while (true) { val n = source.read(buffer); if (n < 0) break; total += n; if (total > MAX_MODEL_BYTES) throw IllegalArgumentException("Model must be 2 GB or smaller"); if (modelsDir.usableSpace < n + MODEL_STORAGE_RESERVE_BYTES) throw IllegalArgumentException("Import stopped: not enough free space on the selected model storage."); output.write(buffer, 0, n); if (total - lastReport >= 8L * 1024L * 1024L) { lastReport = total; val done = total; runOnUiThread { if (!generating && !modelBusy) status.text = "Importing model... " + (if (expected > 0) formatBytes(done) + " / " + formatBytes(expected) else formatBytes(done)) } } } } }
                 if (total <= 0) throw IllegalArgumentException("Selected file is empty"); if (!part.renameTo(dest)) throw IllegalStateException("Could not finish model import"); temp = null; val finalFile = dest; val finalBytes = total; runOnUiThread { importing = false; restoreStatus(); addNotice("Imported ${finalFile.name} (${formatBytes(finalBytes)})."); showModelActions(finalFile) }
             } catch (e: Throwable) { temp?.delete(); val reason = e.message ?: "Unknown import error"; runOnUiThread { importing = false; restoreStatus(); showError("GGUF import failed", reason) } }
         }.start()

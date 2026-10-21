@@ -100,7 +100,9 @@ bool recreate_context_locked() {
 
     auto p = llama_context_default_params();
     p.n_ctx = g_context;
-    p.n_batch = g_context;
+    // Bound temporary prompt-evaluation buffers on 32-bit devices while leaving
+    // the context/KV capacity independently configurable.
+    p.n_batch = std::min<uint32_t>(g_context, 64);
     p.n_ubatch = std::min<uint32_t>(g_context, 32);
     p.abort_callback = [](void *) -> bool {
         return g_abort.load(std::memory_order_relaxed);
@@ -328,6 +330,7 @@ std::string model_summary_locked() {
         << "\nCPU threads: " << (g_ctx ? llama_n_threads(g_ctx) : g_threads)
         << "\nVocab: " << (vocab ? llama_vocab_n_tokens(vocab) : 0)
         << "\nChat template: " << (tmpl && *tmpl ? "embedded" : "fallback")
+        << "\nModel weights: memory-mapped, not locked in RAM"
         << "\nPrompt KV cache: " << g_cached_prompt_tokens.size() << " prompt tokens cached"
         << "\nRSS: " << rss() << " bytes";
     return out.str();
@@ -342,7 +345,9 @@ Java_com_redmi9_offlineai_MainActivity_nativeEngineInfo(JNIEnv * env, jobject) {
     out << "llama.cpp: " << (llama_version() ? llama_version() : "unknown")
         << "\nABI: armeabi-v7a"
         << "\nCPU threads: adaptive 1-" << choose_threads(0)
+        << "\nModel weights: memory-mapped, mlock disabled"
         << "\nPrompt KV cache: common prompt prefix reused while model/context stay loaded"
+        << "\n32-bit address-space limit: large models may fail to map even with free storage"
         << "\nThink Twice: disabled";
     return result(env, out.str());
 }
@@ -368,6 +373,10 @@ Java_com_redmi9_offlineai_MainActivity_nativeLoadModel(JNIEnv * env, jobject, js
     auto params = llama_model_default_params();
     params.n_gpu_layers = 0;
     params.use_extra_bufts = false;
+    // Keep quantized GGUF weights file-backed. This reduces eager RAM pressure on
+    // 32-bit Android; it cannot remove ARMv7 virtual-address or physical-RAM limits.
+    params.use_mmap = true;
+    params.use_mlock = false;
     g_model = llama_model_load_from_file(model_path.c_str(), params);
     if (!g_model) return JNI_FALSE;
 

@@ -615,4 +615,13 @@ class KnowledgeStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null
             "what", "when", "where", "which", "with", "about", "could", "would", "should"
         )
     }
+    /** Compact memory index for the assistant: reports all local stores without dumping the whole DB into the prompt. */
+    @Synchronized
+    fun memoryBrief(): String {
+        fun count(table: String): Long = runCatching {
+            readableDatabase.rawQuery("SELECT COUNT(*) FROM $table", null).use { if (it.moveToFirst()) it.getLong(0) else 0L }
+        }.getOrDefault(0L)
+        return "[Local memory index: confirmed answers=${count("confirmed_qa")}; cached topics=${count("topic_cache")}; relationship facts=${count("knowledge_graph")}; unanswered/research queue=${count("triage_log")}. Search relevant records by topic/question; the database itself is not fully pasted into model context.]"
+    }
+
 }
