@@ -375,8 +375,7 @@ Java_com_redmi9_offlineai_MainActivity_nativeLoadModel(JNIEnv * env, jobject, js
     params.use_extra_bufts = false;
     // Keep quantized GGUF weights file-backed. This reduces eager RAM pressure on
     // 32-bit Android; it cannot remove ARMv7 virtual-address or physical-RAM limits.
-    params.use_mmap = true;
-    params.use_mlock = false;
+    params.load_mode = LLAMA_LOAD_MODE_MMAP;
     g_model = llama_model_load_from_file(model_path.c_str(), params);
     if (!g_model) return JNI_FALSE;
 
