@@ -178,7 +178,7 @@ object DeviceAgentEngine {
             lastMapIntent = intent
             return DeviceAgentResult(
                 handled = true,
-                reply = "I've located "$mapMatch". Tap below to open it in Google Maps:",
+                reply = "I've located \"$mapMatch\". Tap below to open it in Google Maps:",
                 candidateOptions = listOf("🗺️ View on Map: $mapMatch", "Cancel")
             )
         }
@@ -190,7 +190,7 @@ object DeviceAgentEngine {
             lastSearchIntent = intent
             return DeviceAgentResult(
                 handled = true,
-                reply = "I've prepared a web search for "$searchMatch". Tap below to open in your browser:",
+                reply = "I've prepared a web search for \"$searchMatch\". Tap below to open in your browser:",
                 candidateOptions = listOf("🔍 Search: $searchMatch", "Cancel")
             )
         }
@@ -305,7 +305,7 @@ object DeviceAgentEngine {
             lower.contains("phone status") || lower == "vitals" || lower == "status" || lower.contains("mr red")
 
     private fun parseAlarmCommand(text: String): Triple<Int, Int, String>? {
-        val p = Pattern.compile("^(?:set\s+)?(?:an\s+)?alarm(?:\s+for)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s+(?:saying|labeled|label|called|for)\s+(.+))?$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:set\\s+)?(?:an\\s+)?alarm(?:\\s+for)?\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?(?:\\s+(?:saying|labeled|label|called|for)\\s+(.+))?$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text.trim())
         if (m.matches()) {
             var h = m.group(1)?.toIntOrNull() ?: return null
@@ -322,7 +322,7 @@ object DeviceAgentEngine {
     }
 
     private fun parseTimerCommand(text: String): Pair<Int, String>? {
-        val p = Pattern.compile("^(?:set\s+)?(?:a\s+)?timer(?:\s+for)?\s+(\d+)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:set\\s+)?(?:a\\s+)?timer(?:\\s+for)?\\s+(\\d+)\\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text.trim())
         if (m.matches()) {
             val amount = m.group(1)?.toIntOrNull() ?: return null
@@ -344,7 +344,7 @@ object DeviceAgentEngine {
     }
 
     private fun parseMapCommand(text: String): String? {
-        val p = Pattern.compile("^(?:map|navigate\s+to|directions\s+to|where\s+is)\s+(.+)$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:map|navigate\\s+to|directions\\s+to|where\\s+is)\\s+(.+)$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text.trim())
         if (m.matches()) {
             return (m.group(1) ?: "").trim()
@@ -353,7 +353,7 @@ object DeviceAgentEngine {
     }
 
     private fun parseSearchCommand(text: String): String? {
-        val p = Pattern.compile("^(?:search(?:\s+for|\s+web)?|google)\s+(.+)$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:search(?:\\s+for|\\s+web)?|google)\\s+(.+)$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text.trim())
         if (m.matches()) {
             return (m.group(1) ?: "").trim()
@@ -362,7 +362,7 @@ object DeviceAgentEngine {
     }
 
     private fun parseShareCommand(text: String): String? {
-        val p = Pattern.compile("^(?:share|send\s+text)\s+(.+)$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:share|send\\s+text)\\s+(.+)$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text.trim())
         if (m.matches()) {
             return (m.group(1) ?: "").trim()
@@ -371,12 +371,12 @@ object DeviceAgentEngine {
     }
 
     private fun parseWhatsAppCommand(text: String): Pair<String, String>? {
-        val p1 = Pattern.compile("^(?:send\s+)?whatsapp(?:\s+to)?\s+([^\s:]+)(?:\s*[:]\s*|\s+(?:saying|that|with\s+message|msg)\s+)(.+)$", Pattern.CASE_INSENSITIVE)
+        val p1 = Pattern.compile("^(?:send\\s+)?whatsapp(?:\\s+to)?\\s+([^\\s:]+)(?:\\s*[:]\\s*|\\s+(?:saying|that|with\\s+message|msg)\\s+)(.+)$", Pattern.CASE_INSENSITIVE)
         val m1 = p1.matcher(text)
         if (m1.matches()) {
             return Pair(m1.group(1) ?: "", (m1.group(2) ?: "").trim())
         }
-        val p2 = Pattern.compile("^(?:send\s+)?whatsapp(?:\s+to)?\s+([^\s:]+)$", Pattern.CASE_INSENSITIVE)
+        val p2 = Pattern.compile("^(?:send\\s+)?whatsapp(?:\\s+to)?\\s+([^\\s:]+)$", Pattern.CASE_INSENSITIVE)
         val m2 = p2.matcher(text)
         if (m2.matches()) {
             return Pair(m2.group(1) ?: "", "")
@@ -385,12 +385,12 @@ object DeviceAgentEngine {
     }
 
     private fun parseSmsCommand(text: String): Pair<String, String>? {
-        val p1 = Pattern.compile("^(?:send\s+)?(?:sms|text)(?:\s+to)?\s+([^\s:]+)(?:\s*[:]\s*|\s+(?:saying|that|with\s+message|msg)\s+)(.+)$", Pattern.CASE_INSENSITIVE)
+        val p1 = Pattern.compile("^(?:send\\s+)?(?:sms|text)(?:\\s+to)?\\s+([^\\s:]+)(?:\\s*[:]\\s*|\\s+(?:saying|that|with\\s+message|msg)\\s+)(.+)$", Pattern.CASE_INSENSITIVE)
         val m1 = p1.matcher(text)
         if (m1.matches()) {
             return Pair(m1.group(1) ?: "", (m1.group(2) ?: "").trim())
         }
-        val p2 = Pattern.compile("^(?:send\s+)?(?:sms|text)(?:\s+to)?\s+([^\s:]+)$", Pattern.CASE_INSENSITIVE)
+        val p2 = Pattern.compile("^(?:send\\s+)?(?:sms|text)(?:\\s+to)?\\s+([^\\s:]+)$", Pattern.CASE_INSENSITIVE)
         val m2 = p2.matcher(text)
         if (m2.matches()) {
             return Pair(m2.group(1) ?: "", "")
@@ -399,7 +399,7 @@ object DeviceAgentEngine {
     }
 
     private fun parseCallCommand(text: String): String? {
-        val p = Pattern.compile("^(?:call|dial|phone)\s+([^\s:]+)$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:call|dial|phone)\\s+([^\\s:]+)$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text)
         if (m.matches()) {
             return m.group(1) ?: ""
@@ -408,7 +408,7 @@ object DeviceAgentEngine {
     }
 
     private fun parseAppLaunchCommand(text: String): String? {
-        val p = Pattern.compile("^(?:open|launch)(?:\s+the)?\s+(.+)$", Pattern.CASE_INSENSITIVE)
+        val p = Pattern.compile("^(?:open|launch)(?:\\s+the)?\\s+(.+)$", Pattern.CASE_INSENSITIVE)
         val m = p.matcher(text)
         if (m.matches()) {
             val candidate = (m.group(1) ?: "").trim()
