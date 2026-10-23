@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <mutex>
 #include <sstream>
@@ -13,17 +15,37 @@
 namespace {
 std::mutex g_mutex;
 std::atomic<bool> g_abort{false};
+std::atomic<int> g_pending{0};   // requests issued but not yet finished (incl. waiting on g_mutex)
+std::once_flag g_backend_once;
+
+// FIX 3: cancel race. The abort flag is no longer reset inside generate().
+// It is only cleared when the last outstanding request finishes, so a cancel
+// that arrives while a request is still waiting on g_mutex is honoured.
+struct RequestGuard {
+    RequestGuard() { g_pending.fetch_add(1, std::memory_order_acq_rel); }
+    ~RequestGuard() {
+        if (g_pending.fetch_sub(1, std::memory_order_acq_rel) == 1)
+            g_abort.store(false, std::memory_order_relaxed);
+    }
+};
 
 static bool llamaAbortCallback(void *) {
     return g_abort.load(std::memory_order_relaxed);
 }
+
 llama_model *g_model = nullptr;
 llama_context *g_ctx = nullptr;
 llama_sampler *g_sampler = nullptr;
 std::string g_model_path;
 int g_threads = 1;
 uint32_t g_context = 1024;
+uint32_t g_requested_context = 0;   // what the app asked for (g_context may be auto-lowered)
+constexpr int kMaxReply = 256;      // was 96
 std::vector<llama_token> g_cached_prompt_tokens;
+
+void ensure_backend() {
+    std::call_once(g_backend_once, [] { llama_backend_init(); });
+}
 
 int choose_threads(int requested) {
     unsigned c = std::thread::hardware_concurrency();
@@ -38,6 +60,92 @@ std::string js(JNIEnv * env, jstring value) {
     if (c) env->ReleaseStringUTFChars(value, c);
     return out;
 }
+
+// ---------------------------------------------------------------------------
+// FIX 2: UTF-8 safety. Token pieces can split multi-byte characters, and
+// NewStringUTF() wants *modified* UTF-8 (no 4-byte sequences). We buffer
+// incomplete tails and convert to UTF-16 ourselves, then use NewString().
+// ---------------------------------------------------------------------------
+size_t utf8_complete_prefix(const std::string & s) {
+    const size_t n = s.size();
+    for (size_t back = 1; back <= 3 && back <= n; ++back) {
+        unsigned char c = static_cast<unsigned char>(s[n - back]);
+        if ((c & 0xC0) == 0x80) continue;  // continuation byte, keep looking back
+        size_t need = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+        return need > back ? n - back : n;
+    }
+    return n;
+}
+
+std::u16string utf8_to_utf16(const std::string & s) {
+    std::u16string out;
+    out.reserve(s.size());
+    size_t i = 0;
+    const size_t n = s.size();
+    while (i < n) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        uint32_t cp;
+        size_t len;
+        if (c < 0x80)              { cp = c;        len = 1; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; len = 2; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; len = 3; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; len = 4; }
+        else { out.push_back(0xFFFD); ++i; continue; }
+        if (i + len > n) { out.push_back(0xFFFD); break; }
+        bool ok = true;
+        for (size_t k = 1; k < len; ++k) {
+            unsigned char cc = static_cast<unsigned char>(s[i + k]);
+            if ((cc & 0xC0) != 0x80) { ok = false; break; }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if (!ok) { out.push_back(0xFFFD); ++i; continue; }
+        if (cp >= 0x10000) {
+            cp -= 0x10000;
+            out.push_back(static_cast<char16_t>(0xD800 + (cp >> 10)));
+            out.push_back(static_cast<char16_t>(0xDC00 + (cp & 0x3FF)));
+        } else {
+            out.push_back(static_cast<char16_t>(cp));
+        }
+        i += len;
+    }
+    return out;
+}
+
+jstring to_jstring(JNIEnv * env, const std::string & s) {
+    std::u16string u = utf8_to_utf16(s);
+    return env->NewString(reinterpret_cast<const jchar *>(u.data()), static_cast<jsize>(u.size()));
+}
+
+jstring result(JNIEnv * env, const std::string & value) {
+    return to_jstring(env, value);
+}
+
+// FIX (smaller): jmethodID looked up once per call, exceptions checked.
+struct Notifier {
+    JNIEnv * env = nullptr;
+    jobject self = nullptr;
+    jmethodID method = nullptr;
+
+    Notifier(JNIEnv * e, jobject s) : env(e), self(s) {
+        jclass cls = env->GetObjectClass(self);
+        if (cls) {
+            method = env->GetMethodID(cls, "onNativeToken", "(Ljava/lang/String;)V");
+            env->DeleteLocalRef(cls);
+        }
+        if (env->ExceptionCheck()) { env->ExceptionClear(); method = nullptr; }
+    }
+
+    // Returns false if the callback threw, so callers can stop generating.
+    bool operator()(const std::string & text) const {
+        if (!method) return true;
+        jstring v = to_jstring(env, text);
+        if (!v) { if (env->ExceptionCheck()) env->ExceptionClear(); return false; }
+        env->CallVoidMethod(self, method, v);
+        env->DeleteLocalRef(v);
+        if (env->ExceptionCheck()) { env->ExceptionClear(); return false; }
+        return true;
+    }
+};
 
 size_t rss() {
     std::ifstream f("/proc/self/status");
@@ -58,44 +166,38 @@ void clear_prompt_cache_locked() {
 }
 
 void unload_locked() {
-    if (g_sampler) {
-        llama_sampler_free(g_sampler);
-        g_sampler = nullptr;
-    }
-    if (g_ctx) {
-        llama_free(g_ctx);
-        g_ctx = nullptr;
-    }
-    if (g_model) {
-        llama_model_free(g_model);
-        g_model = nullptr;
-    }
+    if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
+    if (g_ctx)     { llama_free(g_ctx);             g_ctx = nullptr; }
+    if (g_model)   { llama_model_free(g_model);     g_model = nullptr; }
     g_model_path.clear();
     clear_prompt_cache_locked();
 }
 
-bool reset_sampler_locked() {
+bool reset_sampler_locked(bool greedy = false) {
     if (!g_model || !g_ctx) return false;
-    if (g_sampler) {
-        llama_sampler_free(g_sampler);
-        g_sampler = nullptr;
-    }
+    if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
     g_sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
     if (!g_sampler) return false;
-    llama_sampler_chain_add(g_sampler, llama_sampler_init_greedy());
+    if (greedy) {
+        llama_sampler_chain_add(g_sampler, llama_sampler_init_greedy());
+    } else {
+        // MAGIC 1: natural answers. Penalise repeats, sample from the likely
+        // words instead of always the single top one.
+        llama_sampler_chain_add(g_sampler, llama_sampler_init_penalties(64, 1.10f, 0.0f, 0.0f));
+        llama_sampler_chain_add(g_sampler, llama_sampler_init_top_k(40));
+        llama_sampler_chain_add(g_sampler, llama_sampler_init_top_p(0.90f, 1));
+        llama_sampler_chain_add(g_sampler, llama_sampler_init_temp(0.70f));
+        const uint32_t seed = static_cast<uint32_t>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        llama_sampler_chain_add(g_sampler, llama_sampler_init_dist(seed));
+    }
     return true;
 }
 
 bool recreate_context_locked() {
     if (!g_model) return false;
-    if (g_sampler) {
-        llama_sampler_free(g_sampler);
-        g_sampler = nullptr;
-    }
-    if (g_ctx) {
-        llama_free(g_ctx);
-        g_ctx = nullptr;
-    }
+    if (g_sampler) { llama_sampler_free(g_sampler); g_sampler = nullptr; }
+    if (g_ctx)     { llama_free(g_ctx);             g_ctx = nullptr; }
     clear_prompt_cache_locked();
 
     auto p = llama_context_default_params();
@@ -104,9 +206,7 @@ bool recreate_context_locked() {
     // the context/KV capacity independently configurable.
     p.n_batch = std::min<uint32_t>(g_context, 64);
     p.n_ubatch = std::min<uint32_t>(g_context, 32);
-    p.abort_callback = [](void *) -> bool {
-        return g_abort.load(std::memory_order_relaxed);
-    };
+    p.abort_callback = llamaAbortCallback;
     p.abort_callback_data = nullptr;
     p.n_threads = g_threads;
     p.n_threads_batch = g_threads;
@@ -143,15 +243,16 @@ std::vector<Turn> history(const std::string & encoded) {
     return out;
 }
 
+// Takes parsed turns directly: no re-encode/re-parse round trip through the
+// \x1e / \x1f separators when the budget loop trims history.
 bool format_chat(const std::string & system,
-                 const std::string & encoded_history,
+                 const std::vector<Turn> & hist,
                  const std::string & user,
                  std::string & out) {
     if (!g_model || user.empty()) return false;
 
     std::vector<Turn> turns{{"system", system}};
-    auto h = history(encoded_history);
-    turns.insert(turns.end(), h.begin(), h.end());
+    turns.insert(turns.end(), hist.begin(), hist.end());
     turns.push_back({"user", user});
 
     std::vector<llama_chat_message> messages;
@@ -180,49 +281,53 @@ bool format_chat(const std::string & system,
     return true;
 }
 
-void notify(JNIEnv * env, jobject self, const std::string & text) {
-    jclass cls = env->GetObjectClass(self);
-    if (!cls) return;
-    jmethodID method = env->GetMethodID(cls, "onNativeToken", "(Ljava/lang/String;)V");
-    if (method) {
-        jstring value = env->NewStringUTF(text.c_str());
-        if (value) {
-            env->CallVoidMethod(self, method, value);
-            env->DeleteLocalRef(value);
-        }
-    }
-    env->DeleteLocalRef(cls);
+// FIX 4: double BOS. If the templated prompt already starts with the BOS text,
+// don't let the tokenizer add another one.
+bool prompt_has_bos(const llama_vocab * vocab, const std::string & prompt) {
+    llama_token bos = llama_vocab_bos(vocab);
+    if (bos < 0) return false;
+    const char * text = llama_vocab_get_text(vocab, bos);
+    return text && *text && prompt.rfind(text, 0) == 0;
+}
+
+bool tokenize_prompt(const llama_vocab * vocab, const std::string & prompt,
+                     std::vector<llama_token> & out) {
+    const bool add_special = !prompt_has_bos(vocab, prompt);
+    int n = -llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
+                            nullptr, 0, add_special, true);
+    if (n <= 0) return false;
+    out.resize(static_cast<size_t>(n));
+    int r = llama_tokenize(vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
+                           out.data(), static_cast<int32_t>(out.size()), add_special, true);
+    if (r < 0) return false;
+    out.resize(static_cast<size_t>(r));
+    return true;
 }
 
 bool format_chat_with_budget(const std::string & system,
-                         const std::string & encoded_history,
-                         const std::string & user,
-                         int limit,
-                         std::string & out,
-                         int * prompt_tokens_out = nullptr) {
+                             const std::string & encoded_history,
+                             const std::string & user,
+                             int limit,
+                             std::string & out,
+                             int * prompt_tokens_out = nullptr) {
+    if (!g_model) return false;
+    auto * vocab = llama_model_get_vocab(g_model);
+    if (!vocab) return false;
+
     auto turns = history(encoded_history);
     const int safety = std::max(4, limit + 2);
 
     while (true) {
-        std::ostringstream encoded;
-        for (size_t i = 0; i < turns.size(); ++i) {
-            if (i) encoded << '\x1e';
-            encoded << turns[i].role << '\x1f' << turns[i].content;
-        }
+        if (!format_chat(system, turns, user, out)) return false;
 
-        if (!format_chat(system, encoded.str(), user, out)) return false;
-
-        auto * vocab = llama_model_get_vocab(g_model);
-        if (!vocab) return false;
-        int n_prompt = -llama_tokenize(vocab, out.c_str(), out.size(), nullptr, 0, true, true);
-        if (n_prompt > 0 && static_cast<uint32_t>(n_prompt + safety) < g_context) {
-            if (prompt_tokens_out) *prompt_tokens_out = n_prompt;
+        std::vector<llama_token> toks;
+        if (tokenize_prompt(vocab, out, toks) &&
+            static_cast<uint32_t>(toks.size() + safety) < g_context) {
+            if (prompt_tokens_out) *prompt_tokens_out = static_cast<int>(toks.size());
             return true;
         }
 
-        if (turns.empty()) {
-            return false;
-        }
+        if (turns.empty()) return false;
 
         turns.erase(turns.begin());
         if (!turns.empty() && turns.front().role == "assistant") {
@@ -231,22 +336,61 @@ bool format_chat_with_budget(const std::string & system,
     }
 }
 
-std::string generate(const std::string & prompt, int limit, JNIEnv * env = nullptr, jobject callback = nullptr, int * generated_tokens_out = nullptr) {
-    g_abort.store(false, std::memory_order_relaxed);
-    if (!g_model || !g_ctx || !reset_sampler_locked()) return {};
+// MAGIC 2: stop the model from writing fake "next turns" by itself.
+const char * const kStops[] = {
+    "<|im_start|>", "<|im_end|>", "<|eot_id|>", "<|start_header_id|>",
+    "<end_of_turn>", "\nUser:", "\n[user]", "\n[assistant]"
+};
+
+// Returns how many bytes of w are safe to show. If a full stop marker is found,
+// sets stop=true and returns the position where it begins. Text that might be
+// the beginning of a marker is held back until we know.
+size_t stop_scan(const std::string & w, bool & stop) {
+    stop = false;
+    size_t best = std::string::npos;
+    for (const char * st : kStops) {
+        size_t pos = w.find(st);
+        if (pos < best) best = pos;
+    }
+    if (best != std::string::npos) { stop = true; return best; }
+    size_t hold = 0;
+    for (const char * st : kStops) {
+        const size_t len = std::strlen(st);
+        for (size_t k = std::min(len - 1, w.size()); k > hold; --k) {
+            if (w.compare(w.size() - k, k, st, k) == 0) { hold = k; break; }
+        }
+    }
+    return w.size() - hold;
+}
+
+// MAGIC 3: stop endless loops (the same chunk repeated 3 times at the end).
+bool looks_looping(const std::string & s) {
+    const size_t n = s.size();
+    for (size_t p = 8; p <= 64 && p * 3 <= n; ++p) {
+        bool same = true;
+        for (size_t k = 0; k < p * 2; ++k) {
+            if (s[n - 1 - k] != s[n - 1 - k - p]) { same = false; break; }
+        }
+        if (same) return true;
+    }
+    return false;
+}
+
+std::string generate(const std::string & prompt, int limit,
+                     const Notifier * cb = nullptr, int * generated_tokens_out = nullptr,
+                     bool greedy = false) {
+    if (generated_tokens_out) *generated_tokens_out = 0;
+    // NOTE: g_abort is intentionally NOT reset here (see RequestGuard).
+    if (!g_model || !g_ctx || !reset_sampler_locked(greedy)) return {};
     llama_set_abort_callback(g_ctx, llamaAbortCallback, nullptr);
 
     auto * vocab = llama_model_get_vocab(g_model);
     auto * memory = llama_get_memory(g_ctx);
     if (!vocab || !memory) return {};
 
-    int n_prompt = -llama_tokenize(vocab, prompt.c_str(), prompt.size(), nullptr, 0, true, true);
-    if (n_prompt <= 0) return {};
-    if (static_cast<uint32_t>(n_prompt + limit + 2) >= g_context) return {};
-
-    std::vector<llama_token> tokens(static_cast<size_t>(n_prompt));
-    int tokenized = llama_tokenize(vocab, prompt.c_str(), prompt.size(), tokens.data(), tokens.size(), true, true);
-    if (tokenized < 0) return {};
+    std::vector<llama_token> tokens;
+    if (!tokenize_prompt(vocab, prompt, tokens)) return {};
+    if (static_cast<uint32_t>(tokens.size() + limit + 2) >= g_context) return {};
 
     size_t common = 0;
     while (common < g_cached_prompt_tokens.size() &&
@@ -257,6 +401,12 @@ std::string generate(const std::string & prompt, int limit, JNIEnv * env = nullp
 
     const bool first_context = llama_memory_seq_pos_max(memory, 0) < 0;
     if (first_context || g_cached_prompt_tokens.empty()) common = 0;
+
+    // FIX 1: the KV cache is about to be modified, so the token cache is not
+    // trustworthy again until prefill has fully succeeded. Any early return
+    // below (decode failure, cancel) leaves it empty, which forces a full
+    // re-prefill next time instead of reusing a mismatched prefix.
+    clear_prompt_cache_locked();
 
     if (common > 0) {
         if (!llama_memory_seq_rm(memory, 0, static_cast<llama_pos>(common), -1)) return {};
@@ -282,26 +432,51 @@ std::string generate(const std::string & prompt, int limit, JNIEnv * env = nullp
         }
     }
 
-    g_cached_prompt_tokens = tokens;
+    g_cached_prompt_tokens = tokens;  // prefill complete: cache is valid again
 
     std::string result;
     result.reserve(static_cast<size_t>(limit) * 4);
+    std::string pending;  // bytes not yet known to form complete UTF-8 characters
+    std::string window;   // complete text waiting for the stop-marker check
+    bool stopped = false;
+
+    auto emit = [&](const std::string & t) -> bool {
+        if (t.empty()) return true;
+        result += t;
+        return !cb || (*cb)(t);
+    };
+    auto drain = [&](bool final_flush) -> bool {
+        size_t n = final_flush ? pending.size() : utf8_complete_prefix(pending);
+        window.append(pending, 0, n);
+        pending.erase(0, n);
+        bool stop = false;
+        size_t safe = stop_scan(window, stop);
+        if (stop) {
+            stopped = true;
+            bool ok = emit(window.substr(0, safe));
+            window.clear();
+            return ok;
+        }
+        if (final_flush) safe = window.size();
+        bool ok = emit(window.substr(0, safe));
+        window.erase(0, safe);
+        return ok;
+    };
+
     int generated_tokens = 0;
     for (int i = 0; i < limit; ++i) {
         if (g_abort.load(std::memory_order_relaxed)) break;
 
+        // llama_sampler_sample() already calls llama_sampler_accept() internally.
         llama_token token = llama_sampler_sample(g_sampler, g_ctx, -1);
         if (token < 0 || llama_vocab_is_eog(vocab, token)) break;
-
-        llama_sampler_accept(g_sampler, token);
         ++generated_tokens;
 
         char piece_buffer[512];
         int n = llama_token_to_piece(vocab, token, piece_buffer, sizeof(piece_buffer), 0, true);
-        std::string piece = n > 0 ? std::string(piece_buffer, n) : std::string();
-        result += piece;
-
-        if (env && callback && !piece.empty()) notify(env, callback, piece);
+        if (n > 0) pending.append(piece_buffer, static_cast<size_t>(n));
+        if (!drain(false) || stopped) break;
+        if (looks_looping(result)) break;
 
         if (static_cast<uint32_t>(tokens.size() + i + 2) >= g_context) break;
 
@@ -309,12 +484,10 @@ std::string generate(const std::string & prompt, int limit, JNIEnv * env = nullp
         auto batch = llama_batch_get_one(&next, 1);
         if (llama_decode(g_ctx, batch) != 0) break;
     }
+    if (!stopped) drain(true);
+
     if (generated_tokens_out) *generated_tokens_out = generated_tokens;
     return result;
-}
-
-jstring result(JNIEnv * env, const std::string & value) {
-    return env->NewStringUTF(value.c_str());
 }
 
 std::string model_summary_locked() {
@@ -335,216 +508,14 @@ std::string model_summary_locked() {
         << "\nRSS: " << rss() << " bytes";
     return out.str();
 }
-}
+}  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_redmi9_offlineai_MainActivity_nativeEngineInfo(JNIEnv * env, jobject) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    llama_backend_init();
+    ensure_backend();
     std::ostringstream out;
     out << "llama.cpp: " << (llama_version() ? llama_version() : "unknown")
         << "\nABI: armeabi-v7a"
         << "\nCPU threads: adaptive 1-" << choose_threads(0)
-        << "\nModel weights: memory-mapped, mlock disabled"
-        << "\nPrompt KV cache: common prompt prefix reused while model/context stay loaded"
-        << "\n32-bit address-space limit: large models may fail to map even with free storage"
-        << "\nThink Twice: disabled";
-    return result(env, out.str());
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeLoadModel(JNIEnv * env, jobject, jstring path, jint ctx, jint threads) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    llama_backend_init();
-
-    std::string model_path = js(env, path);
-    if (model_path.empty()) return JNI_FALSE;
-
-    const int requested_threads = choose_threads(threads);
-    const uint32_t requested_context = static_cast<uint32_t>(std::clamp(ctx, 256, 4096));
-    if (g_model && g_ctx && g_model_path == model_path &&
-        g_threads == requested_threads && g_context == requested_context) {
-        g_abort.store(false, std::memory_order_relaxed);
-        return JNI_TRUE;
-    }
-
-    unload_locked();
-
-    auto params = llama_model_default_params();
-    params.n_gpu_layers = 0;
-    params.use_extra_bufts = false;
-    // Keep quantized GGUF weights file-backed. This reduces eager RAM pressure on
-    // 32-bit Android; it cannot remove ARMv7 virtual-address or physical-RAM limits.
-    params.load_mode = LLAMA_LOAD_MODE_MMAP;
-    g_model = llama_model_load_from_file(model_path.c_str(), params);
-    if (!g_model) return JNI_FALSE;
-
-    g_threads = choose_threads(threads);
-    g_context = static_cast<uint32_t>(std::clamp(ctx, 256, 4096));
-    if (!recreate_context_locked()) {
-        unload_locked();
-        return JNI_FALSE;
-    }
-
-    g_model_path = model_path;
-    return JNI_TRUE;
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeGenerateChat(JNIEnv * env, jobject,
-                                                          jstring system_context,
-                                                          jstring encoded_history,
-                                                          jstring user_text,
-                                                          jint max_tokens) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_model || !g_ctx) return result(env, "ERROR: no GGUF model loaded");
-
-    std::string system = js(env, system_context);
-    std::string history_encoded = js(env, encoded_history);
-    std::string user = js(env, user_text);
-    if (user.empty()) return result(env, "");
-    
-    std::string formatted;
-    if (!format_chat_with_budget(system, history_encoded, user, std::clamp(static_cast<int>(max_tokens), 1, 96), formatted)) {
-        return result(env, "ERROR: prompt exceeds context");
-    }
-
-    std::string generated = generate(formatted, std::clamp(static_cast<int>(max_tokens), 1, 96));
-    return generated.empty() ? result(env, "ERROR: generation failed") : result(env, generated);
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeCancelGeneration(JNIEnv *, jobject) {
-    g_abort.store(true, std::memory_order_relaxed);
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeGenerateChatStreaming(JNIEnv * env, jobject self,
-                                                                   jstring system_context,
-                                                                   jstring encoded_history,
-                                                                   jstring user_text,
-                                                                   jint max_tokens) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_model || !g_ctx) {
-        notify(env, self, "\x01ERROR: no GGUF model loaded");
-        notify(env, self, "\x01DONE");
-        return;
-    }
-
-    std::string system = js(env, system_context);
-    std::string history_encoded = js(env, encoded_history);
-    std::string user = js(env, user_text);
-    if (user.empty()) {
-        notify(env, self, "\x01DONE");
-        return;
-    }
-
-    std::string formatted;
-    if (!format_chat_with_budget(system, history_encoded, user, std::clamp(static_cast<int>(max_tokens), 1, 96), formatted)) {
-        notify(env, self, "\x01ERROR: prompt exceeds context");
-        notify(env, self, "\x01DONE");
-        return;
-    }
-
-    std::string generated = generate(formatted, std::clamp(static_cast<int>(max_tokens), 1, 96), env, self);
-    const bool cancelled = g_abort.load(std::memory_order_relaxed);
-    if (generated.empty() && !cancelled) notify(env, self, "\x01ERROR: generation failed");
-    notify(env, self, "\x01DONE");
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeBenchmark(JNIEnv * env, jobject,
-                                                       jstring system_context, jint max_tokens) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_model || !g_ctx) return result(env, "Load a GGUF model before running the model test.");
-
-    std::string system = js(env, system_context);
-    std::vector<std::string> tests = {
-        "Say hello in one short sentence.",
-        "What is 2 + 2? Answer briefly.",
-        "Explain in one short sentence what an offline AI assistant does."
-    };
-
-    std::ostringstream out;
-    out << "Model test: " << g_model_path << "\n";
-    out << "Threads: " << g_threads << "  Context: " << g_context << "\n";
-
-    for (size_t i = 0; i < tests.size(); ++i) {
-        std::string formatted;
-        int prompt_tokens = 0;
-        const int limit = std::clamp(static_cast<int>(max_tokens), 1, 48);
-        if (!format_chat_with_budget(system, "", tests[i], limit, formatted, &prompt_tokens)) {
-            out << "\nTest " << i + 1 << ": prompt does not fit context\n";
-            continue;
-        }
-
-        int generated_tokens = 0;
-        const auto started = std::chrono::steady_clock::now();
-        std::string generated = generate(formatted, limit, nullptr, nullptr, &generated_tokens);
-        const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - started).count();
-        const double tok_s = elapsed_ms > 0 ? (generated_tokens * 1000.0 / elapsed_ms) : 0.0;
-
-        out << "\nTest " << i + 1
-            << ": prompt=" << prompt_tokens << " tokens"
-            << ", generated=" << generated_tokens << " tokens"
-            << ", time=" << elapsed_ms << " ms"
-            << ", generation=" << tok_s << " tok/s\n"
-            << generated << "\n";
-    }
-
-    out << "\nPrompt KV cache: enabled";
-    return result(env, out.str());
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeUnloadModel(JNIEnv *, jobject) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    unload_locked();
-}
-
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeModelInfo(JNIEnv * env, jobject) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    return result(env, model_summary_locked());
-}
-
-extern "C" JNIEXPORT jlong JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeMemoryBytes(JNIEnv *, jobject) {
-    return static_cast<jlong>(rss());
-}
-
-// Stable JNI facade for agent/provider code. These forward to the existing
-// MainActivity JNI entry points so both UI and agent share one model/context.
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_redmi9_offlineai_LlamaNativeEngine_nativeEngineInfo(JNIEnv * env, jobject self) {
-    return Java_com_redmi9_offlineai_MainActivity_nativeEngineInfo(env, self);
-}
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_redmi9_offlineai_LlamaNativeEngine_nativeLoadModel(JNIEnv * env, jobject self, jstring path, jint ctx, jint threads) {
-    return Java_com_redmi9_offlineai_MainActivity_nativeLoadModel(env, self, path, ctx, threads);
-}
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_redmi9_offlineai_LlamaNativeEngine_nativeGenerateChat(JNIEnv * env, jobject self, jstring system, jstring history, jstring user, jint max_tokens) {
-    return Java_com_redmi9_offlineai_MainActivity_nativeGenerateChat(env, self, system, history, user, max_tokens);
-}
-extern "C" JNIEXPORT void JNICALL
-Java_com_redmi9_offlineai_LlamaNativeEngine_nativeCancelGeneration(JNIEnv * env, jobject self) {
-    Java_com_redmi9_offlineai_MainActivity_nativeCancelGeneration(env, self);
-}
-extern "C" JNIEXPORT void JNICALL
-Java_com_redmi9_offlineai_LlamaNativeEngine_nativeUnloadModel(JNIEnv * env, jobject self) {
-    Java_com_redmi9_offlineai_MainActivity_nativeUnloadModel(env, self);
-}
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_redmi9_offlineai_LlamaNativeEngine_nativeModelInfo(JNIEnv * env, jobject self) {
-    return Java_com_redmi9_offlineai_MainActivity_nativeModelInfo(env, self);
-}
-extern "C" JNIEXPORT jlong JNICALL
-Java_com_redmi9_offlineai_LlamaNativeEngine_nativeMemoryBytes(JNIEnv * env, jobject self) {
-    return Java_com_redmi9_offlineai_MainActivity_nativeMemoryBytes(env, self);
-}
-extern "C" JNIEXPORT void JNICALL
-Java_com_redmi9_offlineai_LlamaNativeEngine_nativeGenerateChatStreaming(JNIEnv * env, jobject self, jstring system, jstring history, jstring user, jint max_tokens) {
-    Java_com_redmi9_offlineai_MainActivity_nativeGenerateChatStreaming(env, self, system, history, user, max_tokens);
-}
+  
