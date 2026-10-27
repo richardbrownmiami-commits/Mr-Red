@@ -33,7 +33,7 @@ data class AgentLLMResponse(
 )
 
 /**
- * Local provider backed by the repository's existing llama.cpp/GGUF engine.
+ * Local provider backed by the repository's existing RWKV.cpp engine.
  * No LiteRT-LM dependency is used, keeping the provider viable on armeabi-v7a.
  */
 class LlamaAgentProvider(
