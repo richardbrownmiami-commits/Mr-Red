@@ -44,7 +44,7 @@ class RwkvNativeEngine {
         }
     }
 
-    fun isModelLoaded(): Boolean = !nativeModelInfo().startsWith("No RWKV model model loaded")
+    fun isModelLoaded(): Boolean = !nativeModelInfo().startsWith("No RWKV model loaded")
 
     /**
      * Converts turns to the native engine's role/content wire format.
