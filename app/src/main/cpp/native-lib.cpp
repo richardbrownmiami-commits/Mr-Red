@@ -112,3 +112,47 @@ Java_com_redmi9_offlineai_MainActivity_nativeBenchmark(JNIEnv *env, jobject, jst
       : "RWKV benchmark failed: no RWKV model loaded.";
     return env->NewStringUTF(out.c_str());
 }
+
+
+// JNI bridge for the agent/provider facade. Keep these symbols aligned with
+// RwkvNativeEngine.kt; MainActivity and the agent share the same process-wide
+// RWKV context above.
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeEngineInfo(JNIEnv *env, jobject) {
+    return Java_com_redmi9_offlineai_MainActivity_nativeEngineInfo(env, nullptr);
+}
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeLoadModel(JNIEnv *env, jobject, jstring path, jint context_size, jint threads) {
+    return Java_com_redmi9_offlineai_MainActivity_nativeLoadModel(env, nullptr, path, context_size, threads);
+}
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeGenerateChat(JNIEnv *env, jobject, jstring system, jstring history, jstring user, jint max_tokens) {
+    return Java_com_redmi9_offlineai_MainActivity_nativeGenerateChat(env, nullptr, system, history, user, max_tokens);
+}
+extern "C" JNIEXPORT void JNICALL
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeGenerateChatStreaming(JNIEnv *env, jobject self, jstring, jstring, jstring, jint) {
+    jclass cls = env->GetObjectClass(self);
+    if (!cls) return;
+    jmethodID cb = env->GetMethodID(cls, "onNativeToken", "(Ljava/lang/String;)V");
+    if (cb) {
+        jstring part = env->NewStringUTF("\\u0001ERROR:RWKV tokenizer and token-by-token decoding are not integrated yet.");
+        if (part) { env->CallVoidMethod(self, cb, part); env->DeleteLocalRef(part); }
+    }
+    env->DeleteLocalRef(cls);
+}
+extern "C" JNIEXPORT void JNICALL
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeCancelGeneration(JNIEnv *, jobject) {
+    g_cancel.store(true);
+}
+extern "C" JNIEXPORT void JNICALL
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeUnloadModel(JNIEnv *env, jobject self) {
+    Java_com_redmi9_offlineai_MainActivity_nativeUnloadModel(env, self);
+}
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeModelInfo(JNIEnv *env, jobject) {
+    return Java_com_redmi9_offlineai_MainActivity_nativeModelInfo(env, nullptr);
+}
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeMemoryBytes(JNIEnv *env, jobject) {
+    return Java_com_redmi9_offlineai_MainActivity_nativeMemoryBytes(env, nullptr);
+}
