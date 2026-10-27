@@ -135,7 +135,7 @@ Java_com_redmi9_offlineai_RwkvNativeEngine_nativeGenerateChatStreaming(JNIEnv *e
     if (!cls) return;
     jmethodID cb = env->GetMethodID(cls, "onNativeToken", "(Ljava/lang/String;)V");
     if (cb) {
-        jstring part = env->NewStringUTF("\\u0001ERROR:RWKV tokenizer and token-by-token decoding are not integrated yet.");
+        jstring part = env->NewStringUTF("\001ERROR:RWKV tokenizer and token-by-token decoding are not integrated yet.");
         if (part) { env->CallVoidMethod(self, cb, part); env->DeleteLocalRef(part); }
     }
     env->DeleteLocalRef(cls);
