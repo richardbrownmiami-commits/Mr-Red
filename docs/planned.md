@@ -5,14 +5,14 @@ This is the forward-looking task list. Items belong here until they are actually
 ## Phase 1 — Build foundation
 - [x] Android project skeleton
 - [x] ARMv7 (`armeabi-v7a`) build configuration
-- [x] llama.cpp source integration for the native build
+- [x] RWKV.cpp source integration for the native build
 - [x] GitHub Actions workflow definition
 - [ ] Successful GitHub Actions APK build
 - [ ] Verify APK contains only `armeabi-v7a`
 
 ## Phase 2 — Runtime smoke test
 - [ ] Launch APK on a real Redmi 9
-- [ ] Load a small GGUF model
+- [ ] Load a small RWKV-format model
 - [ ] Generate a response offline
 - [ ] Measure peak RAM
 - [ ] Measure generation speed
@@ -34,3 +34,11 @@ This is the forward-looking task list. Items belong here until they are actually
 
 ## Rule
 Do not move an item to `complete.md` just because code exists. It must be tested at the level stated in the completion record.
+
+
+## RWKV migration follow-up
+- [x] Replace llama.cpp CMake dependency with RWKV.cpp CPU-only build configuration
+- [x] Replace native JNI implementation with RWKV model-load/info bridge
+- [ ] Integrate matching RWKV tokenizer and real token generation
+- [ ] Build APK successfully for `armeabi-v7a`
+- [ ] Verify APK native libraries and run on the target phone
