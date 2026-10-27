@@ -4,7 +4,7 @@ package com.redmi9.offlineai
  * Shared native-engine facade for agent/provider integrations.
  *
  * The UI and agent must use this facade against the same process-wide RWKV.cpp
- * model/context. A RWKV model model must be loaded before generateChat() is called.
+ * model/context. A RWKV model must be loaded before generateChat() is called.
  * This facade deliberately stays independent of any one agent framework.
  */
 class RwkvNativeEngine {
