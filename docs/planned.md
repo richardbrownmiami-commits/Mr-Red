@@ -37,7 +37,7 @@ Do not move an item to `complete.md` just because code exists. It must be tested
 
 
 ## RWKV migration follow-up
-- [x] Replace llama.cpp CMake dependency with RWKV.cpp CPU-only build configuration
+- [x] Replace RWKV.cpp CMake dependency with RWKV.cpp CPU-only build configuration
 - [x] Replace native JNI implementation with RWKV model-load/info bridge
 - [ ] Integrate matching RWKV tokenizer and real token generation
 - [ ] Build APK successfully for `armeabi-v7a`
