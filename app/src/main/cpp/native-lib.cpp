@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 #include <unistd.h>
 
 namespace {
@@ -84,23 +85,84 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_redmi9_offlineai_MainActivity_nativeCancelGeneration(JNIEnv *, jobject) {
     g_cancel.store(true);
 }
+namespace {
+std::vector<uint32_t> byte_encode(const std::string &s) {
+    std::vector<uint32_t> tokens;
+    tokens.reserve(s.size());
+    // RWKV World vocabulary reserves IDs 1..256 for individual bytes.
+    for (unsigned char ch : s) tokens.push_back(static_cast<uint32_t>(ch) + 1u);
+    return tokens;
+}
+std::string byte_decode(uint32_t token) {
+    if (token >= 1 && token <= 256) return std::string(1, static_cast<char>(token - 1));
+    return {};
+}
+std::string generate_locked(const std::string &system, const std::string &history,
+                            const std::string &user, int max_tokens) {
+    if (!g_ctx) return "ERROR:No RWKV model loaded.";
+    const size_t vocab = rwkv_get_n_vocab(g_ctx);
+    if (vocab < 257) return "ERROR:This model vocabulary is incompatible with RWKV byte-token fallback.";
+    std::string prompt;
+    if (!system.empty()) prompt += system + "\n\n";
+    prompt += history;
+    prompt += "User: " + user + "\n\nAssistant:";
+    auto tokens = byte_encode(prompt);
+    if (tokens.empty()) tokens.push_back(1);
+    const size_t state_len = rwkv_get_state_len(g_ctx);
+    const size_t logits_len = rwkv_get_logits_len(g_ctx);
+    std::vector<float> state(state_len), next_state(state_len), logits(logits_len);
+    rwkv_init_state(g_ctx, state.data());
+    g_cancel.store(false);
+    // Process the prompt sequentially so the recurrent state is retained.
+    for (uint32_t token : tokens) {
+        if (g_cancel.load()) return "ERROR:Generation cancelled.";
+        if (!rwkv_eval(g_ctx, token, state.data(), next_state.data(), logits.data()))
+            return "ERROR:RWKV prompt evaluation failed.";
+        state.swap(next_state);
+    }
+    std::string output;
+    for (int i = 0; i < std::max(1, std::min(256, max_tokens)); ++i) {
+        if (g_cancel.load()) break;
+        // Greedy decoding is deterministic and avoids adding an RNG dependency.
+        uint32_t best = 0;
+        float best_value = -1.0e30f;
+        for (uint32_t j = 0; j < logits_len; ++j) {
+            if (logits[j] > best_value) { best_value = logits[j]; best = j; }
+        }
+        if (best == 0) break;
+        const std::string piece = byte_decode(best);
+        output += piece;
+        if (!rwkv_eval(g_ctx, best, state.data(), next_state.data(), logits.data()))
+            return output + "\n[RWKV generation stopped: evaluation failed]";
+        state.swap(next_state);
+        if (output.size() >= 4 && output.find("\n\nUser:") != std::string::npos) {
+            output.resize(output.find("\n\nUser:"));
+            break;
+        }
+    }
+    return output.empty() ? "[RWKV generated no printable byte tokens. Use the matching RWKV tokenizer for this model.]" : output;
+}
+}
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeGenerateChat(JNIEnv *env, jobject, jstring, jstring, jstring, jint) {
+Java_com_redmi9_offlineai_MainActivity_nativeGenerateChat(JNIEnv *env, jobject, jstring system, jstring history, jstring user, jint max_tokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
-    const char *msg = g_ctx
-      ? "RWKV.cpp model loaded. Chat generation is disabled until the matching RWKV tokenizer is integrated; no fake response was generated."
-      : "No RWKV model loaded.";
-    return env->NewStringUTF(msg);
+    return env->NewStringUTF(generate_locked(jstr(env, system), jstr(env, history), jstr(env, user), max_tokens).c_str());
 }
 extern "C" JNIEXPORT void JNICALL
-Java_com_redmi9_offlineai_MainActivity_nativeGenerateChatStreaming(JNIEnv *env, jobject self, jstring, jstring, jstring, jint) {
+Java_com_redmi9_offlineai_MainActivity_nativeGenerateChatStreaming(JNIEnv *env, jobject self, jstring system, jstring history, jstring user, jint max_tokens) {
     jclass cls = env->GetObjectClass(self);
     if (!cls) return;
     jmethodID cb = env->GetMethodID(cls, "onNativeToken", "(Ljava/lang/String;)V");
     if (cb) {
-        const char *msg = "RWKV.cpp is wired for model loading, but chat generation requires the matching RWKV tokenizer.\n";
-        jstring part = env->NewStringUTF(msg);
+        std::string output;
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            output = generate_locked(jstr(env, system), jstr(env, history), jstr(env, user), max_tokens);
+        }
+        jstring part = env->NewStringUTF(output.c_str());
         if (part) { env->CallVoidMethod(self, cb, part); env->DeleteLocalRef(part); }
+        jstring done = env->NewStringUTF("\001DONE");
+        if (done) { env->CallVoidMethod(self, cb, done); env->DeleteLocalRef(done); }
     }
     env->DeleteLocalRef(cls);
 }
