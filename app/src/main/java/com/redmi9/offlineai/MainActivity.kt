@@ -78,14 +78,14 @@ class MainActivity : Activity() {
         get() = loadedModelFile?.name ?: NO_MODEL
 
     companion object {
-        private const val PICK_GGUF = 4101
+        private const val PICK_RWKV = 4101
         private const val MAX_MODEL_BYTES = 2L * 1024L * 1024L * 1024L
         private const val LARGE_MODEL_WARNING_BYTES = 1024L * 1024L * 1024L
         private const val MODEL_STORAGE_RESERVE_BYTES = 128L * 1024L * 1024L
         private const val MAX_HISTORY_TURNS = 6
         private const val MAX_REPLY_TOKENS = 96
         private const val PREFS = "mekamaru_ui"
-        private const val NO_MODEL = "No GGUF model loaded"
+        private const val NO_MODEL = "No RWKV model loaded"
         private val CONTEXT_OPTIONS = listOf(512, 1024, 2048, 3072, 4096)
         private val ACCENT = Color.rgb(0, 196, 106)
         private val AI_BUBBLE = Color.rgb(22, 27, 34)
@@ -339,7 +339,7 @@ class MainActivity : Activity() {
 
     private fun welcomeText(): String {
         val file = loadedModelFile
-        return if (file == null) "Import a .gguf model, load it, then send a message for local inference.\n\nTip: long-press any message to copy it." else "Model ready: ${file.name}\nSend a message to start.\n\nTip: long-press any message to copy it."
+        return if (file == null) "Import a .bin model, load it, then send a message for local inference.\n\nTip: long-press any message to copy it." else "Model ready: ${file.name}\nSend a message to start.\n\nTip: long-press any message to copy it."
     }
 
     private fun refreshHeader() { modelLabel.text = modelName; status.text = modelStatus() }
@@ -651,7 +651,7 @@ class MainActivity : Activity() {
     private fun newChat() { if (generating || modelBusy) { toast("Wait for the current task to finish."); return }; conversationStore.startNew(); conversation.clear(); transcript.clear(); messages.removeAllViews(); addNotice(welcomeText()); status.text = modelStatus() }
     private fun shareChat() { if (transcript.isEmpty()) { toast("Nothing to share yet."); return }; val text = transcript.joinToString("\n\n") { it.sender + ": " + it.text }; val send = Intent(Intent.ACTION_SEND); send.type = "text/plain"; send.putExtra(Intent.EXTRA_TEXT, text); startActivity(Intent.createChooser(send, "Share chat")) }
 
-    private fun modelFiles(): List<File> { val found = modelsDir.listFiles { f -> f.isFile && f.name.lowercase(Locale.US).endsWith(".gguf") }; return found?.sortedBy { it.name.lowercase(Locale.US) } ?: emptyList() }
+    private fun modelFiles(): List<File> { val found = modelsDir.listFiles { f -> f.isFile && f.name.lowercase(Locale.US).endsWith(".bin") }; return found?.sortedBy { it.name.lowercase(Locale.US) } ?: emptyList() }
 
 
 
@@ -702,7 +702,7 @@ class MainActivity : Activity() {
             return
         }
         if (loadedModelFile == null) {
-            showModels("Load a GGUF model before starting an agent task.")
+            showModels("Load a RWKV model before starting an agent task.")
             return
         }
         if (AgentAccessibilityService.current() == null) {
@@ -760,16 +760,16 @@ class MainActivity : Activity() {
     private fun showModels(message: String? = null) {
         if (message != null) Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         val files = modelFiles(); val loadedPath = loadedModelFile?.canonicalPath
-        val labels = if (files.isEmpty()) arrayOf("No GGUF models imported") else files.map { f -> f.name + "  (" + formatBytes(f.length()) + ")" + if (loadedPath != null && loadedPath == f.canonicalPath) "  ✔ LOADED" else "" }.toTypedArray()
-        val builder = AlertDialog.Builder(this).setTitle("Models"); builder.setItems(labels) { _, which -> if (files.isNotEmpty()) showModelActions(files[which]) }; builder.setNeutralButton("Import GGUF") { _, _ -> pickGguf() }; if (loadedModelFile != null) builder.setNegativeButton("Unload") { _, _ -> unloadModel() }; builder.show()
+        val labels = if (files.isEmpty()) arrayOf("No RWKV models imported") else files.map { f -> f.name + "  (" + formatBytes(f.length()) + ")" + if (loadedPath != null && loadedPath == f.canonicalPath) "  ✔ LOADED" else "" }.toTypedArray()
+        val builder = AlertDialog.Builder(this).setTitle("Models"); builder.setItems(labels) { _, which -> if (files.isNotEmpty()) showModelActions(files[which]) }; builder.setNeutralButton("Import RWKV") { _, _ -> pickRwkv() }; if (loadedModelFile != null) builder.setNegativeButton("Unload") { _, _ -> unloadModel() }; builder.show()
     }
 
-    private fun showModelActions(file: File) { val loaded = loadedModelFile?.canonicalPath == file.canonicalPath; val volume = if (Environment.isExternalStorageRemovable(file)) "removable storage" else "app storage"; AlertDialog.Builder(this).setTitle(file.name).setMessage("Size: ${formatBytes(file.length())}\nLocation: $volume\nFree space here: ${formatBytes(modelsDir.usableSpace)}\nCPU: $cpuThreads threads\nContext: $contextSize\n\nLarge GGUF loading depends on available RAM and 32-bit address space. A 1.5 GB file can import successfully but may still fail to load on this phone.").setPositiveButton(if (loaded) "Unload model" else "Load model") { _, _ -> if (loaded) unloadModel() else loadModel(file) }.setNeutralButton("Delete") { _, _ -> confirmDelete(file) }.setNegativeButton("Close", null).show() }
+    private fun showModelActions(file: File) { val loaded = loadedModelFile?.canonicalPath == file.canonicalPath; val volume = if (Environment.isExternalStorageRemovable(file)) "removable storage" else "app storage"; AlertDialog.Builder(this).setTitle(file.name).setMessage("Size: ${formatBytes(file.length())}\nLocation: $volume\nFree space here: ${formatBytes(modelsDir.usableSpace)}\nCPU: $cpuThreads threads\nContext: $contextSize\n\nLarge RWKV loading depends on available RAM and 32-bit address space. A 1.5 GB file can import successfully but may still fail to load on this phone.").setPositiveButton(if (loaded) "Unload model" else "Load model") { _, _ -> if (loaded) unloadModel() else loadModel(file) }.setNeutralButton("Delete") { _, _ -> confirmDelete(file) }.setNegativeButton("Close", null).show() }
     private fun confirmDelete(file: File) { if (generating || modelBusy) { toast("Wait for the current task to finish."); return }; if (loadedModelFile?.canonicalPath == file.canonicalPath) { showError("Delete model", "Unload this model before deleting it."); return }; AlertDialog.Builder(this).setTitle("Delete model?").setMessage(file.name + " (" + formatBytes(file.length()) + ") will be removed from this phone.").setPositiveButton("Delete") { _, _ -> toast(if (file.delete()) "Deleted" else "Could not delete the file") }.setNegativeButton("Cancel", null).show() }
 
     private fun loadModel(file: File, largeModelConfirmed: Boolean = false) {
         if (generating || modelBusy) { toast("Wait for the current task to finish."); return }
-        if (file.length() > MAX_MODEL_BYTES) { showError("Model too large", "Mr-Red can import GGUF files up to 2 GB. Loading still depends on available RAM and 32-bit address space."); return }
+        if (file.length() > MAX_MODEL_BYTES) { showError("Model too large", "Mr-Red can import RWKV files up to 2 GB. Loading still depends on available RAM and 32-bit address space."); return }
         if (file.length() > LARGE_MODEL_WARNING_BYTES && !largeModelConfirmed) {
             AlertDialog.Builder(this).setTitle("Large model on a 32-bit phone")
                 .setMessage("This file is ${formatBytes(file.length())}. Mr-Red will try to load it using memory-mapped model weights and a context of $contextSize tokens. Android's 32-bit address space and free RAM may still prevent loading. You can import and keep the file even if loading fails.")
@@ -795,7 +795,7 @@ class MainActivity : Activity() {
     }
 
     private fun showModelTests() {
-        val files = modelFiles(); if (files.isEmpty()) { showError("Model Tests", "Import at least one .gguf model first."); return }; if (generating || modelBusy) { showError("Model Tests", "Wait for the current task to finish."); return }
+        val files = modelFiles(); if (files.isEmpty()) { showError("Model Tests", "Import at least one .bin model first."); return }; if (generating || modelBusy) { showError("Model Tests", "Wait for the current task to finish."); return }
         modelBusy = true; updateSendState(); val box = EditText(this).apply { minLines = 14; setText("Preparing model tests...\n"); isFocusable = false; setTextIsSelectable(true) }; val dialog = AlertDialog.Builder(this).setTitle("Model Tests").setView(box).setPositiveButton("Close", null).create(); dialog.show(); val original = loadedModelFile; val threads = cpuThreads; val ctxSize = contextSize
         Thread {
             for (file in files) {
@@ -806,20 +806,20 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun pickGguf() { val intent = Intent(Intent.ACTION_OPEN_DOCUMENT); intent.addCategory(Intent.CATEGORY_OPENABLE); intent.type = "*/*"; startActivityForResult(intent, PICK_GGUF) }
+    private fun pickRwkv() { val intent = Intent(Intent.ACTION_OPEN_DOCUMENT); intent.addCategory(Intent.CATEGORY_OPENABLE); intent.type = "*/*"; startActivityForResult(intent, PICK_RWKV) }
 
     @Deprecated("Legacy result API retained for Android 11 compatibility")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) { super.onActivityResult(requestCode, resultCode, data); if (requestCode == PICK_GGUF && resultCode == RESULT_OK) data?.data?.let { importGguf(it) } }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) { super.onActivityResult(requestCode, resultCode, data); if (requestCode == PICK_RWKV && resultCode == RESULT_OK) data?.data?.let { importRwkv(it) } }
 
-    private fun importGguf(uri: Uri) {
+    private fun importRwkv(uri: Uri) {
         if (importing) { toast("An import is already running."); return }; importing = true
         Thread {
             var temp: File? = null
             try {
-                val name = queryDisplayName(uri) ?: "imported_model.gguf"; if (!name.lowercase(Locale.US).endsWith(".gguf")) throw IllegalArgumentException("Please select a .gguf file"); val expected = contentLength(uri); if (expected > MAX_MODEL_BYTES) throw IllegalArgumentException("Model must be 2 GB or smaller"); if (expected > 0 && modelsDir.usableSpace < expected + MODEL_STORAGE_RESERVE_BYTES) throw IllegalArgumentException("Not enough free space on the selected model storage. Keep at least 128 MB free after importing."); val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_"); var dest = File(modelsDir, safe); if (dest.exists()) dest = File(modelsDir, System.currentTimeMillis().toString() + "_" + safe); val part = File(modelsDir, "." + dest.name + ".part"); temp = part; var total = 0L; var lastReport = 0L
+                val name = queryDisplayName(uri) ?: "imported_model.bin"; if (!name.lowercase(Locale.US).endsWith(".bin")) throw IllegalArgumentException("Please select a .bin file"); val expected = contentLength(uri); if (expected > MAX_MODEL_BYTES) throw IllegalArgumentException("Model must be 2 GB or smaller"); if (expected > 0 && modelsDir.usableSpace < expected + MODEL_STORAGE_RESERVE_BYTES) throw IllegalArgumentException("Not enough free space on the selected model storage. Keep at least 128 MB free after importing."); val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_"); var dest = File(modelsDir, safe); if (dest.exists()) dest = File(modelsDir, System.currentTimeMillis().toString() + "_" + safe); val part = File(modelsDir, "." + dest.name + ".part"); temp = part; var total = 0L; var lastReport = 0L
                 val stream = contentResolver.openInputStream(uri) ?: throw IllegalArgumentException("Could not read selected file"); stream.use { source -> FileOutputStream(part).use { output -> val buffer = ByteArray(64 * 1024); while (true) { val n = source.read(buffer); if (n < 0) break; total += n; if (total > MAX_MODEL_BYTES) throw IllegalArgumentException("Model must be 2 GB or smaller"); if (modelsDir.usableSpace < n + MODEL_STORAGE_RESERVE_BYTES) throw IllegalArgumentException("Import stopped: not enough free space on the selected model storage."); output.write(buffer, 0, n); if (total - lastReport >= 8L * 1024L * 1024L) { lastReport = total; val done = total; runOnUiThread { if (!generating && !modelBusy) status.text = "Importing model... " + (if (expected > 0) formatBytes(done) + " / " + formatBytes(expected) else formatBytes(done)) } } } } }
                 if (total <= 0) throw IllegalArgumentException("Selected file is empty"); if (!part.renameTo(dest)) throw IllegalStateException("Could not finish model import"); temp = null; val finalFile = dest; val finalBytes = total; runOnUiThread { importing = false; restoreStatus(); addNotice("Imported ${finalFile.name} (${formatBytes(finalBytes)})."); showModelActions(finalFile) }
-            } catch (e: Throwable) { temp?.delete(); val reason = e.message ?: "Unknown import error"; runOnUiThread { importing = false; restoreStatus(); showError("GGUF import failed", reason) } }
+            } catch (e: Throwable) { temp?.delete(); val reason = e.message ?: "Unknown import error"; runOnUiThread { importing = false; restoreStatus(); showError("RWKV import failed", reason) } }
         }.start()
     }
 
