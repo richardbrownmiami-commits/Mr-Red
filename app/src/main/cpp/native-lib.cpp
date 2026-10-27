@@ -192,15 +192,8 @@ Java_com_redmi9_offlineai_RwkvNativeEngine_nativeGenerateChat(JNIEnv *env, jobje
     return Java_com_redmi9_offlineai_MainActivity_nativeGenerateChat(env, nullptr, system, history, user, max_tokens);
 }
 extern "C" JNIEXPORT void JNICALL
-Java_com_redmi9_offlineai_RwkvNativeEngine_nativeGenerateChatStreaming(JNIEnv *env, jobject self, jstring, jstring, jstring, jint) {
-    jclass cls = env->GetObjectClass(self);
-    if (!cls) return;
-    jmethodID cb = env->GetMethodID(cls, "onNativeToken", "(Ljava/lang/String;)V");
-    if (cb) {
-        jstring part = env->NewStringUTF("\001ERROR:RWKV tokenizer and token-by-token decoding are not integrated yet.");
-        if (part) { env->CallVoidMethod(self, cb, part); env->DeleteLocalRef(part); }
-    }
-    env->DeleteLocalRef(cls);
+Java_com_redmi9_offlineai_RwkvNativeEngine_nativeGenerateChatStreaming(JNIEnv *env, jobject self, jstring system, jstring history, jstring user, jint max_tokens) {
+    Java_com_redmi9_offlineai_MainActivity_nativeGenerateChatStreaming(env, self, system, history, user, max_tokens);
 }
 extern "C" JNIEXPORT void JNICALL
 Java_com_redmi9_offlineai_RwkvNativeEngine_nativeCancelGeneration(JNIEnv *, jobject) {
