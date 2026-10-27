@@ -11,13 +11,13 @@ import org.json.JSONObject
  */
 class AgentRuntime(
     private val systemContext: String = "",
-    private val provider: LlamaAgentProvider = LlamaAgentProvider()
+    private val provider: RwkvAgentProvider = RwkvAgentProvider()
 ) {
     suspend fun executeTask(task: String): String {
         val normalizedTask = task.trim()
         if (normalizedTask.isEmpty()) return "Enter a task first."
         if (!provider.isAvailable()) {
-            return "Local model unavailable. Load a GGUF model in the app before starting the agent."
+            return "Local model unavailable. Load a RWKV .bin model in the app before starting the agent."
         }
         val service = AgentAccessibilityService.current()
             ?: return "Screen automation is disabled. Enable “AI Agent Screen Access” in Android Accessibility settings, then retry."
