@@ -3,56 +3,35 @@ project(offlineai LANGUAGES C CXX)
 
 include(FetchContent)
 
-set(LLAMA_TAG "b10903" CACHE STRING "Pinned llama.cpp revision")
-
+# Build only the RWKV CPU runtime. No llama.cpp, GPU backends, OpenMP,
+# BLAS, tests, examples, or server are included in the Android build.
+set(RWKV_TAG "master" CACHE STRING "Pinned RWKV.cpp revision")
 FetchContent_Declare(
-    llama
-    GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
-    GIT_TAG ${LLAMA_TAG}
+    rwkv
+    GIT_REPOSITORY https://github.com/RWKV/rwkv.cpp.git
+    GIT_TAG ${RWKV_TAG}
     GIT_SHALLOW TRUE
 )
-
+set(RWKV_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+set(RWKV_NATIVE OFF CACHE BOOL "" FORCE)
+set(RWKV_AVX OFF CACHE BOOL "" FORCE)
+set(RWKV_AVX2 OFF CACHE BOOL "" FORCE)
+set(RWKV_AVX512 OFF CACHE BOOL "" FORCE)
+set(RWKV_FMA OFF CACHE BOOL "" FORCE)
+set(RWKV_ACCELERATE OFF CACHE BOOL "" FORCE)
+set(RWKV_OPENBLAS OFF CACHE BOOL "" FORCE)
+set(RWKV_CUBLAS OFF CACHE BOOL "" FORCE)
+set(RWKV_CLBLAST OFF CACHE BOOL "" FORCE)
+set(RWKV_HIPBLAS OFF CACHE BOOL "" FORCE)
+set(RWKV_METAL OFF CACHE BOOL "" FORCE)
+set(RWKV_OPENMP OFF CACHE BOOL "" FORCE)
+set(RWKV_STANDALONE ON CACHE BOOL "" FORCE)
+set(RWKV_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
-set(GGML_CPU_REPACK ON CACHE BOOL "" FORCE)
-set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
-set(GGML_CPU_ALL_VARIANTS OFF CACHE BOOL "" FORCE)
-set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
-set(LLAMA_OPENSSL OFF CACHE BOOL "" FORCE)
-set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
 
-# Keep this target portable across ARMv7 Android devices running in 32-bit mode.
-# CPU-Z reports armv8l for this phone: that commonly means 32-bit ARM userspace
-# on a 64-bit ARM kernel. Do not hardcode Cortex-A53 or another specific core,
-# because the SoC may contain different ARM cores and the kernel label is not
-# the CPU model. Keep generic ARMv7 + NEON flags and never enable ARMv8.2+
-# features such as dotprod, FP16 vector arithmetic, i8mm, SVE or SME.
-# GGML_NATIVE stays OFF so the build cannot inherit CI host CPU features.
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -DNDEBUG" CACHE STRING "" FORCE)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG" CACHE STRING "" FORCE)
+FetchContent_MakeAvailable(rwkv)
 
-FetchContent_MakeAvailable(llama)
-
-add_library(offlineai SHARED
-    native-lib.cpp
-)
-
-target_include_directories(offlineai PRIVATE
-    ${llama_SOURCE_DIR}/include
-    ${llama_SOURCE_DIR}/ggml/include
-)
-
-target_link_libraries(offlineai PRIVATE llama log android)
-
-target_compile_options(offlineai PRIVATE
-    -O3
-    -DNDEBUG
-    -march=armv7-a
-    -mfpu=neon-vfpv4
-    -mfloat-abi=softfp
-    -mno-unaligned-access
-    -funsafe-math-optimizations
-)
+add_library(offlineai SHARED native-lib.cpp)
+target_include_directories(offlineai PRIVATE ${rwkv_SOURCE_DIR})
+target_link_libraries(offlineai PRIVATE rwkv log android)
+target_compile_options(offlineai PRIVATE -O3 -DNDEBUG -march=armv7-a -mfpu=neon -mfloat-abi=softfp)
