@@ -68,7 +68,7 @@ class ConversationStore(context: Context) {
     /** Retrieves a few keyword-relevant excerpts from older chats, fully offline. */
     /**
      * Retrieves a few keyword-relevant excerpts from saved chats. Recent turns in the active
-     * session are already passed to llama.cpp as chat history, so only older active-chat turns
+     * session are already passed to RWKV.cpp as chat history, so only older active-chat turns
      * plus other sessions are eligible here. This keeps context useful without duplicating it.
      */
     @Synchronized
