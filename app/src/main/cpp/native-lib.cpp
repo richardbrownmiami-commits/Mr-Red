@@ -159,8 +159,15 @@ Java_com_redmi9_offlineai_MainActivity_nativeGenerateChatStreaming(JNIEnv *env, 
             std::lock_guard<std::mutex> lock(g_mutex);
             output = generate_locked(jstr(env, system), jstr(env, history), jstr(env, user), max_tokens);
         }
-        jstring part = env->NewStringUTF(output.c_str());
-        if (part) { env->CallVoidMethod(self, cb, part); env->DeleteLocalRef(part); }
+        // Keep native errors separate from successful assistant text.
+        if (output.rfind("ERROR:", 0) == 0) {
+            const std::string message = "\001ERROR:" + output.substr(6);
+            jstring error = env->NewStringUTF(message.c_str());
+            if (error) { env->CallVoidMethod(self, cb, error); env->DeleteLocalRef(error); }
+        } else {
+            jstring part = env->NewStringUTF(output.c_str());
+            if (part) { env->CallVoidMethod(self, cb, part); env->DeleteLocalRef(part); }
+        }
         jstring done = env->NewStringUTF("\001DONE");
         if (done) { env->CallVoidMethod(self, cb, done); env->DeleteLocalRef(done); }
     }
