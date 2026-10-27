@@ -20,3 +20,11 @@ Every meaningful code, build-system or architecture change should be recorded he
 - Updated `MainActivity.kt`: added "Topic Research & Knowledge" to the main menu, integrated offline knowledge fallback when no GGUF model is loaded, and injected local knowledge into chat prompt.
 - Added `INTERNET` permission to `AndroidManifest.xml` for optional online topic research.
 - Added architecture documentation in `docs/offline_knowledge.md`.
+
+
+## 2026-10-28 — RWKV migration branch
+- Replaced the llama.cpp FetchContent dependency and CMake target with RWKV.cpp CPU-only integration for ARMv7.
+- Disabled GPU, BLAS, OpenMP, native-host tuning, and RWKV extras in the Android native build configuration.
+- Replaced the native JNI source with RWKV model load/unload, runtime info, and memory reporting.
+- Removed the old llama-named Kotlin facade/provider and added RWKV-named equivalents.
+- Chat tokenization/generation remains pending and is documented as such; APK build and device validation are not yet verified.
