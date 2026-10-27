@@ -1,6 +1,6 @@
 package com.redmi9.offlineai.agent
 
-import com.redmi9.offlineai.LlamaNativeEngine
+import com.redmi9.offlineai.RwkvNativeEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -33,15 +33,15 @@ data class AgentLLMResponse(
 )
 
 /**
- * Local provider backed by the repository's existing llama.cpp/GGUF engine.
+ * Local provider backed by the repository's existing RWKV.cpp engine.
  * No LiteRT-LM dependency is used, keeping the provider viable on armeabi-v7a.
  */
-class LlamaAgentProvider(
-    private val engine: LlamaNativeEngine = LlamaNativeEngine()
+class RwkvAgentProvider(
+    private val engine: RwkvNativeEngine = RwkvNativeEngine()
 ) : AgentLLMProvider {
-    override val name: String = "llama.cpp (GGUF, local)"
+    override val name: String = "RWKV.cpp (local)"
     override val availableModels: List<String>
-        get() = if (engine.isModelLoaded()) listOf("loaded-gguf") else emptyList()
+        get() = if (engine.isModelLoaded()) listOf("loaded-rwkv") else emptyList()
 
     override suspend fun isAvailable(): Boolean = withContext(Dispatchers.IO) {
         runCatching { engine.isModelLoaded() }.getOrDefault(false)
@@ -50,13 +50,13 @@ class LlamaAgentProvider(
     override suspend fun complete(request: AgentLLMRequest): AgentLLMResponse =
         withContext(Dispatchers.IO) {
             check(engine.isModelLoaded()) {
-                "No GGUF model is loaded. Load a model in the app before selecting the local agent provider."
+                "No RWKV model is loaded. Load a model in the app before selecting the local agent provider."
             }
             val userIndex = request.messages.indexOfLast { it.role.equals("user", ignoreCase = true) }
             require(userIndex >= 0) { "The local provider requires at least one user message." }
             val userText = request.messages[userIndex].content
             val history = request.messages.take(userIndex).map {
-                LlamaNativeEngine.Turn(it.role, it.content)
+                RwkvNativeEngine.Turn(it.role, it.content)
             }
             val toolContext = if (request.tools.isEmpty()) "" else buildString {
                 append("\n\n[AVAILABLE TOOLS — emit a JSON tool request when appropriate]\n")
@@ -65,7 +65,7 @@ class LlamaAgentProvider(
                     append("  JSON Schema: ").append(tool.parametersJsonSchema).append('\n')
                 }
             }
-            val maxTokens = request.maxTokens.coerceIn(1, LlamaNativeEngine.MAX_NATIVE_GENERATION_TOKENS)
+            val maxTokens = request.maxTokens.coerceIn(1, RwkvNativeEngine.MAX_NATIVE_GENERATION_TOKENS)
             val started = System.nanoTime()
             val output = engine.nativeGenerateChat(
                 request.systemPrompt + toolContext,
@@ -77,7 +77,7 @@ class LlamaAgentProvider(
             AgentLLMResponse(
                 content = output,
                 tokensUsed = (output.length / 4).coerceAtLeast(1),
-                model = request.model ?: "loaded-gguf",
+                model = request.model ?: "loaded-rwkv",
                 provider = name,
                 latencyMs = (System.nanoTime() - started) / 1_000_000L
             )
@@ -85,12 +85,12 @@ class LlamaAgentProvider(
 
     override fun streamComplete(request: AgentLLMRequest): Flow<String> = channelFlow {
         check(engine.isModelLoaded()) {
-            "No GGUF model is loaded. Load a model in the app before selecting the local agent provider."
+            "No RWKV model is loaded. Load a model in the app before selecting the local agent provider."
         }
         val userIndex = request.messages.indexOfLast { it.role.equals("user", ignoreCase = true) }
         require(userIndex >= 0) { "The local provider requires at least one user message." }
         val history = request.messages.take(userIndex).map {
-            LlamaNativeEngine.Turn(it.role, it.content)
+            RwkvNativeEngine.Turn(it.role, it.content)
         }
         val toolContext = if (request.tools.isEmpty()) "" else buildString {
             append("\n\n[AVAILABLE TOOLS — emit a JSON tool request when appropriate]\n")
@@ -105,7 +105,7 @@ class LlamaAgentProvider(
                 request.systemPrompt + toolContext,
                 engine.encodeHistory(history),
                 request.messages[userIndex].content,
-                request.maxTokens.coerceIn(1, LlamaNativeEngine.MAX_NATIVE_GENERATION_TOKENS)
+                request.maxTokens.coerceIn(1, RwkvNativeEngine.MAX_NATIVE_GENERATION_TOKENS)
             ) { token ->
                 when {
                     token == "\u0001DONE" -> Unit

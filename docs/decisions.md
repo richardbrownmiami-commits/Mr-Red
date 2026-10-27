@@ -11,7 +11,7 @@
 **Reason:** CPU inference is the simplest baseline and avoids making the initial build dependent on a specific mobile GPU backend.
 
 ## D003 — Small model first
-**Decision:** Start with a small GGUF model rather than a 7B-class model.
+**Decision:** Start with a small RWKV .bin model rather than a 7B-class model.
 
 **Reason:** The project has a strict under-2-GB runtime target and limited 32-bit address space. Model size, context and buffers must be controlled.
 

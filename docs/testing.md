@@ -18,7 +18,7 @@ Testing separates compilation success from real-device success.
 ### Level 3 — Physical Redmi 9
 - APK installs.
 - App launches without crashing.
-- Small GGUF model loads.
+- Small RWKV .bin model loads.
 - Offline prompt produces a response.
 - Peak RAM is measured.
 - Generation speed is measured.

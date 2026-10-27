@@ -3,11 +3,11 @@ package com.redmi9.offlineai
 /**
  * Shared native-engine facade for agent/provider integrations.
  *
- * The UI and agent must use this facade against the same process-wide llama.cpp
- * model/context. A GGUF model must be loaded before generateChat() is called.
+ * The UI and agent must use this facade against the same process-wide RWKV.cpp
+ * model/context. A RWKV model must be loaded before generateChat() is called.
  * This facade deliberately stays independent of any one agent framework.
  */
-class LlamaNativeEngine {
+class RwkvNativeEngine {
     external fun nativeEngineInfo(): String
     external fun nativeLoadModel(path: String, contextSize: Int, threads: Int): Boolean
     external fun nativeGenerateChat(
@@ -24,7 +24,7 @@ class LlamaNativeEngine {
 
     @Volatile private var tokenListener: ((String) -> Unit)? = null
 
-    /** JNI callback used by llama.cpp for token chunks and terminal markers. */
+    /** JNI callback used by RWKV.cpp for token chunks and terminal markers. */
     fun onNativeToken(token: String) {
         tokenListener?.invoke(token)
     }
@@ -44,7 +44,7 @@ class LlamaNativeEngine {
         }
     }
 
-    fun isModelLoaded(): Boolean = !nativeModelInfo().startsWith("No GGUF model loaded")
+    fun isModelLoaded(): Boolean = !nativeModelInfo().startsWith("No RWKV model loaded")
 
     /**
      * Converts turns to the native engine's role/content wire format.
