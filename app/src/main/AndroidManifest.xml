@@ -1,73 +1,45 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
 
     <queries>
-        <package android:name="com.whatsapp" />
-        <package android:name="com.whatsapp.w4b" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
         <intent>
             <action android:name="android.intent.action.DIAL" />
-            <data android:scheme="tel" />
         </intent>
         <intent>
             <action android:name="android.intent.action.SENDTO" />
-            <data android:scheme="smsto" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="geo" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SET_ALARM" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SET_TIMER" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.WEB_SEARCH" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SEND" />
-            <data android:mimeType="text/plain" />
         </intent>
     </queries>
 
     <application
-        android:name=".MrRedVisualApplication"
-        android:theme="@style/AppTheme"
-        android:label="Mr-Red"
-        android:icon="@drawable/ic_mekamaru"
-        android:roundIcon="@drawable/ic_mekamaru"
-        android:allowBackup="false"
-        android:supportsRtl="true">
-        <activity android:name=".MrRedDashboardActivity" android:exported="true">
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AndroidLocalLlmLab">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.AndroidLocalLlmLab"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".SkillsActivity" android:exported="false" />
-        <activity android:name=".AssistantConfigActivity" android:exported="false" />
-        <activity android:name=".MainActivity" android:exported="false" />
-        <service
-            android:name=".agent.AgentAccessibilityService"
-            android:label="AI Agent Screen Access"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/agent_accessibility_service" />
-        </service>
     </application>
+
 </manifest>

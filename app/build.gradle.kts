@@ -1,55 +1,94 @@
+import java.util.Properties
+
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
 }
 
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.isFile) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+val tavilyApiKey = localProperties.getProperty("tavily.api.key", "")
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+val appVersionName = "1.0.0"
+val appVersionCode = 1000
+val signingPropertiesFile = rootProject.file("key.properties")
+val signingProperties = Properties().apply {
+    if (signingPropertiesFile.isFile) {
+        signingPropertiesFile.inputStream().use(::load)
+    }
+}
+val hasReleaseSigning = signingPropertiesFile.isFile
+
 android {
-    namespace = "com.redmi9.offlineai"
-    compileSdk = 35
+    namespace = "com.arick.androidlocalllmlab"
     ndkVersion = "27.0.12077973"
 
+    compileSdk = 35
+
     defaultConfig {
-        applicationId = "com.redmi9.offlineai"
-        minSdk = 23
-        targetSdk = 30
-        versionCode = 1
-        versionName = "0.2.0"
-
+        applicationId = "com.arick.androidlocalllmlab"
+        minSdk = 30
+        targetSdk = 35
+        versionCode = appVersionCode
+        versionName = appVersionName
+        buildConfigField("String", "TAVILY_API_KEY", "\"$tavilyApiKey\"")
         ndk {
-            abiFilters += listOf("armeabi-v7a")
+            abiFilters.clear()
+            abiFilters.add("armeabi-v7a")
         }
-
         externalNativeBuild {
             cmake {
-                arguments += listOf(
-                    "-DANDROID_PLATFORM=android-23",
-                    "-DGGML_NATIVE=OFF",
-                    "-DGGML_OPENMP=OFF",
-                    "-DGGML_LLAMAFILE=OFF"
-                )
+                cppFlags += "-std=c++17"
+            }
+        }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    packaging {
+        jniLibs {
+            excludes += listOf(
+                "lib/arm64-v8a/**",
+                "lib/x86/**",
+                "lib/x86_64/**"
+            )
+            useLegacyPackaging = true
+        }
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(signingProperties.getProperty("storeFile"))
+                storePassword = signingProperties.getProperty("storePassword")
+                keyAlias = signingProperties.getProperty("keyAlias")
+                keyPassword = signingProperties.getProperty("keyPassword")
             }
         }
     }
 
     buildTypes {
         release {
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
-            isDebuggable = false
-            signingConfig = signingConfigs.getByName("debug")
-        }
-    }
-
-    // This branch targets Android 11/API 30 for sideloaded ARMv7 devices.
-    // Current Play policy rejects old target SDKs; keep the requested runtime target
-    // and suppress only this policy lint while retaining all other lint checks.
-    lint {
-        disable += "ExpiredTargetSdkVersion"
-    }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.31.6"
         }
     }
 
@@ -60,9 +99,40 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+}
+
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    doLast {
+        val buildDir = project.layout.buildDirectory.asFile.get()
+        buildDir.walkTopDown().forEach { file ->
+            if (file.isFile && file.extension == "so" && !file.absolutePath.contains("armeabi-v7a")) {
+                println("Removing non-armeabi-v7a native lib: ${file.absolutePath}")
+                file.delete()
+            }
+        }
+    }
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.compose.material3)
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    testImplementation(libs.junit)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.junit)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+    debugImplementation(libs.androidx.compose.ui.tooling)
 }
