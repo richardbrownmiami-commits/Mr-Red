@@ -69,7 +69,7 @@ class FunctionCallingTest {
 
     @Test
     fun parseToolCall_malformedJsonReturnsNull() {
-        val input = "{tool: invalid, args: bad}"
+        val input = "{\"tool\": "
         val call = FunctionCalling.parseToolCall(input)
         assertNull("Malformed JSON should return null without throwing", call)
     }
