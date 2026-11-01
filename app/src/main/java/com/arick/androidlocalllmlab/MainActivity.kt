@@ -251,7 +251,7 @@ private fun ChatPage(
                     )
                 }
                 is ChatUiState.Preparing -> {
-                    CenterMessage(message = state.stage)
+                    CenterMessage(message = state.message)
                 }
                 is ChatUiState.Error -> {
                     EmptyState(
@@ -351,7 +351,7 @@ private fun ChatHeader(
             )
             val subtitle = when (uiState) {
                 ChatUiState.Idle -> "No model loaded"
-                is ChatUiState.Preparing -> uiState.stage
+                is ChatUiState.Preparing -> uiState.message
                 is ChatUiState.Ready -> "${uiState.modelName} · n_ctx ${uiState.nCtx} · ${cpuThreads}T"
                 is ChatUiState.Error -> "Model error: ${uiState.message}"
             }
@@ -569,7 +569,7 @@ private fun ChatMessageItem(
     onToggleReasoning: () -> Unit,
     onToggleAgentTrace: () -> Unit
 ) {
-    val isUser = message.sender == MessageSender.User
+    val isUser = message.role == MessageRole.User
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -630,7 +630,7 @@ private fun ChatMessageItem(
                             Spacer(modifier = Modifier.height(6.dp))
                             message.agentTrace.forEach { trace ->
                                 Text(
-                                    text = "• ${trace.summary}",
+                                    text = "• ${trace.text}",
                                     fontSize = 11.sp,
                                     color = AppColors.TextSecondary,
                                     modifier = Modifier.padding(vertical = 2.dp)
@@ -943,7 +943,7 @@ private fun DashboardPage(
 
                 val modelState = when (val s = uiState) {
                     is ChatUiState.Ready -> s.modelName
-                    is ChatUiState.Preparing -> s.stage
+                    is ChatUiState.Preparing -> s.message
                     is ChatUiState.Error -> "Error: ${s.message}"
                     ChatUiState.Idle -> "No model loaded"
                 }
@@ -953,11 +953,11 @@ private fun DashboardPage(
                 DashboardMetricRow("Context Window", nCtxText)
                 DashboardMetricRow("CPU Threads", "$cpuThreads threads")
 
-                val speedText = generationMetrics?.tokensPerSecond?.let { formatTokensPerSecond(it) } ?: "No runs yet"
+                val speedText = generationMetrics?.decodeTokensPerSecond?.let { formatTokensPerSecond(it) } ?: "No runs yet"
                 DashboardMetricRow("Generation Speed", speedText)
 
-                val prefillSpeed = generationMetrics?.prefillTokensPerSecond?.let { formatTokensPerSecond(it) } ?: "No runs yet"
-                DashboardMetricRow("Prefill Speed", prefillSpeed)
+                val prefillDuration = generationMetrics?.prefillMillis?.let { "$it ms" } ?: "No runs yet"
+                DashboardMetricRow("Prefill Latency", prefillDuration)
 
                 val nativeAlloc = memorySnapshots.current?.nativeAllocatedBytes?.let(::formatBytes) ?: "None"
                 DashboardMetricRow("Native Memory", nativeAlloc)
@@ -1520,11 +1520,11 @@ private fun SettingsPage(
             )
             SettingsRow(
                 title = "Generation Speed",
-                summary = generationMetrics?.tokensPerSecond?.let { formatTokensPerSecond(it) } ?: "None"
+                summary = generationMetrics?.decodeTokensPerSecond?.let { formatTokensPerSecond(it) } ?: "None"
             )
             SettingsRow(
-                title = "Prefill Speed",
-                summary = generationMetrics?.prefillTokensPerSecond?.let { formatTokensPerSecond(it) } ?: "None"
+                title = "Prefill Duration",
+                summary = generationMetrics?.prefillMillis?.let { "$it ms" } ?: "None"
             )
             SettingsRow(
                 title = "First Token Latency",
