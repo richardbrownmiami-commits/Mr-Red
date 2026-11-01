@@ -121,7 +121,7 @@ class FunctionCallingTest {
         val result = registry.execute(call)
 
         assertTrue(result is ToolResult.Failure)
-        assertTrue((result as ToolResult.Failure).message.contains("Unknown tool"))
+        assertTrue((result as ToolResult.Failure).message.contains("Tool not allowed"))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -161,7 +161,7 @@ class FunctionCallingTest {
         assertTrue(instruction.contains("alarm_tool"))
         assertTrue(instruction.contains("Sets an alarm clock"))
         assertTrue(instruction.contains("time"))
-        assertTrue(instruction.contains("allowed values: silent, loud"))
+        assertTrue(instruction.contains("allowed values: silent or loud"))
     }
 
     @Test
