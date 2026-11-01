@@ -2,25 +2,27 @@ package com.arick.androidlocalllmlab.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-/**
- * Application color palette.
- * Consistent clean light theme for pages, cards, and dialogs.
- */
+/** Mr-Red dark palette with high-contrast crimson actions. */
 object AppColors {
-    val PageBackground = Color.White
-    val SettingsBackground = Color(0xFFF7F7F7)
-    val Surface = Color.White
+    val PageBackground = Color(0xFF080C10)
+    val SettingsBackground = Color(0xFF0D1117)
+    val Surface = Color(0xFF0D1117)
+    val CardBackground = Color(0xFF161B22)
+    val AssistantBubble = Color(0xFF111820)
+    val CardBorder = Color(0xFF30363D)
 
-    val TextPrimary = Color.Black
-    val TextSecondary = Color(0xFF555555)
-    val TextTertiary = Color(0xFF777777)
-    val TextHint = Color(0xFF999999)
-    val TextDisabled = Color(0xFFAAAAAA)
-    val Chevron = Color(0xFFBBBBBB)
+    val TextPrimary = Color(0xFFF0F6FC)
+    val TextSecondary = Color(0xFFB1BAC4)
+    val TextTertiary = Color(0xFF8B949E)
+    val TextHint = Color(0xFF7D8590)
+    val TextDisabled = Color(0xFF6E7681)
+    val Chevron = Color(0xFF8B949E)
 
-    val UserBubble = Color(0xFFEAF3FF)
-    val PrimaryAction = Color(0xFF0B57D0)
-    val StopAction = Color(0xFFE85D5D)
-    val DisabledAction = Color(0xFFE5E5E5)
-    val Error = Color(0xFFD32F2F)
+    val UserBubble = Color(0xFF202832)
+    val PrimaryAction = Color(0xFFE53935)
+    val PrimaryActionGlow = Color(0xFFFF5252)
+    val StopAction = Color(0xFFB71C1C)
+    val DisabledAction = Color(0xFF30363D)
+    val Error = Color(0xFFFF6B6B)
+    val Success = Color(0xFF00C46A)
 }
