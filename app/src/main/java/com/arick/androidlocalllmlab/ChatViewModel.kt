@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-// Compose 只渲染这个状态，不直接管理 Native Runtime 或文件 I/O。
+// Compose renders state only; does not directly manage native runtime or file I/O.
 sealed interface ChatUiState {
     data object Idle : ChatUiState
 
@@ -42,17 +42,17 @@ enum class MessageRole {
 data class ChatMessage(
     val role: MessageRole,
     val content: String,
-    // reasoning 不直接混入普通回答；展示层可将它渲染为可折叠区域。
+    // Reasoning is kept separate from standard response and rendered as a collapsible section.
     val reasoningContent: String = "",
-    // 展开状态属于会话 UI 数据，不能交给 Composable remember，否则流式内容变化或页面切换会丢失。
+    // Expanded state is tracked in session data so streaming changes do not reset it.
     val isReasoningExpanded: Boolean = true,
-    // 从首个思考 Token 到正文开始的真实流式耗时。
+    // Actual duration from first reasoning token to answer body start.
     val reasoningDurationMillis: Long? = null,
-    // 工具执行记录只来自 Kotlin 的实际调用，不展示模型自行生成的“思考”。
+    // Tool execution records reflect actual Kotlin tool invocations.
     val agentTrace: List<AgentTraceItem> = emptyList(),
     val isAgentTraceExpanded: Boolean = false,
     val agentDurationMillis: Long? = null,
-    // 搜索来源由工具结果提供，不能依赖模型在正文中自行拼接超长 URL。
+    // Search sources provided by tool result.
     val sourceLinks: List<SourceLink> = emptyList()
 )
 
@@ -82,9 +82,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val DEFAULT_CPU_THREADS = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
     }
 
-    // Runtime 持有 JNI 返回的 nativeHandle，生命周期与 ViewModel 一致。
+    // Runtime holds native JNI handle with ViewModel lifecycle.
     private val runtime = LocalLlmRuntime()
-    private val toolExecutor = AndroidToolExecutor(application)
+    val toolExecutor = AndroidToolExecutor(application)
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
 
@@ -94,11 +94,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
-    // System Prompt 是当前会话配置，不作为普通聊天气泡渲染。
+    // System prompt is session configuration, not rendered as a chat bubble.
     private val _systemPrompt = MutableStateFlow("")
     val systemPrompt: StateFlow<String> = _systemPrompt.asStateFlow()
 
-    // 由 Native 在应用 Chat Template 后回调，反映模型真正收到的文本。
+    // Callback after applying native chat template, showing actual formatted prompt.
     private val _finalPrompt = MutableStateFlow("")
     val finalPrompt: StateFlow<String> = _finalPrompt.asStateFlow()
 
@@ -108,11 +108,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _trimmedHistoryTurnCount = MutableStateFlow(0)
     val trimmedHistoryTurnCount: StateFlow<Int> = _trimmedHistoryTurnCount.asStateFlow()
 
-    // 4096 是允许 2048 输出的最低实用档；更长多轮对话由设置页按设备内存升到 8K 以上。
+    // Default context window sizing.
     private val _requestedNctx = MutableStateFlow(512)
     val requestedNctx: StateFlow<Int> = _requestedNctx.asStateFlow()
 
-    // 当前实验真机已验证 8 线程更快；仍限制为设备实际可用核心数，设置页可继续做对照实验。
+    // CPU threads bounded by available processor cores.
     private val _cpuThreads = MutableStateFlow(DEFAULT_CPU_THREADS)
     val cpuThreads: StateFlow<Int> = _cpuThreads.asStateFlow()
 
@@ -144,7 +144,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val generationError: StateFlow<String?> = _generationError.asStateFlow()
 
     init {
-        // filesDir 中的模型在 App 重启后仍存在，因此可以在新页面自动恢复。
+        // Models in filesDir persist across app restarts.
         restoreLastModel()
     }
 
@@ -155,15 +155,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                _uiState.value = ChatUiState.Preparing("正在导入模型文件…")
+                _uiState.value = ChatUiState.Preparing("Importing model file…")
                 val modelFile = modelFileImporter.importModel(uri)
 
-                // 只有模型和 Context 都成功创建后，才记录为下次自动恢复的模型。
+                // Save model for auto-restore only after successful initialization.
                 prepareModel(modelFile)
                 selectedModelStore.save(modelFile)
             } catch (error: Throwable) {
                 _uiState.value = ChatUiState.Error(
-                    error.message ?: "模型加载失败"
+                    error.message ?: "Failed to load model"
                 )
             }
         }
@@ -172,29 +172,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun restoreLastModel() {
         val modelFile = selectedModelStore.selectedModelFile() ?: return
         if (!modelFile.isFile) {
-            // App 数据被清理或文件被删除时，避免每次进入页面都尝试无效路径。
+            // Avoid invalid path attempts if app data was cleared.
             selectedModelStore.clear()
             return
         }
 
         viewModelScope.launch {
             try {
-                _uiState.value = ChatUiState.Preparing("正在恢复上次模型…")
+                _uiState.value = ChatUiState.Preparing("Restoring previous model…")
                 prepareModel(modelFile)
             } catch (error: Throwable) {
                 _uiState.value = ChatUiState.Error(
-                    error.message ?: "恢复上次模型失败"
+                    error.message ?: "Failed to restore previous model"
                 )
             }
         }
     }
 
     private suspend fun prepareModel(modelFile: File) {
-        _uiState.value = ChatUiState.Preparing("正在加载模型并创建 Context…")
+        _uiState.value = ChatUiState.Preparing("Loading model and creating context…")
         val beforeLoad = takeMemorySnapshot()
         var afterModelLoaded: MemorySnapshot? = null
         val preparationMetrics = withContext(Dispatchers.Default) {
-            // Native 模型加载与 Context 分配可能耗时，不能阻塞 Compose 主线程。
+            // Loading model and allocating context on background dispatcher.
             runtime.prepareModel(
                 modelPath = modelFile.absolutePath,
                 requestedNctx = _requestedNctx.value,
@@ -203,7 +203,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        check(preparationMetrics.actualNctx > 0) { "模型或 Context 创建失败" }
+        check(preparationMetrics.actualNctx > 0) { "Failed to create model or context" }
         _modelPreparationMetrics.value = preparationMetrics
         _memorySnapshots.value = RuntimeMemorySnapshots(
             beforeLoad = beforeLoad,
@@ -216,7 +216,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val modelName = withContext(Dispatchers.Default) {
             runtime.modelMetadata("general.name")
         }
-        // Qwen3-Instruct-2507 官方仅支持非思考模式，不能沿用上个模型的开关状态。
+        // Default thinking mode based on model capability.
         if ("$modelName $modelDescription".contains("instruct-2507", ignoreCase = true)) {
             _thinkingEnabled.value = false
         }
@@ -244,8 +244,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        // 消息历史是产品数据源；当前轮的空 AI 消息只用于接收流式输出，
-        // 因而不会传给 Native 作为 prompt 的一部分。
+        // Empty assistant message used as target for streaming tokens.
+        // Not passed to native prompt until completed.
         val visibleHistory = _messages.value.filter { it.content.isNotBlank() }
         val actualNctx = (_uiState.value as? ChatUiState.Ready)?.nCtx ?: return
         val systemPrompt = buildSystemPrompt(_systemPrompt.value.trim().takeIf { it.isNotEmpty() })
@@ -261,9 +261,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _finalPrompt.value = ""
         _promptTokenCount.value = 0
         _trimmedHistoryTurnCount.value = 0
-        _generationProgress.value = "正在准备 Prompt…"
+        _generationProgress.value = "Preparing prompt…"
         _generationMetrics.value = null
-        // 必须在启动协程前清除上次的停止标记，否则下一轮会立即被旧请求取消。
+        // Clear previous stop flag before starting new generation.
         runtime.resetStopRequest()
         _isStopRequested.value = false
         _isGenerating.value = true
@@ -287,10 +287,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 if (answer.isBlank() && !_isStopRequested.value) {
-                    error("模型没有返回内容")
+                    error("Model returned no content")
                 }
             } catch (error: Throwable) {
-                _generationError.value = error.message ?: "生成失败"
+                _generationError.value = error.message ?: "Generation failed"
             } finally {
                 finishLatestAssistantAgentTrace(generationStartedAtNanos)
                 _generationProgress.value = null
@@ -310,10 +310,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val promptTokenCount = runtime.countChatPromptTokens(messagesForModel)
             val availableOutputTokens = nCtx - promptTokenCount
             check(availableOutputTokens >= 128) {
-                "工具结果加入后可用输出空间仅剩 $availableOutputTokens tokens，请缩短问题或清空部分历史"
+                "Available output space after tool result is only $availableOutputTokens tokens. Please shorten prompt or clear history."
             }
-            // 首轮历史裁剪仍按用户设置的 maxTokens 留足空间；工具结果加入后，
-            // 最终回答按 Context 剩余空间自动收缩，不能因固定预留 2048 而直接失败。
+            // Context trimming budget management.
+            // Adjust output tokens based on remaining context space.
             val effectiveInferenceConfig = inferenceConfig.copy(
                 maxTokens = minOf(inferenceConfig.maxTokens, availableOutputTokens)
             )
@@ -327,26 +327,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             val toolCall = FunctionCalling.parseToolCall(generatedAnswer) ?: return generatedAnswer
             if (attempt == FunctionCalling.maxToolCalls) {
-                error("工具调用次数达到上限")
+                error("Tool execution limit reached")
             }
 
-            // 工具 JSON 只是中间协议，不应留在聊天页；下一次生成继续使用同一个占位 AI 消息。
+            // Intermediate tool call JSON is processed and replaced by final response.
             replaceLatestAssistantMessage(AssistantResponseParts(reasoning = "", answer = ""), null)
             appendLatestAssistantAgentTrace(toolCall.traceDescription())
-            _generationProgress.value = "正在执行工具：${toolCall.name}…"
+            _generationProgress.value = "Executing tool: ${toolCall.name}…"
             val toolResult = toolExecutor.execute(toolCall) { progress ->
                 _generationProgress.value = progress
                 appendLatestAssistantAgentTrace(progress)
             }
             val toolResultText = when (toolResult) {
                 is ToolResult.Success -> {
-                    appendLatestAssistantAgentTrace("工具执行成功：${toolCall.name}")
+                    appendLatestAssistantAgentTrace("Tool executed: ${toolCall.name}")
                     appendLatestAssistantSources(toolResult.sources)
                     toolResult.content
                 }
                 is ToolResult.Failure -> {
-                    appendLatestAssistantAgentTrace("工具执行失败：${toolResult.message}")
-                    "工具执行失败：${toolResult.message}"
+                    appendLatestAssistantAgentTrace("Tool failed: ${toolResult.message}")
+                    "Tool failed: ${toolResult.message}"
                 }
             }
             val generatedParts = splitAssistantResponse(generatedAnswer, templateStartsThinking = false)
@@ -358,11 +358,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 ),
                 ChatMessage(
                     MessageRole.User,
-                    "工具执行结果：$toolResultText。请基于该结果正常回答用户；除非确有必要，否则不要再次调用工具。"
+                    "Tool result: $toolResultText. Answer the user based on this result. Do not call tools again unless necessary."
                 )
             )
         }
-        error("工具调用流程异常结束")
+        error("Tool call process ended abnormally")
     }
 
     private fun generateForCurrentTurn(
@@ -380,17 +380,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             onPrompt = { finalPrompt, tokenCount ->
                 _finalPrompt.value = finalPrompt
                 _promptTokenCount.value = tokenCount
-                _generationProgress.value = "正在理解 $tokenCount tokens…"
+                _generationProgress.value = "Prefilling $tokenCount tokens…"
                 templateStartsThinking = finalPrompt.trimEnd().endsWith("<think>")
             },
             onToken = { piece ->
-                _generationProgress.value = "正在生成回复…"
+                _generationProgress.value = "Generating response…"
                 assistantRawContent += piece
                 if (!shouldRenderAssistant) {
                     if (FunctionCalling.shouldDeferToolRendering(assistantRawContent)) {
                         return@generate
                     }
-                    // 普通回答已被识别：把此前暂存的片段一次补上，之后继续流式刷新。
+                    // Flush buffered tokens once response body is identified.
                     shouldRenderAssistant = true
                 }
                 val assistantParts = splitAssistantResponse(assistantRawContent, templateStartsThinking)
@@ -414,8 +414,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         )
-        // Native 返回完整 UTF-8；普通回答以它回填，避免临时流式片段遗留乱码。
-        // 工具 JSON 只作为协议，不写入气泡，随后由 runFunctionCallingLoop 执行。
+        // Backfill with complete UTF-8 response.
+        // Tool JSON processed via function calling loop.
         if (FunctionCalling.parseToolCall(generatedAnswer) == null) {
             replaceLatestAssistantMessage(
                 splitAssistantResponse(generatedAnswer, templateStartsThinking),
@@ -485,8 +485,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     ).joinToString("\n\n")
 
     /**
-     * 从最近的完整 user/assistant 轮次开始向前保留。每次尝试加入一轮时，都让
-     * Native 用真实 Chat Template 重新计数；超预算后不再加入更早的历史。
+     * Keep recent user/assistant turns within context token budget.
+     * Evaluates token budget with native chat template.
      */
     private fun buildHistoryWithinContextBudget(
         systemPrompt: String?,
@@ -495,9 +495,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         nCtx: Int,
         reservedOutputTokens: Int
     ): TrimmedHistory {
-        // 生成区必须提前留出空间；否则 Prompt 即使刚好填满 n_ctx，Decode 也无法继续。
+        // Reserve token space for output generation.
         val promptBudget = nCtx - reservedOutputTokens
-        check(promptBudget > 0) { "上下文窗口不足以预留回复空间" }
+        check(promptBudget > 0) { "Context window too small for output response budget" }
 
         val baseMessages = buildList {
             systemPrompt?.let { add(ChatMessage(MessageRole.System, it)) }
@@ -505,7 +505,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         val baseTokenCount = runtime.countChatPromptTokens(baseMessages)
         check(baseTokenCount in 1..promptBudget) {
-            "System Prompt 和本轮问题已占用 $baseTokenCount tokens，超过可用预算 $promptBudget"
+            "System prompt and current turn used $baseTokenCount tokens, exceeding budget of $promptBudget"
         }
 
         val completedTurns = visibleHistory.toCompletedTurns()
@@ -549,7 +549,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 completedTurns += listOf(user, assistant)
                 index += 2
             } else {
-                // 被停止的空回答等异常记录不作为“完整轮次”传入下一轮。
+                // Filter incomplete or empty turns from history.
                 index += 1
             }
         }
@@ -600,7 +600,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         val currentState = _uiState.value as? ChatUiState.Ready
         if (currentState == null) {
-            // 还未加载模型时只记录选择；下次加载模型时会使用它创建 Context。
+            // Save requested n_ctx for subsequent model loads.
             _requestedNctx.value = requestedNctx
             return
         }
@@ -610,15 +610,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                _uiState.value = ChatUiState.Preparing("正在重建 Context…")
+                _uiState.value = ChatUiState.Preparing("Rebuilding context…")
                 val actualNctx = withContext(Dispatchers.Default) {
                     runtime.recreateContext(requestedNctx)
                 }
-                check(actualNctx > 0) { "Context 创建失败" }
+                check(actualNctx > 0) { "Context allocation failed" }
 
                 _requestedNctx.value = requestedNctx
-                // n_ctx 缩小时，输出预留也必须同步落到可用档位；否则直到下一次发送
-                // 才会因为 maxTokens >= n_ctx 失败。
+                // Adjust output reservation when n_ctx shrinks.
+                // Prevents failure where maxTokens exceeds context window.
                 val maxTokens = listOf(2048, 4096, 6000)
                     .last { it < actualNctx }
                 _inferenceConfig.value = _inferenceConfig.value.copy(
@@ -632,13 +632,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             } catch (error: Throwable) {
                 _uiState.value = ChatUiState.Error(
-                    error.message ?: "Context 重建失败"
+                    error.message ?: "Failed to rebuild context"
                 )
             }
         }
     }
 
-    /** 不重建 Context，直接更新 llama.cpp 的 Decode 与 Prefill 线程数。 */
+    /** Updates decode and prefill thread counts in llama.cpp without recreating context. */
     fun updateCpuThreads(threads: Int) {
         if (threads <= 0 || _isGenerating.value || _uiState.value is ChatUiState.Preparing) {
             return
@@ -676,7 +676,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Qwen3 的软开关必须跟随最新 user 消息；UI 中仍只保留用户原始问题。 */
+    /** Qwen3 thinking prompt instruction toggle. */
     private fun String.withQwen3ThinkingInstruction(): String {
         val readyState = _uiState.value as? ChatUiState.Ready
             ?: return this
@@ -715,7 +715,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // 部分 Qwen3 模板已在 generation prompt 中写入 <think>，模型只回传正文和 </think>。
+        // Handle generation prompt thinking tags.
         if (templateStartsThinking) {
             val closingIndex = rawContent.indexOf(closingTag)
             return if (closingIndex >= 0) {
@@ -736,10 +736,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     private fun ToolCall.traceDescription(): String = when (name) {
-        "get_weather" -> "调用天气工具：${arguments.optString("city").trim()}"
-        "web_search" -> "调用网页搜索：${arguments.optString("query").trim()}"
-        "open_settings" -> "调用系统设置：${arguments.optString("page").trim()}"
-        else -> "调用工具：$name"
+        "get_weather" -> "Weather tool: ${arguments.optString("city").trim()}"
+        "web_search" -> "Web search: ${arguments.optString("query").trim()}"
+        "open_settings" -> "Device settings: ${arguments.optString("page").trim()}"
+        else -> "Tool: $name"
     }
 
     fun stopGenerating() {
@@ -748,12 +748,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _isStopRequested.value = true
-        // 不能只取消协程：llama.cpp 此时仍在 C++ 循环中。这里通过 JNI 写入
-        // Native atomic 标记，由 generate() 在下一个安全边界自行退出。
+        // Set native atomic cancellation flag so native loop safely exits.
+        // Native generation terminates at next safe token boundary.
         runtime.requestStop()
     }
 
-    /** 只清 UI 聊天记录；Native Context 与已加载的模型均保持不变。 */
+    /** Clears chat history in UI; retains loaded model and native context. */
     fun clearConversation() {
         if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
             return
@@ -765,9 +765,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 清 Native 的 KV Cache，但保留 Kotlin 消息记录和模型权重。
-     * 当前基础版本每次发送都会重新 Prefill，因此它主要用于观察资源边界；
-     * 未来改成增量 KV Cache 后，这个操作会直接影响下一轮是否需要重新 Prefill。
+     * Clears native KV cache while keeping Kotlin chat history and model.
+     * Resets inference state.
+     * KV cache state management.
      */
     fun resetContext() {
         if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
@@ -789,9 +789,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
-            _uiState.value = ChatUiState.Preparing("正在释放模型…")
+            _uiState.value = ChatUiState.Preparing("Unloading model…")
             withContext(Dispatchers.Default) {
-                // 释放顺序由 NativeRuntime 保证：Context -> Model -> llama backend。
+                // Native cleanup order: Context -> Model -> llama backend.
                 runtime.close()
             }
             _memorySnapshots.value = _memorySnapshots.value.copy(
@@ -827,7 +827,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
-        // ViewModel 真正销毁时释放 Native 堆内存；不能依赖 Kotlin GC 自动处理。
+        // Release native heap memory on ViewModel disposal.
         runtime.close()
     }
 }

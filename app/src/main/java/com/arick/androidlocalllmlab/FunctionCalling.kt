@@ -159,7 +159,7 @@ class AndroidToolExecutor(private val context: Context) {
 
     fun modelInstruction(): String = registry.modelInstruction()
 
-    private fun openSettings(arguments: JSONObject): ToolResult {
+    fun openSettings(arguments: JSONObject): ToolResult {
         val page = arguments.optString("page", "system").lowercase()
         val action = when (page) {
             "wifi" -> Settings.ACTION_WIFI_SETTINGS
@@ -177,7 +177,7 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
-    private fun openApp(arguments: JSONObject): ToolResult {
+    fun openApp(arguments: JSONObject): ToolResult {
         val appName = arguments.optString("app_name").trim().lowercase()
         if (appName.isEmpty()) return ToolResult.Failure("app_name cannot be empty")
 
@@ -214,7 +214,7 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
-    private fun sendMessage(arguments: JSONObject): ToolResult {
+    fun sendMessage(arguments: JSONObject): ToolResult {
         val platform = arguments.optString("platform", "whatsapp").lowercase()
         val recipient = arguments.optString("recipient").trim()
         val message = arguments.optString("message").trim()
@@ -246,7 +246,7 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
-    private fun makeCall(arguments: JSONObject): ToolResult {
+    fun makeCall(arguments: JSONObject): ToolResult {
         val phoneNumber = arguments.optString("phone_number").trim()
         if (phoneNumber.isEmpty()) return ToolResult.Failure("phone_number cannot be empty")
 
@@ -261,7 +261,7 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
-    private fun setTimer(arguments: JSONObject): ToolResult {
+    fun setTimer(arguments: JSONObject): ToolResult {
         val seconds = arguments.optInt("seconds", 0)
         if (seconds <= 0) return ToolResult.Failure("seconds must be greater than 0")
 
@@ -278,7 +278,7 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
-    private fun getDeviceVitals(): ToolResult {
+    fun getDeviceVitals(): ToolResult {
         return runCatching {
             val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
             val batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
@@ -300,7 +300,7 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
-    private fun getWeather(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
+    fun getWeather(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
         val city = arguments.optString("city").trim()
         if (city.isEmpty() || city.length > 40) {
             return ToolResult.Failure("city must be between 1 and 40 characters")

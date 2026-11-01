@@ -10,7 +10,7 @@ class SelectedModelStore(context: Context) {
     )
 
     fun save(modelFile: File) {
-        // 保存的是导入到 filesDir 的真实路径，不是临时的 content:// URI。
+        // Stores the real path imported to filesDir, not the temporary content:// URI.
         preferences.edit()
             .putString(KEY_SELECTED_MODEL_PATH, modelFile.absolutePath)
             .apply()

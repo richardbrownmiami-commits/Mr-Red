@@ -1,8 +1,13 @@
 package com.arick.androidlocalllmlab
 
-import android.os.Bundle
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.BatteryManager
+import android.os.Bundle
+import android.os.Environment
+import android.os.StatFs
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -13,12 +18,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,21 +32,48 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -52,187 +83,193 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.text.BasicTextField
-import com.arick.androidlocalllmlab.ui.theme.AppColors
 import com.arick.androidlocalllmlab.ui.theme.AndroidLocalLlmLabTheme
-import kotlinx.coroutines.launch
+import com.arick.androidlocalllmlab.ui.theme.AppColors
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
-    private val chatViewModel: ChatViewModel by viewModels()
+    private val chatViewModel by viewModels<ChatViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             AndroidLocalLlmLabTheme {
-                ChatScreen(viewModel = chatViewModel)
+                MainAppScreen(viewModel = chatViewModel)
             }
         }
     }
 }
 
+enum class AppPage(val title: String, val icon: ImageVector) {
+    Chat("Chat", Icons.Default.Chat),
+    Dashboard("Dashboard", Icons.Default.Dashboard),
+    Tools("Tools", Icons.Default.Build),
+    Settings("Settings", Icons.Default.Settings)
+}
+
 @Composable
-private fun ChatScreen(viewModel: ChatViewModel) {
-    val uiState by viewModel.uiState.collectAsState()
-    val messages by viewModel.messages.collectAsState()
-    val systemPrompt by viewModel.systemPrompt.collectAsState()
-    val finalPrompt by viewModel.finalPrompt.collectAsState()
-    val promptTokenCount by viewModel.promptTokenCount.collectAsState()
-    val trimmedHistoryTurnCount by viewModel.trimmedHistoryTurnCount.collectAsState()
-    val requestedNctx by viewModel.requestedNctx.collectAsState()
-    val cpuThreads by viewModel.cpuThreads.collectAsState()
-    val inferenceConfig by viewModel.inferenceConfig.collectAsState()
-    val thinkingEnabled by viewModel.thinkingEnabled.collectAsState()
-    val generationProgress by viewModel.generationProgress.collectAsState()
-    val generationMetrics by viewModel.generationMetrics.collectAsState()
-    val modelPreparationMetrics by viewModel.modelPreparationMetrics.collectAsState()
-    val memorySnapshots by viewModel.memorySnapshots.collectAsState()
-    val isGenerating by viewModel.isGenerating.collectAsState()
-    val isStopRequested by viewModel.isStopRequested.collectAsState()
-    val generationError by viewModel.generationError.collectAsState()
-    var prompt by remember { mutableStateOf("") }
-    var isSettingsVisible by remember { mutableStateOf(false) }
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val coroutineScope = rememberCoroutineScope()
-    val selectModelLauncher = rememberLauncherForActivityResult(
+private fun MainAppScreen(viewModel: ChatViewModel) {
+    var selectedPage by remember { mutableStateOf(AppPage.Chat) }
+    val modelLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            viewModel.loadModel(uri)
-        }
+    ) { uri: Uri? ->
+        uri?.let { viewModel.loadModel(it) }
     }
 
-    val isPreparing = uiState is ChatUiState.Preparing
-    val isModelReady = uiState is ChatUiState.Ready
-    val supportsQwen3ThinkingSwitch = (uiState as? ChatUiState.Ready)?.let { state ->
-        val identity = "${state.modelName} ${state.modelDescription}"
-        identity.contains("qwen3", ignoreCase = true) &&
-                !identity.contains("instruct-2507", ignoreCase = true)
-    } == true
-
-    // 设置页是当前 Composable 的内部页面状态，不在 Android Navigation 返回栈中。
-    // 因此需要显式消费系统返回，优先回到聊天页而不是退出整个 App。
-    BackHandler(enabled = isSettingsVisible) {
-        isSettingsVisible = false
-    }
-
-    if (isSettingsVisible) {
-        ConversationSettingsScreen(
-            systemPrompt = systemPrompt,
-            finalPrompt = finalPrompt,
-            promptTokenCount = promptTokenCount,
-            trimmedHistoryTurnCount = trimmedHistoryTurnCount,
-            nCtx = (uiState as? ChatUiState.Ready)?.nCtx,
-            requestedNctx = requestedNctx,
-            cpuThreads = cpuThreads,
-            inferenceConfig = inferenceConfig,
-            supportsQwen3ThinkingSwitch = supportsQwen3ThinkingSwitch,
-            thinkingEnabled = thinkingEnabled,
-            generationMetrics = generationMetrics,
-            modelPreparationMetrics = modelPreparationMetrics,
-            memorySnapshots = memorySnapshots,
-            isGenerating = isGenerating,
-            onSystemPromptChange = viewModel::updateSystemPrompt,
-            onContextWindowChange = viewModel::updateContextWindow,
-            onCpuThreadsChange = viewModel::updateCpuThreads,
-            onInferenceConfigChange = viewModel::updateInferenceConfig,
-            onThinkingEnabledChange = viewModel::updateThinkingEnabled,
-            onClearConversation = viewModel::clearConversation,
-            onResetContext = viewModel::resetContext,
-            onSelectModel = {
-                isSettingsVisible = false
-                selectModelLauncher.launch(arrayOf("*/*"))
-            },
-            onReleaseModel = {
-                viewModel.releaseModel()
-                isSettingsVisible = false
-            },
-            onBack = { isSettingsVisible = false }
-        )
-    } else {
-        // 模型状态放在标题下方：无论正在加载还是已经就绪，用户都能第一眼看到。
-        val modelStatus = when (val state = uiState) {
-            ChatUiState.Idle -> "请选择本地模型"
-            is ChatUiState.Preparing -> state.message
-            is ChatUiState.Ready -> "模型已就绪 · n_ctx ${state.nCtx}"
-            is ChatUiState.Error -> "模型加载失败"
-        }
-
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = {
-                HistoryDrawer(
-                    onClose = { coroutineScope.launch { drawerState.close() } }
-                )
-            }
-        ) {
-            Scaffold(
-                containerColor = AppColors.PageBackground,
-                topBar = {
-                    ChatHeader(
-                        modelStatus = modelStatus,
-                        settingsEnabled = !isGenerating,
-                        onOpenHistory = { coroutineScope.launch { drawerState.open() } },
-                        onOpenSettings = { isSettingsVisible = true }
-                    )
-                },
-                bottomBar = {
-                    ChatComposer(
-                        prompt = prompt,
-                        enabled = isModelReady,
-                        isGenerating = isGenerating,
-                        isStopRequested = isStopRequested,
-                        onPromptChange = { prompt = it },
-                        onSend = {
-                            viewModel.send(prompt)
-                            prompt = ""
-                        },
-                        onStop = viewModel::stopGenerating
+    Scaffold(
+        bottomBar = {
+            NavigationBar(
+                containerColor = Color(0xFFFBFBFB),
+                contentColor = AppColors.PrimaryAction
+            ) {
+                AppPage.values().forEach { page ->
+                    NavigationBarItem(
+                        selected = selectedPage == page,
+                        onClick = { selectedPage = page },
+                        icon = { Icon(page.icon, contentDescription = page.title) },
+                        label = { Text(page.title, fontSize = 12.sp, fontWeight = if (selectedPage == page) FontWeight.Bold else FontWeight.Normal) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = AppColors.PrimaryAction,
+                            selectedTextColor = AppColors.PrimaryAction,
+                            unselectedIconColor = AppColors.TextSecondary,
+                            unselectedTextColor = AppColors.TextSecondary,
+                            indicatorColor = Color(0xFFE8F0FE)
+                        )
                     )
                 }
-            ) { innerPadding ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .background(AppColors.PageBackground)
-                ) {
-                    when (val state = uiState) {
-                        ChatUiState.Idle -> EmptyState(
-                            title = "选择一个 GGUF 模型开始对话",
-                            actionText = "选择模型",
-                            onAction = { selectModelLauncher.launch(arrayOf("*/*")) }
+            }
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(AppColors.PageBackground)
+        ) {
+            when (selectedPage) {
+                AppPage.Chat -> ChatPage(
+                    viewModel = viewModel,
+                    onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) },
+                    onNavigateToSettings = { selectedPage = AppPage.Settings }
+                )
+                AppPage.Dashboard -> DashboardPage(
+                    viewModel = viewModel,
+                    onNavigateToChat = { selectedPage = AppPage.Chat },
+                    onNavigateToTools = { selectedPage = AppPage.Tools }
+                )
+                AppPage.Tools -> ToolsPage(
+                    viewModel = viewModel,
+                    onNavigateToChat = { selectedPage = AppPage.Chat }
+                )
+                AppPage.Settings -> SettingsPage(
+                    viewModel = viewModel,
+                    onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) }
+                )
+            }
+        }
+    }
+}
+
+/* =========================================================================================
+ * 1. CHAT PAGE
+ * ========================================================================================= */
+
+@Composable
+private fun ChatPage(
+    viewModel: ChatViewModel,
+    onOpenModelPicker: () -> Unit,
+    onNavigateToSettings: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val messages by viewModel.messages.collectAsState()
+    val isGenerating by viewModel.isGenerating.collectAsState()
+    val isStopRequested by viewModel.isStopRequested.collectAsState()
+    val generationProgress by viewModel.generationProgress.collectAsState()
+    val generationError by viewModel.generationError.collectAsState()
+    val cpuThreads by viewModel.cpuThreads.collectAsState()
+
+    var showClearConfirm by remember { mutableStateOf(false) }
+    var showResetConfirm by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .imePadding()
+    ) {
+        ChatHeader(
+            uiState = uiState,
+            cpuThreads = cpuThreads,
+            onClearChat = { showClearConfirm = true },
+            onResetContext = { showResetConfirm = true },
+            onOpenSettings = onNavigateToSettings
+        )
+
+        HorizontalDivider(color = Color(0xFFEEEEEE), thickness = 1.dp)
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            when (val state = uiState) {
+                is ChatUiState.Idle -> {
+                    EmptyState(
+                        title = "Select a GGUF model to start",
+                        subtitle = "Mr-Red runs local LLM models and Android automation tools completely offline.",
+                        actionText = "Select Model",
+                        onAction = onOpenModelPicker
+                    )
+                }
+                is ChatUiState.Preparing -> {
+                    CenterMessage(message = state.stage)
+                }
+                is ChatUiState.Error -> {
+                    EmptyState(
+                        title = "Model load failed",
+                        subtitle = state.message,
+                        actionText = "Retry / Select Model",
+                        onAction = onOpenModelPicker
+                    )
+                }
+                is ChatUiState.Ready -> {
+                    if (messages.isEmpty()) {
+                        ChatEmptyGreeting(
+                            modelName = state.modelName,
+                            nCtx = state.nCtx,
+                            onQuickPrompt = { prompt -> viewModel.send(prompt) }
                         )
-
-                        // 加载过程的文字已放到标题下方，内容区保持干净。
-                        is ChatUiState.Preparing -> Box(modifier = Modifier.fillMaxSize())
-
-                        is ChatUiState.Ready -> ChatContent(
+                    } else {
+                        ChatMessagesList(
                             messages = messages,
                             isGenerating = isGenerating,
                             isStopRequested = isStopRequested,
@@ -241,168 +278,216 @@ private fun ChatScreen(viewModel: ChatViewModel) {
                             onToggleReasoning = viewModel::toggleReasoning,
                             onToggleAgentTrace = viewModel::toggleAgentTrace
                         )
-
-                        is ChatUiState.Error -> EmptyState(
-                            title = "模型加载失败：${state.message}",
-                            actionText = "重新选择模型",
-                            onAction = { selectModelLauncher.launch(arrayOf("*/*")) }
-                        )
                     }
                 }
             }
         }
+
+        // Quick Action Chips Row
+        if (uiState is ChatUiState.Ready && !isGenerating) {
+            QuickActionChipsRow(
+                onActionSelected = { prompt -> viewModel.send(prompt) }
+            )
+        }
+
+        ChatComposer(
+            enabled = uiState is ChatUiState.Ready,
+            isGenerating = isGenerating,
+            isStopRequested = isStopRequested,
+            onSend = viewModel::send,
+            onStop = viewModel::stopGenerating,
+            onOpenModelPicker = onOpenModelPicker
+        )
+    }
+
+    if (showClearConfirm) {
+        ConfirmActionDialog(
+            title = "Clear chat history?",
+            message = "This will delete all messages from this session. The loaded model and context remain in memory.",
+            confirmText = "Clear",
+            onConfirm = {
+                viewModel.clearConversation()
+                showClearConfirm = false
+            },
+            onDismiss = { showClearConfirm = false }
+        )
+    }
+
+    if (showResetConfirm) {
+        ConfirmActionDialog(
+            title = "Reset KV Cache / Context?",
+            message = "This clears the native KV cache without deleting chat messages or unloading the model.",
+            confirmText = "Reset",
+            onConfirm = {
+                viewModel.resetContext()
+                showResetConfirm = false
+            },
+            onDismiss = { showResetConfirm = false }
+        )
     }
 }
 
 @Composable
 private fun ChatHeader(
-    modelStatus: String,
-    settingsEnabled: Boolean,
-    onOpenHistory: () -> Unit,
+    uiState: ChatUiState,
+    cpuThreads: Int,
+    onClearChat: () -> Unit,
+    onResetContext: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .height(76.dp)
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            modifier = Modifier.align(Alignment.CenterStart),
-            onClick = onOpenHistory
-        ) {
-            Icon(
-                imageVector = Icons.Default.Menu,
-                contentDescription = "历史对话",
-                tint = AppColors.TextPrimary
-            )
-        }
-
-        Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "新对话",
-                color = AppColors.TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
+                text = "Mr-Red",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = AppColors.TextPrimary
             )
+            val subtitle = when (uiState) {
+                ChatUiState.Idle -> "No model loaded"
+                is ChatUiState.Preparing -> uiState.stage
+                is ChatUiState.Ready -> "${uiState.modelName} · n_ctx ${uiState.nCtx} · ${cpuThreads}T"
+                is ChatUiState.Error -> "Model error: ${uiState.message}"
+            }
             Text(
-                text = modelStatus,
-                color = AppColors.TextHint,
-                fontSize = 12.sp
+                text = subtitle,
+                fontSize = 12.sp,
+                color = if (uiState is ChatUiState.Error) AppColors.Error else AppColors.TextSecondary,
+                maxLines = 1
             )
         }
 
-        IconButton(
-            modifier = Modifier.align(Alignment.CenterEnd),
-            enabled = settingsEnabled,
-            onClick = onOpenSettings
-        ) {
-            Text("⋮", color = AppColors.TextPrimary, fontSize = 28.sp)
-        }
-    }
-}
-
-@Composable
-private fun ChatComposer(
-    prompt: String,
-    enabled: Boolean,
-    isGenerating: Boolean,
-    isStopRequested: Boolean,
-    onPromptChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onStop: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .imePadding()
-            .navigationBarsPadding()
-            .padding(bottom = 12.dp)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp),
-            color = AppColors.Surface,
-            shape = RoundedCornerShape(14.dp),
-            shadowElevation = 2.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .padding(horizontal = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 14.dp, end = 8.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (prompt.isBlank()) {
-                        Text(
-                            text = when {
-                                isStopRequested -> "正在停止…"
-                                isGenerating -> "正在生成…"
-                                enabled -> "发消息"
-                                else -> "正在准备本地模型…"
-                            },
-                            color = AppColors.TextDisabled,
-                            fontSize = 16.sp
-                        )
-                    }
-
-                    BasicTextField(
-                        value = prompt,
-                        enabled = enabled && !isGenerating,
-                        onValueChange = onPromptChange,
-                        singleLine = true,
-                        textStyle = TextStyle(
-                            color = AppColors.TextPrimary,
-                            fontSize = 16.sp
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                Surface(
-                    color = when {
-                        isStopRequested -> AppColors.TextHint
-                        isGenerating -> AppColors.StopAction
-                        enabled && prompt.isNotBlank() -> AppColors.PrimaryAction
-                        else -> AppColors.DisabledAction
-                    },
-                    shape = CircleShape
-                ) {
-                    IconButton(
-                        modifier = Modifier.size(28.dp),
-                        enabled = (isGenerating && !isStopRequested) ||
-                                (!isGenerating && enabled && prompt.isNotBlank()),
-                        onClick = if (isGenerating) onStop else onSend
-                    ) {
-                        if (isGenerating) {
-                            Text("■", color = AppColors.Surface, fontSize = 12.sp)
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.ArrowUpward,
-                                contentDescription = "发送",
-                                tint = AppColors.Surface
-                            )
-                        }
-                    }
-                }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onResetContext, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Reset Context",
+                    tint = AppColors.TextSecondary
+                )
+            }
+            IconButton(onClick = onClearChat, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Clear Chat",
+                    tint = AppColors.TextSecondary
+                )
+            }
+            IconButton(onClick = onOpenSettings, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = AppColors.TextSecondary
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ChatContent(
+private fun QuickActionChipsRow(onActionSelected: (String) -> Unit) {
+    val quickActions = listOf(
+        "⚡ Battery & RAM" to "Check my phone battery, RAM and storage vitals",
+        "💬 Draft WhatsApp" to "Draft a WhatsApp message to +1234567890 saying Hello from Mr-Red",
+        "📞 Open Dialer" to "Open the phone dialer",
+        "⏰ Set 5m Timer" to "Set a countdown timer for 5 minutes",
+        "⚙️ Battery Settings" to "Open device battery settings",
+        "🌐 Web Search" to "Search the web for latest AI news"
+    )
+
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(quickActions) { (label, prompt) ->
+            AssistChip(
+                onClick = { onActionSelected(prompt) },
+                label = { Text(label, fontSize = 12.sp, color = AppColors.TextPrimary) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = Color(0xFFF0F4F9)
+                ),
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatEmptyGreeting(
+    modelName: String,
+    nCtx: Int,
+    onQuickPrompt: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "Mr-Red Offline Assistant",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = AppColors.TextPrimary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Model: $modelName · Context: $nCtx tokens\nLiving phone agent ready for offline dialogue and device tools.",
+            fontSize = 13.sp,
+            color = AppColors.TextSecondary,
+            lineHeight = 18.sp
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        val prompts = listOf(
+            "What are my device vitals right now?",
+            "Draft a WhatsApp message to Mom: I will be home soon",
+            "Set a countdown timer for 3 minutes",
+            "Open phone battery settings",
+            "Who created Linux?"
+        )
+
+        Text(
+            text = "Suggested actions:",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = AppColors.TextSecondary,
+            modifier = Modifier.align(Alignment.Start)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        prompts.forEach { prompt ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clickable { onQuickPrompt(prompt) },
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F7FA)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = prompt,
+                    fontSize = 13.sp,
+                    color = AppColors.PrimaryAction,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatMessagesList(
     messages: List<ChatMessage>,
     isGenerating: Boolean,
     isStopRequested: Boolean,
@@ -411,1015 +496,1424 @@ private fun ChatContent(
     onToggleReasoning: (Int) -> Unit,
     onToggleAgentTrace: (Int) -> Unit
 ) {
-    val scrollState = rememberScrollState()
-    val coroutineScope = rememberCoroutineScope()
-    var shouldFollowBottom by remember { mutableStateOf(true) }
-    var isAutoScrolling by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
 
-    // 用户手势向上查看历史时暂停跟随；自己滚到底部后自动恢复。
-    LaunchedEffect(scrollState) {
-        snapshotFlow { scrollState.isScrollInProgress to scrollState.canScrollForward }
-            .collect { (isScrolling, canScrollForward) ->
-                if (isScrolling && canScrollForward && !isAutoScrolling) {
-                    shouldFollowBottom = false
-                }
-                if (!canScrollForward) {
-                    shouldFollowBottom = true
-                }
-            }
-    }
-
-    // messages 在每个流式 Token 到来时更新。仅在用户仍停留底部时，才跟随新内容。
-    LaunchedEffect(messages, generationProgress, shouldFollowBottom) {
-        if (shouldFollowBottom) {
-            isAutoScrolling = true
-            scrollState.scrollTo(scrollState.maxValue)
-            isAutoScrolling = false
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
+    LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(horizontal = 18.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        messages.forEachIndexed { index, message ->
-            if (message.content.isNotBlank() || message.reasoningContent.isNotBlank()) {
-                ChatMessageItem(
-                    message = message,
-                    onToggleReasoning = { onToggleReasoning(index) },
-                    onToggleAgentTrace = { onToggleAgentTrace(index) }
-                )
-            }
-        }
+        item { Spacer(modifier = Modifier.height(8.dp)) }
 
-        if (isGenerating) {
-            Text(
-                text = if (isStopRequested) "正在停止…" else generationProgress ?: "正在生成…",
-                modifier = Modifier.padding(top = 20.dp),
-                color = AppColors.TextTertiary,
-                fontSize = 12.sp
+        items(messages.size) { index ->
+            ChatMessageItem(
+                message = messages[index],
+                messageIndex = index,
+                onToggleReasoning = { onToggleReasoning(index) },
+                onToggleAgentTrace = { onToggleAgentTrace(index) }
             )
         }
 
-        if (errorMessage != null) {
-            Text(
-                text = "生成失败：$errorMessage",
-                modifier = Modifier.padding(top = 20.dp),
-                color = AppColors.Error,
-                fontSize = 12.sp
-            )
-        }
-    }
-
-        if (!shouldFollowBottom && scrollState.canScrollForward) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 12.dp),
-                color = AppColors.Surface,
-                shape = CircleShape,
-                shadowElevation = 4.dp
-            ) {
-                IconButton(
-                    modifier = Modifier.size(40.dp),
-                    onClick = {
-                        coroutineScope.launch {
-                            shouldFollowBottom = true
-                            isAutoScrolling = true
-                            scrollState.animateScrollTo(scrollState.maxValue)
-                            isAutoScrolling = false
-                        }
-                    }
+        if (isGenerating || isStopRequested || !generationProgress.isNullOrBlank()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "回到最新消息",
-                        tint = AppColors.TextPrimary
+                    val statusText = if (isStopRequested) "Stopping…" else generationProgress ?: "Generating…"
+                    Text(
+                        text = statusText,
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                     )
                 }
             }
         }
+
+        if (!errorMessage.isNullOrBlank()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "Error: $errorMessage",
+                        fontSize = 12.sp,
+                        color = AppColors.Error,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(16.dp)) }
     }
 }
 
 @Composable
 private fun ChatMessageItem(
     message: ChatMessage,
+    messageIndex: Int,
     onToggleReasoning: () -> Unit,
     onToggleAgentTrace: () -> Unit
 ) {
-    val isUserMessage = message.role == MessageRole.User
+    val isUser = message.sender == MessageSender.User
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 20.dp),
-        horizontalAlignment = if (isUserMessage) Alignment.End else Alignment.Start
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        if (isUserMessage) {
-            // 用户消息固定靠右，并限制最大宽度，避免短消息的气泡显得过宽。
-            Surface(
-                modifier = Modifier.widthIn(max = 280.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = AppColors.UserBubble
+        if (isUser) {
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 280.dp)
+                    .background(AppColors.UserBubble, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 Text(
                     text = message.content,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    color = AppColors.TextPrimary,
-                    fontSize = 16.sp
+                    fontSize = 14.sp,
+                    color = AppColors.TextPrimary
                 )
             }
         } else {
-            if (message.agentTrace.isNotEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onToggleAgentTrace
-                        )
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "执行过程${message.agentDurationMillis?.let { " · ${formatDuration(it)}" } ?: ""}",
-                            color = AppColors.TextTertiary,
-                            fontSize = 12.sp
-                        )
-                        Icon(
-                            imageVector = if (message.isAgentTraceExpanded) {
-                                Icons.Default.KeyboardArrowUp
-                            } else {
-                                Icons.Default.KeyboardArrowDown
-                            },
-                            contentDescription = if (message.isAgentTraceExpanded) "折叠执行过程" else "展开执行过程",
-                            tint = AppColors.TextHint,
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFAFAFA), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                // Tool Execution Trace Section
+                if (message.agentTrace.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp))
+                            .padding(10.dp)
+                    ) {
+                        Row(
                             modifier = Modifier
-                                .padding(start = 2.dp)
-                                .size(16.dp)
-                        )
-                    }
-                    if (message.isAgentTraceExpanded) {
-                        Column(modifier = Modifier.padding(top = 6.dp)) {
-                            message.agentTrace.forEach { item ->
+                                .fillMaxWidth()
+                                .clickable { onToggleAgentTrace() },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val durationText = message.agentDurationMillis?.let { " · ${formatDuration(it)}" } ?: ""
+                            Text(
+                                text = "Tool Execution$durationText",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AppColors.TextSecondary
+                            )
+                            Icon(
+                                imageVector = if (message.isAgentTraceExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Toggle trace",
+                                tint = AppColors.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        if (message.isAgentTraceExpanded) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            message.agentTrace.forEach { trace ->
                                 Text(
-                                    text = "• ${item.text}",
+                                    text = "• ${trace.summary}",
+                                    fontSize = 11.sp,
                                     color = AppColors.TextSecondary,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(bottom = 4.dp)
+                                    modifier = Modifier.padding(vertical = 2.dp)
                                 )
                             }
                         }
                     }
                 }
-            }
-            if (message.reasoningContent.isNotBlank()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onToggleReasoning
-                        )
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "思考过程",
-                            color = AppColors.TextTertiary,
-                            fontSize = 12.sp
-                        )
-                        message.reasoningDurationMillis?.let { durationMillis ->
+
+                // Reasoning Process Section
+                if (message.reasoningContent.isNotBlank()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .background(Color(0xFFF8F9FA), RoundedCornerShape(8.dp))
+                            .padding(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggleReasoning() },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val durationText = message.reasoningDurationMillis?.let { " · ${formatDuration(it)}" } ?: ""
                             Text(
-                                text = " ${formatDuration(durationMillis)}",
-                                color = AppColors.TextHint,
-                                fontSize = 12.sp
+                                text = "Thinking Process$durationText",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AppColors.TextSecondary
+                            )
+                            Icon(
+                                imageVector = if (message.isReasoningExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Toggle reasoning",
+                                tint = AppColors.TextSecondary,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
-                        Icon(
-                            imageVector = if (message.isReasoningExpanded) {
-                                Icons.Default.KeyboardArrowUp
-                            } else {
-                                Icons.Default.KeyboardArrowDown
-                            },
-                            contentDescription = if (message.isReasoningExpanded) "折叠思考过程" else "展开思考过程",
-                            tint = AppColors.TextHint,
-                            modifier = Modifier
-                                .padding(start = 2.dp)
-                                .size(16.dp)
-                        )
-                    }
-                    if (message.isReasoningExpanded) {
-                        Text(
-                            text = message.reasoningContent,
-                            modifier = Modifier.padding(top = 6.dp),
-                            color = AppColors.TextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            }
-            if (message.content.isNotBlank()) {
-                MarkdownText(
-                    markdown = message.content,
-                    modifier = Modifier.padding(
-                        top = if (message.reasoningContent.isBlank() && message.agentTrace.isEmpty()) 0.dp else 10.dp
-                    ),
-                )
-            }
-            if (message.sourceLinks.isNotEmpty()) {
-                SourceLinks(message.sourceLinks)
-            }
-        }
-    }
-}
 
-@Composable
-private fun SourceLinks(sources: List<SourceLink>) {
-    val context = LocalContext.current
-    Column(modifier = Modifier.padding(top = 12.dp)) {
-        Text(
-            text = "来源",
-            color = AppColors.TextTertiary,
-            fontSize = 12.sp
-        )
-        sources.forEach { source ->
-            Text(
-                text = "• ${source.title}",
-                color = AppColors.TextSecondary,
-                fontSize = 12.sp,
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(source.url)))
+                        if (message.isReasoningExpanded) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = message.reasoningContent,
+                                fontSize = 12.sp,
+                                color = AppColors.TextTertiary,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 16.sp
+                            )
                         }
                     }
-            )
+                }
+
+                // Main Answer Content
+                if (message.content.isNotBlank()) {
+                    MarkdownText(
+                        markdown = message.content,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Source Links
+                if (message.sourceLinks.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SourceLinks(sources = message.sourceLinks)
+                }
+            }
         }
     }
 }
 
-/**
- * 轻量 Markdown：块级处理标题、列表和分割线；行内处理粗体、斜体和代码。
- * 不引入第三方库，避免把模型输出的 `---` 当作普通正文显示。
- */
 @Composable
-private fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        markdown.lines().forEach { line ->
-            val trimmedLine = line.trim()
-            when {
-                trimmedLine.isHorizontalRule() -> {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 12.dp),
+private fun ChatComposer(
+    enabled: Boolean,
+    isGenerating: Boolean,
+    isStopRequested: Boolean,
+    onSend: (String) -> Unit,
+    onStop: () -> Unit,
+    onOpenModelPicker: () -> Unit
+) {
+    var text by remember { mutableStateOf("") }
+
+    Surface(
+        color = Color(0xFFFAFAFA),
+        shadowElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(Color.White, RoundedCornerShape(24.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            ) {
+                if (text.isEmpty()) {
+                    val placeholder = if (enabled) "Type a message or command…" else "Select a model to begin…"
+                    Text(
+                        text = placeholder,
+                        fontSize = 14.sp,
                         color = AppColors.TextHint
                     )
                 }
+                BasicTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    textStyle = TextStyle(fontSize = 14.sp, color = AppColors.TextPrimary),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
-                trimmedLine.isMarkdownHeading() -> {
-                    MarkdownInlineText(
-                        markdown = trimmedLine.dropWhile { it == '#' }.trimStart(),
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                        fontWeight = FontWeight.SemiBold
+            Spacer(modifier = Modifier.width(8.dp))
+
+            if (isGenerating) {
+                IconButton(
+                    onClick = onStop,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(AppColors.StopAction, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Stop,
+                        contentDescription = "Stop",
+                        tint = Color.White
                     )
                 }
+            } else if (enabled) {
+                IconButton(
+                    onClick = {
+                        val trimmed = text.trim()
+                        if (trimmed.isNotEmpty()) {
+                            onSend(trimmed)
+                            text = ""
+                        }
+                    },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(
+                            if (text.isNotBlank()) AppColors.PrimaryAction else AppColors.DisabledAction,
+                            CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Send",
+                        tint = Color.White
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = onOpenModelPicker,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(AppColors.PrimaryAction, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Build,
+                        contentDescription = "Load Model",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
 
-                trimmedLine.isMarkdownBullet() -> {
-                    Row(modifier = Modifier.padding(top = 2.dp)) {
-                        Text("•", color = AppColors.TextPrimary, fontSize = 16.sp)
-                        MarkdownInlineText(
-                            markdown = trimmedLine.drop(2),
-                            modifier = Modifier.padding(start = 8.dp)
+/* =========================================================================================
+ * 2. DASHBOARD PAGE
+ * ========================================================================================= */
+
+@Composable
+private fun DashboardPage(
+    viewModel: ChatViewModel,
+    onNavigateToChat: () -> Unit,
+    onNavigateToTools: () -> Unit
+) {
+    val context = LocalContext.current
+    val uiState by viewModel.uiState.collectAsState()
+    val cpuThreads by viewModel.cpuThreads.collectAsState()
+    val generationMetrics by viewModel.generationMetrics.collectAsState()
+    val memorySnapshots by viewModel.memorySnapshots.collectAsState()
+
+    var batteryPct by remember { mutableIntStateOf(-1) }
+    var freeStorageGb by remember { mutableStateOf("...") }
+    var totalStorageGb by remember { mutableStateOf("...") }
+    var availRamMb by remember { mutableStateOf("...") }
+    var totalRamMb by remember { mutableStateOf("...") }
+
+    fun refreshVitals() {
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+
+        runCatching {
+            val stat = StatFs(Environment.getDataDirectory().path)
+            val freeBytes = stat.availableBlocksLong * stat.blockSizeLong
+            val totalBytes = stat.blockCountLong * stat.blockSizeLong
+            freeStorageGb = String.format(Locale.US, "%.2f GB", freeBytes / (1024.0 * 1024.0 * 1024.0))
+            totalStorageGb = String.format(Locale.US, "%.2f GB", totalBytes / (1024.0 * 1024.0 * 1024.0))
+        }
+
+        runCatching {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            am?.getMemoryInfo(memInfo)
+            availRamMb = "${memInfo.availMem / (1024 * 1024)} MB"
+            totalRamMb = "${memInfo.totalMem / (1024 * 1024)} MB"
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshVitals()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Living Phone Persona Header
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B57D0)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Text(
+                    text = "Mr-Red Mobile Agent",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Living Phone Persona · 32-bit ARMv7-a NEON · Android 11",
+                    fontSize = 13.sp,
+                    color = Color(0xFFD3E3FD)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                val statusMessage = if (batteryPct > 0) {
+                    "Battery is at $batteryPct%. Free storage: $freeStorageGb. All device tools are operational."
+                } else {
+                    "Device vitals initialized. Ready to run local inference and phone commands."
+                }
+                Text(
+                    text = statusMessage,
+                    fontSize = 13.sp,
+                    color = Color.White,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+
+        // Live Device Vitals
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Device Vitals",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary
+                    )
+                    IconButton(onClick = { refreshVitals() }, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = AppColors.PrimaryAction
                         )
                     }
                 }
 
-                trimmedLine.isEmpty() -> Text("", modifier = Modifier.height(8.dp))
-                else -> MarkdownInlineText(markdown = line)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = Color(0xFFEEEEEE))
+
+                DashboardMetricRow("Battery Level", if (batteryPct > 0) "$batteryPct%" else "Unavailable")
+                DashboardMetricRow("Internal Storage", "$freeStorageGb free / $totalStorageGb total")
+                DashboardMetricRow("Device RAM", "$availRamMb avail / $totalRamMb total")
+                DashboardMetricRow("OS & Architecture", "Android 11 (API 30) · armeabi-v7a")
+            }
+        }
+
+        // Local Model Runtime Vitals
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Model Inference Status",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = Color(0xFFEEEEEE))
+
+                val modelState = when (val s = uiState) {
+                    is ChatUiState.Ready -> s.modelName
+                    is ChatUiState.Preparing -> s.stage
+                    is ChatUiState.Error -> "Error: ${s.message}"
+                    ChatUiState.Idle -> "No model loaded"
+                }
+                DashboardMetricRow("Loaded Model", modelState)
+
+                val nCtxText = (uiState as? ChatUiState.Ready)?.nCtx?.let { "$it tokens" } ?: "Not allocated"
+                DashboardMetricRow("Context Window", nCtxText)
+                DashboardMetricRow("CPU Threads", "$cpuThreads threads")
+
+                val speedText = generationMetrics?.tokensPerSecond?.let { formatTokensPerSecond(it) } ?: "No runs yet"
+                DashboardMetricRow("Generation Speed", speedText)
+
+                val prefillSpeed = generationMetrics?.prefillTokensPerSecond?.let { formatTokensPerSecond(it) } ?: "No runs yet"
+                DashboardMetricRow("Prefill Speed", prefillSpeed)
+
+                val nativeAlloc = memorySnapshots.current?.nativeAllocatedBytes?.let(::formatBytes) ?: "None"
+                DashboardMetricRow("Native Memory", nativeAlloc)
+            }
+        }
+
+        // Quick Controls
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Quick Phone Actions",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.toolExecutor.openSettings(JSONObject().put("page", "battery")) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8F0FE)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Battery", fontSize = 12.sp, color = AppColors.PrimaryAction)
+                    }
+                    Button(
+                        onClick = { viewModel.toolExecutor.openSettings(JSONObject().put("page", "wifi")) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8F0FE)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Wi-Fi", fontSize = 12.sp, color = AppColors.PrimaryAction)
+                    }
+                    Button(
+                        onClick = { viewModel.toolExecutor.openApp(JSONObject().put("app_name", "whatsapp")) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8F0FE)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("WhatsApp", fontSize = 12.sp, color = AppColors.PrimaryAction)
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MarkdownInlineText(
-    markdown: String,
-    modifier: Modifier = Modifier,
-    fontWeight: FontWeight? = null
-) {
-    val text = remember(markdown) { markdown.toMarkdownAnnotatedString() }
-    Text(
-        text = text,
-        modifier = modifier,
-        color = AppColors.TextPrimary,
-        fontSize = 16.sp,
-        fontWeight = fontWeight
-    )
-}
-
-private fun String.isHorizontalRule(): Boolean =
-    length >= 3 && all { it == '-' || it == '*' || it == '_' }
-
-private fun String.isMarkdownHeading(): Boolean =
-    startsWith("#") && dropWhile { it == '#' }.startsWith(" ")
-
-private fun String.isMarkdownBullet(): Boolean =
-    (startsWith("- ") || startsWith("* ")) && length > 2
-
-private fun String.toMarkdownAnnotatedString(): AnnotatedString = buildAnnotatedString {
-    val source = this@toMarkdownAnnotatedString
-    var index = 0
-    while (index < source.length) {
-        val marker = when {
-            source.startsWith("**", index) -> "**"
-            source.startsWith("`", index) -> "`"
-            source.startsWith("*", index) -> "*"
-            else -> null
-        }
-        if (marker == null) {
-            append(this@toMarkdownAnnotatedString[index++])
-            continue
-        }
-
-        val contentStart = index + marker.length
-        val contentEnd = source.indexOf(marker, contentStart)
-        if (contentEnd < 0 || contentEnd == contentStart) {
-            append(this@toMarkdownAnnotatedString[index++])
-            continue
-        }
-        val style = when (marker) {
-            "**" -> SpanStyle(fontWeight = FontWeight.SemiBold)
-            "`" -> SpanStyle(fontFamily = FontFamily.Monospace)
-            else -> SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-        }
-        withStyle(style) {
-            append(source.substring(contentStart, contentEnd))
-        }
-        index = contentEnd + marker.length
+private fun DashboardMetricRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, fontSize = 13.sp, color = AppColors.TextSecondary)
+        Text(text = value, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary)
     }
 }
 
-private fun formatDuration(durationMillis: Long): String = when {
-    durationMillis < 1_000L -> "${durationMillis}ms"
-    else -> String.format(Locale.US, "%.1fs", durationMillis / 1_000.0)
-}
-
-private fun formatBytes(bytes: Long): String = when {
-    bytes < 1024L * 1024L -> "${bytes / 1024} KB"
-    else -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
-}
-
-private fun formatKb(kb: Int): String = formatBytes(kb.toLong() * 1024L)
+/* =========================================================================================
+ * 3. TOOLS & SKILLS PAGE
+ * ========================================================================================= */
 
 @Composable
-private fun HistoryDrawer(onClose: () -> Unit) {
-    ModalDrawerSheet(
-        modifier = Modifier.fillMaxWidth(0.82f),
-        drawerContainerColor = AppColors.Surface
+private fun ToolsPage(
+    viewModel: ChatViewModel,
+    onNavigateToChat: () -> Unit
+) {
+    var toolMessage by remember { mutableStateOf<String?>(null) }
+    var isError by remember { mutableStateOf(false) }
+
+    // WhatsApp / SMS Form State
+    var messagePlatform by remember { mutableStateOf("whatsapp") }
+    var messageRecipient by remember { mutableStateOf("") }
+    var messageContent by remember { mutableStateOf("") }
+
+    // Dialer State
+    var dialerNumber by remember { mutableStateOf("") }
+
+    // Timer State
+    var timerSeconds by remember { mutableStateOf("300") }
+
+    // Web Search State
+    var searchQuery by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "历史对话",
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            color = AppColors.TextPrimary,
+            text = "Tools & Skills",
             fontSize = 20.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Bold,
+            color = AppColors.TextPrimary
         )
-        Text(
-            text = "历史会话将在后续阶段加入。",
-            modifier = Modifier.padding(horizontal = 24.dp),
-            color = AppColors.TextTertiary,
-            fontSize = 14.sp
-        )
-        OutlinedButton(
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-            onClick = onClose
+
+        // Feedback Banner
+        if (toolMessage != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isError) Color(0xFFFFEBEE) else Color(0xFFE8F5E9)
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = toolMessage!!,
+                        fontSize = 13.sp,
+                        color = if (isError) AppColors.Error else Color(0xFF2E7D32),
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { toolMessage = null }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
+        // 1. WhatsApp & SMS Messenger Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+            shape = RoundedCornerShape(16.dp)
         ) {
-            Text("关闭")
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Message Composer (WhatsApp / SMS)",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = messagePlatform == "whatsapp",
+                        onClick = { messagePlatform = "whatsapp" }
+                    )
+                    Text("WhatsApp", fontSize = 14.sp)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    RadioButton(
+                        selected = messagePlatform == "sms",
+                        onClick = { messagePlatform = "sms" }
+                    )
+                    Text("SMS", fontSize = 14.sp)
+                }
+
+                OutlinedTextField(
+                    value = messageRecipient,
+                    onValueChange = { messageRecipient = it },
+                    label = { Text("Phone Number or Contact") },
+                    placeholder = { Text("e.g. +1234567890") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = messageContent,
+                    onValueChange = { messageContent = it },
+                    label = { Text("Message Text") },
+                    placeholder = { Text("Write your message here…") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val result = viewModel.toolExecutor.sendMessage(
+                            JSONObject().apply {
+                                put("platform", messagePlatform)
+                                put("recipient", messageRecipient.trim())
+                                put("message", messageContent.trim())
+                            }
+                        )
+                        when (result) {
+                            is ToolResult.Success -> {
+                                toolMessage = result.content
+                                isError = false
+                            }
+                            is ToolResult.Failure -> {
+                                toolMessage = result.message
+                                isError = true
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                ) {
+                    Text("Draft Message in ${if (messagePlatform == "whatsapp") "WhatsApp" else "SMS"}")
+                }
+            }
+        }
+
+        // 2. Phone Dialer Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Phone Dialer",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = dialerNumber,
+                    onValueChange = { dialerNumber = it },
+                    label = { Text("Phone Number to Dial") },
+                    placeholder = { Text("e.g. 1234567890") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val result = viewModel.toolExecutor.makeCall(
+                            JSONObject().put("phone_number", dialerNumber.trim())
+                        )
+                        when (result) {
+                            is ToolResult.Success -> {
+                                toolMessage = result.content
+                                isError = false
+                            }
+                            is ToolResult.Failure -> {
+                                toolMessage = result.message
+                                isError = true
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                ) {
+                    Text("Open Phone Dialer")
+                }
+            }
+        }
+
+        // 3. Countdown Timer Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Alarms & Timers",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = timerSeconds,
+                    onValueChange = { timerSeconds = it },
+                    label = { Text("Duration in Seconds") },
+                    placeholder = { Text("300") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val secs = timerSeconds.toIntOrNull() ?: 60
+                        val result = viewModel.toolExecutor.setTimer(
+                            JSONObject().put("seconds", secs)
+                        )
+                        when (result) {
+                            is ToolResult.Success -> {
+                                toolMessage = result.content
+                                isError = false
+                            }
+                            is ToolResult.Failure -> {
+                                toolMessage = result.message
+                                isError = true
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                ) {
+                    Text("Set Countdown Timer")
+                }
+            }
+        }
+
+        // 4. Quick App Launcher Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Launch Installed App",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val appList = listOf(
+                    "WhatsApp" to "whatsapp",
+                    "YouTube" to "youtube",
+                    "Chrome" to "chrome",
+                    "Camera" to "camera",
+                    "Maps" to "maps",
+                    "Settings" to "settings"
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    appList.take(3).forEach { (label, name) ->
+                        OutlinedButton(
+                            onClick = {
+                                val res = viewModel.toolExecutor.openApp(JSONObject().put("app_name", name))
+                                if (res is ToolResult.Failure) {
+                                    toolMessage = res.message
+                                    isError = true
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(label, fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    appList.drop(3).forEach { (label, name) ->
+                        OutlinedButton(
+                            onClick = {
+                                val res = viewModel.toolExecutor.openApp(JSONObject().put("app_name", name))
+                                if (res is ToolResult.Failure) {
+                                    toolMessage = res.message
+                                    isError = true
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(label, fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Web Search Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Web Search Tool",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Search Query") },
+                    placeholder = { Text("e.g. latest news or Wikipedia topic") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val trimmed = searchQuery.trim()
+                        if (trimmed.isNotEmpty()) {
+                            viewModel.send("Search the web for: $trimmed")
+                            onNavigateToChat()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                ) {
+                    Text("Run Web Search in Chat")
+                }
+            }
         }
     }
 }
 
-@Composable
-private fun ConversationSettingsScreen(
-    systemPrompt: String,
-    finalPrompt: String,
-    promptTokenCount: Int,
-    trimmedHistoryTurnCount: Int,
-    nCtx: Int?,
-    requestedNctx: Int,
-    cpuThreads: Int,
-    inferenceConfig: InferenceConfig,
-    supportsQwen3ThinkingSwitch: Boolean,
-    thinkingEnabled: Boolean,
-    generationMetrics: GenerationMetrics?,
-    modelPreparationMetrics: ModelPreparationMetrics?,
-    memorySnapshots: RuntimeMemorySnapshots,
-    isGenerating: Boolean,
-    onSystemPromptChange: (String) -> Unit,
-    onContextWindowChange: (Int) -> Unit,
-    onCpuThreadsChange: (Int) -> Unit,
-    onInferenceConfigChange: (InferenceConfig) -> Unit,
-    onThinkingEnabledChange: (Boolean) -> Unit,
-    onClearConversation: () -> Unit,
-    onResetContext: () -> Unit,
-    onSelectModel: () -> Unit,
-    onReleaseModel: () -> Unit,
-    onBack: () -> Unit
-) {
-    var isSystemPromptDialogVisible by remember { mutableStateOf(false) }
-    var isFinalPromptDialogVisible by remember { mutableStateOf(false) }
-    var isContextWindowDialogVisible by remember { mutableStateOf(false) }
-    var isCpuThreadsDialogVisible by remember { mutableStateOf(false) }
-    var isSamplingDialogVisible by remember { mutableStateOf(false) }
-    var isClearConversationDialogVisible by remember { mutableStateOf(false) }
-    var isResetContextDialogVisible by remember { mutableStateOf(false) }
-    var isReleaseModelDialogVisible by remember { mutableStateOf(false) }
-    var systemPromptDraft by remember { mutableStateOf(systemPrompt) }
-    var contextWindowDraft by remember { mutableStateOf(requestedNctx) }
-    var samplingDraft by remember { mutableStateOf(inferenceConfig) }
+/* =========================================================================================
+ * 4. SETTINGS & MODEL PAGE
+ * ========================================================================================= */
 
-    Scaffold(
-        containerColor = AppColors.SettingsBackground,
-        topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(64.dp)
-                    .padding(horizontal = 12.dp)
-            ) {
-                IconButton(
-                    modifier = Modifier.align(Alignment.CenterStart),
-                    onClick = onBack
-                ) {
-                    Text("‹", color = AppColors.TextPrimary, fontSize = 30.sp)
-                }
-                Text(
-                    text = "设置",
-                    modifier = Modifier.align(Alignment.Center),
-                    color = AppColors.TextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
+@Composable
+private fun SettingsPage(
+    viewModel: ChatViewModel,
+    onOpenModelPicker: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val systemPrompt by viewModel.systemPrompt.collectAsState()
+    val finalPrompt by viewModel.finalPrompt.collectAsState()
+    val promptTokenCount by viewModel.promptTokenCount.collectAsState()
+    val trimmedHistoryTurnCount by viewModel.trimmedHistoryTurnCount.collectAsState()
+    val requestedNctx by viewModel.requestedNctx.collectAsState()
+    val cpuThreads by viewModel.cpuThreads.collectAsState()
+    val inferenceConfig by viewModel.inferenceConfig.collectAsState()
+    val thinkingEnabled by viewModel.thinkingEnabled.collectAsState()
+    val generationMetrics by viewModel.generationMetrics.collectAsState()
+    val modelPreparationMetrics by viewModel.modelPreparationMetrics.collectAsState()
+    val memorySnapshots by viewModel.memorySnapshots.collectAsState()
+
+    var showSystemPromptDialog by remember { mutableStateOf(false) }
+    var showFinalPromptDialog by remember { mutableStateOf(false) }
+    var showContextWindowDialog by remember { mutableStateOf(false) }
+    var showCpuThreadsDialog by remember { mutableStateOf(false) }
+    var showSamplingDialog by remember { mutableStateOf(false) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+    var showResetConfirm by remember { mutableStateOf(false) }
+    var showReleaseConfirm by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Settings & Model Management",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = AppColors.TextPrimary
+        )
+
+        // Model Management Section
+        SettingsSection(title = "Local GGUF Model") {
+            val modelName = (uiState as? ChatUiState.Ready)?.modelName ?: "No model loaded"
+            SettingsRow(
+                title = "Loaded Model",
+                summary = modelName,
+                onClick = onOpenModelPicker
+            )
+            SettingsRow(
+                title = "Import New GGUF Model",
+                summary = "Pick from device storage",
+                onClick = onOpenModelPicker
+            )
+            if (uiState is ChatUiState.Ready) {
+                SettingsRow(
+                    title = "Unload Model",
+                    summary = "Release native memory",
+                    onClick = { showReleaseConfirm = true }
                 )
             }
         }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 12.dp)
-        ) {
-            SettingsSection(title = "对话") {
-                SettingsRow(
-                    title = "System Prompt",
-                    summary = if (systemPrompt.isBlank()) "未设置" else "已设置",
-                    enabled = !isGenerating,
-                    onClick = {
-                        systemPromptDraft = systemPrompt
-                        isSystemPromptDialogVisible = true
-                    }
-                )
-                SettingsRow(
-                    title = "最终 Prompt",
-                    summary = if (finalPrompt.isBlank()) "暂无" else "查看",
-                    enabled = finalPrompt.isNotBlank(),
-                    onClick = { isFinalPromptDialogVisible = true }
-                )
-                SettingsRow(
-                    title = "清空聊天消息",
-                    summary = "保留模型",
-                    enabled = !isGenerating && nCtx != null,
-                    onClick = { isClearConversationDialogVisible = true }
-                )
-            }
 
-            SettingsSection(
-                title = "推理",
-                modifier = Modifier.padding(top = 28.dp)
-            ) {
-                SettingsRow(
-                    title = "上下文窗口",
-                    summary = "n_ctx ${nCtx ?: requestedNctx}",
-                    enabled = !isGenerating,
-                    onClick = {
-                        contextWindowDraft = nCtx ?: requestedNctx
-                        isContextWindowDialogVisible = true
-                    }
-                )
-                SettingsRow(
-                    title = "CPU 线程",
-                    summary = "$cpuThreads 线程",
-                    enabled = !isGenerating && nCtx != null,
-                    onClick = { isCpuThreadsDialogVisible = true }
-                )
-                SettingsSwitchRow(
-                    title = "Qwen3 思考",
-                    summary = if (supportsQwen3ThinkingSwitch) {
-                        "开启后先生成推理过程"
-                    } else {
-                        "当前模型固定非思考"
-                    },
-                    checked = thinkingEnabled,
-                    enabled = !isGenerating && supportsQwen3ThinkingSwitch,
-                    onCheckedChange = onThinkingEnabledChange
-                )
-                SettingsRow(
-                    title = "采样参数",
-                    summary = if (inferenceConfig.isGreedy) {
-                        "稳定 · ${inferenceConfig.maxTokens} tokens"
-                    } else {
-                        "采样 · ${inferenceConfig.maxTokens} tokens"
-                    },
-                    enabled = !isGenerating && nCtx != null,
-                    onClick = {
-                        samplingDraft = inferenceConfig
-                        isSamplingDialogVisible = true
-                    }
-                )
-                SettingsRow(
-                    title = "上下文占用",
-                    // Native 回调的 token 数包含 Chat Template 和特殊 Token，
-                    // 即本轮真正 Prefill 到 Context 中的 Prompt 占用。
-                    summary = if (promptTokenCount == 0) {
-                        "暂无"
-                    } else {
-                        "$promptTokenCount / ${nCtx ?: requestedNctx} tokens"
-                    },
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "历史裁剪",
-                    summary = if (trimmedHistoryTurnCount == 0) {
-                        "未触发"
-                    } else {
-                        "本轮省略 $trimmedHistoryTurnCount 轮"
-                    },
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "重置 Context",
-                    summary = "清空 KV Cache",
-                    enabled = !isGenerating && nCtx != null,
-                    onClick = { isResetContextDialogVisible = true }
-                )
-            }
+        // Conversation Configuration
+        SettingsSection(title = "Conversation & Persona") {
+            SettingsRow(
+                title = "System Prompt",
+                summary = if (systemPrompt.isBlank()) "Default (Offline Agent)" else "Custom",
+                onClick = { showSystemPromptDialog = true }
+            )
+            SettingsRow(
+                title = "Final Formatted Prompt",
+                summary = if (finalPrompt.isBlank()) "No conversation yet" else "View formatted prompt",
+                onClick = { showFinalPromptDialog = true }
+            )
+            SettingsRow(
+                title = "Clear Chat History",
+                summary = "Retain loaded model",
+                onClick = { showClearConfirm = true }
+            )
+        }
 
-            SettingsSection(
-                title = "性能",
-                modifier = Modifier.padding(top = 28.dp)
-            ) {
-                SettingsRow(
-                    title = "模型加载",
-                    summary = modelPreparationMetrics?.modelLoadMillis?.let { "$it ms" } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "Context 创建",
-                    summary = modelPreparationMetrics?.contextCreateMillis?.let { "$it ms" } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "Java Heap",
-                    summary = memorySnapshots.current?.let {
-                        "${formatBytes(it.javaUsedBytes)} / ${formatBytes(it.javaMaxBytes)}"
-                    } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "Native Heap",
-                    summary = memorySnapshots.current?.nativeAllocatedBytes?.let(::formatBytes) ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "Native PSS",
-                    summary = memorySnapshots.current?.nativePssKb?.let(::formatKb) ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "模型后 Native PSS",
-                    summary = memorySnapshots.afterModelLoaded?.nativePssKb?.let(::formatKb) ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "Context 后 Native PSS",
-                    summary = memorySnapshots.afterContextCreated?.nativePssKb?.let(::formatKb) ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "首 Token 等待",
-                    summary = generationMetrics?.firstTokenMillis?.let { "$it ms" } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "Prefill",
-                    summary = generationMetrics?.prefillMillis?.let { "$it ms" } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "KV Cache 复用",
-                    summary = generationMetrics?.let { "${it.reusedPromptTokenCount} tokens" } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "Decode",
-                    summary = generationMetrics?.let {
-                        "${formatTokensPerSecond(it.decodeTokensPerSecond)} tok/s"
-                    } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "本轮生成",
-                    summary = generationMetrics?.generatedTokenCount?.let { "$it tokens" } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-                SettingsRow(
-                    title = "本轮总耗时",
-                    summary = generationMetrics?.totalMillis?.let { "$it ms" } ?: "暂无",
-                    showChevron = false,
-                    clickable = false,
-                    onClick = {}
-                )
-            }
+        // Inference Settings
+        SettingsSection(title = "Inference & Runtime") {
+            SettingsRow(
+                title = "Context Window (n_ctx)",
+                summary = "$requestedNctx tokens",
+                onClick = { showContextWindowDialog = true }
+            )
+            SettingsRow(
+                title = "CPU Threads",
+                summary = "$cpuThreads threads",
+                onClick = { showCpuThreadsDialog = true }
+            )
+            SettingsSwitchRow(
+                title = "Qwen3 Thinking Mode",
+                subtitle = "Generate reasoning before final response",
+                checked = thinkingEnabled,
+                onCheckedChange = viewModel::updateThinkingEnabled
+            )
+            SettingsRow(
+                title = "Sampling Parameters",
+                summary = if (inferenceConfig.temperature == 0f) "Stable (Greedy) · ${inferenceConfig.maxTokens} tokens" else "T=${inferenceConfig.temperature} · ${inferenceConfig.maxTokens} tokens",
+                onClick = { showSamplingDialog = true }
+            )
+            SettingsRow(
+                title = "Prompt Token Usage",
+                summary = if (promptTokenCount > 0) "$promptTokenCount tokens" else "None"
+            )
+            SettingsRow(
+                title = "History Trimming",
+                summary = if (trimmedHistoryTurnCount > 0) "$trimmedHistoryTurnCount turns omitted" else "Full history retained"
+            )
+            SettingsRow(
+                title = "Reset KV Cache / Context",
+                summary = "Clear cached tokens",
+                onClick = { showResetConfirm = true }
+            )
+        }
 
-            SettingsSection(
-                title = "模型",
-                modifier = Modifier.padding(top = 28.dp)
-            ) {
-                SettingsRow(
-                    title = "切换本地模型",
-                    enabled = !isGenerating,
-                    onClick = onSelectModel
-                )
-                SettingsRow(
-                    title = "卸载本地模型",
-                    summary = "释放内存",
-                    enabled = !isGenerating && nCtx != null,
-                    onClick = { isReleaseModelDialogVisible = true }
-                )
-            }
+        // Performance Metrics
+        SettingsSection(title = "Diagnostics & Speed") {
+            SettingsRow(
+                title = "Model Load Duration",
+                summary = modelPreparationMetrics?.modelLoadMillis?.let { "$it ms" } ?: "None"
+            )
+            SettingsRow(
+                title = "Context Allocation",
+                summary = modelPreparationMetrics?.contextCreateMillis?.let { "$it ms" } ?: "None"
+            )
+            SettingsRow(
+                title = "Generation Speed",
+                summary = generationMetrics?.tokensPerSecond?.let { formatTokensPerSecond(it) } ?: "None"
+            )
+            SettingsRow(
+                title = "Prefill Speed",
+                summary = generationMetrics?.prefillTokensPerSecond?.let { formatTokensPerSecond(it) } ?: "None"
+            )
+            SettingsRow(
+                title = "First Token Latency",
+                summary = generationMetrics?.firstTokenMillis?.let { "$it ms" } ?: "None"
+            )
+            SettingsRow(
+                title = "Total Generation Time",
+                summary = generationMetrics?.totalMillis?.let { "$it ms" } ?: "None"
+            )
+            SettingsRow(
+                title = "Native Allocated Memory",
+                summary = memorySnapshots.current?.nativeAllocatedBytes?.let(::formatBytes) ?: "None"
+            )
+            SettingsRow(
+                title = "Native PSS Memory",
+                summary = memorySnapshots.current?.nativePssKb?.let(::formatKb) ?: "None"
+            )
         }
     }
 
-    if (isSystemPromptDialogVisible) {
+    // System Prompt Dialog
+    if (showSystemPromptDialog) {
+        var draftPrompt by remember { mutableStateOf(systemPrompt) }
         AlertDialog(
-            onDismissRequest = { isSystemPromptDialogVisible = false },
-            containerColor = AppColors.Surface,
+            onDismissRequest = { showSystemPromptDialog = false },
             title = { Text("System Prompt", fontSize = 16.sp) },
             text = {
                 OutlinedTextField(
-                    value = systemPromptDraft,
-                    onValueChange = { systemPromptDraft = it },
+                    value = draftPrompt,
+                    onValueChange = { draftPrompt = it },
+                    placeholder = { Text("e.g. You are Mr-Red, an offline living-phone assistant.") },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text("例如：你是简洁的 Android 助手", fontSize = 14.sp)
-                    },
-                    minLines = 4,
-                    maxLines = 8,
-                    textStyle = TextStyle(fontSize = 14.sp)
+                    maxLines = 6
                 )
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        onSystemPromptChange(systemPromptDraft)
-                        isSystemPromptDialogVisible = false
-                    }
-                ) {
-                    Text("保存")
+                TextButton(onClick = {
+                    viewModel.updateSystemPrompt(draftPrompt)
+                    showSystemPromptDialog = false
+                }) {
+                    Text("Save")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { isSystemPromptDialogVisible = false }) {
-                    Text("取消")
+                TextButton(onClick = { showSystemPromptDialog = false }) {
+                    Text("Cancel")
                 }
             }
         )
     }
 
-    if (isFinalPromptDialogVisible) {
+    // Final Prompt Viewer Dialog
+    if (showFinalPromptDialog) {
         AlertDialog(
-            onDismissRequest = { isFinalPromptDialogVisible = false },
-            containerColor = AppColors.Surface,
-            title = { Text("最终 Prompt", fontSize = 16.sp) },
+            onDismissRequest = { showFinalPromptDialog = false },
+            title = { Text("Final Formatted Prompt", fontSize = 16.sp) },
             text = {
                 Text(
-                    text = finalPrompt,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(280.dp)
-                        .verticalScroll(rememberScrollState()),
-                    color = AppColors.TextSecondary,
-                    fontSize = 12.sp
+                    text = finalPrompt.ifBlank { "No formatted prompt generated yet." },
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.verticalScroll(rememberScrollState())
                 )
             },
             confirmButton = {
-                TextButton(onClick = { isFinalPromptDialogVisible = false }) {
-                    Text("关闭")
+                TextButton(onClick = { showFinalPromptDialog = false }) {
+                    Text("Close")
                 }
             }
         )
     }
 
-    if (isContextWindowDialogVisible) {
+    // Context Window Selector Dialog
+    if (showContextWindowDialog) {
+        val options = listOf(512, 1024, 2048, 4096)
+        var selectedNctx by remember { mutableIntStateOf(requestedNctx) }
+
         AlertDialog(
-            onDismissRequest = { isContextWindowDialogVisible = false },
-            containerColor = AppColors.Surface,
-            title = { Text("上下文窗口", fontSize = 16.sp) },
+            onDismissRequest = { showContextWindowDialog = false },
+            title = { Text("Context Window (n_ctx)", fontSize = 16.sp) },
             text = {
                 Column {
                     Text(
-                        text = "32-bit ARMv7: 512 is recommended for 1B/2B models within 2-3GB RAM limits.",
-                        color = AppColors.TextTertiary,
-                        fontSize = 12.sp
+                        text = "Larger context allows longer conversations and tool output, but requires more RAM. 1024 or 2048 is recommended for 32-bit ARMv7.",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary
                     )
-                    listOf(256, 512, 1024, 2048).forEach { option ->
+                    Spacer(modifier = Modifier.height(10.dp))
+                    options.forEach { opt ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { contextWindowDraft = option }
-                                .padding(top = 8.dp),
+                                .clickable { selectedNctx = opt }
+                                .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
-                                selected = contextWindowDraft == option,
-                                onClick = { contextWindowDraft = option }
+                                selected = selectedNctx == opt,
+                                onClick = { selectedNctx = opt }
                             )
-                            Text(
-                                text = "n_ctx $option",
-                                modifier = Modifier.padding(start = 8.dp),
-                                fontSize = 14.sp
-                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("$opt tokens", fontSize = 14.sp)
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        onContextWindowChange(contextWindowDraft)
-                        isContextWindowDialogVisible = false
-                    }
-                ) {
-                    Text("确认")
+                TextButton(onClick = {
+                    viewModel.updateContextWindow(selectedNctx)
+                    showContextWindowDialog = false
+                }) {
+                    Text("Confirm")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { isContextWindowDialogVisible = false }) {
-                    Text("取消")
+                TextButton(onClick = { showContextWindowDialog = false }) {
+                    Text("Cancel")
                 }
             }
         )
     }
 
-    if (isCpuThreadsDialogVisible) {
+    // CPU Threads Selector Dialog
+    if (showCpuThreadsDialog) {
+        val threadOptions = (1..Runtime.getRuntime().availableProcessors().coerceAtLeast(4)).toList()
+        var selectedThreads by remember { mutableIntStateOf(cpuThreads) }
+
         AlertDialog(
-            onDismissRequest = { isCpuThreadsDialogVisible = false },
-            containerColor = AppColors.Surface,
-            title = { Text("CPU 线程", fontSize = 16.sp) },
+            onDismissRequest = { showCpuThreadsDialog = false },
+            title = { Text("CPU Threads", fontSize = 16.sp) },
             text = {
                 Column {
                     Text(
-                        text = "同时影响 Prompt 的 Prefill 和逐 Token Decode。线程更多不一定更快，请用性能数据对照。",
-                        color = AppColors.TextTertiary,
-                        fontSize = 12.sp
+                        text = "Configures CPU threads for prefill and token generation. 4 threads is recommended for 8-core ARMv7 devices.",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary
                     )
-                    listOf(1, 2, 4, 6, 8).forEach { option ->
+                    Spacer(modifier = Modifier.height(10.dp))
+                    threadOptions.forEach { opt ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    onCpuThreadsChange(option)
-                                    isCpuThreadsDialogVisible = false
-                                }
-                                .padding(top = 8.dp),
+                                .clickable { selectedThreads = opt }
+                                .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
-                                selected = cpuThreads == option,
-                                onClick = {
-                                    onCpuThreadsChange(option)
-                                    isCpuThreadsDialogVisible = false
-                                }
+                                selected = selectedThreads == opt,
+                                onClick = { selectedThreads = opt }
                             )
-                            Text(
-                                text = "$option 线程",
-                                modifier = Modifier.padding(start = 8.dp),
-                                fontSize = 14.sp
-                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("$opt threads", fontSize = 14.sp)
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { isCpuThreadsDialogVisible = false }) {
-                    Text("关闭")
+                TextButton(onClick = {
+                    viewModel.updateCpuThreads(selectedThreads)
+                    showCpuThreadsDialog = false
+                }) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCpuThreadsDialog = false }) {
+                    Text("Cancel")
                 }
             }
         )
     }
 
-    if (isSamplingDialogVisible) {
+    // Sampling Parameters Dialog
+    if (showSamplingDialog) {
+        var samplingDraft by remember { mutableStateOf(inferenceConfig) }
+
         AlertDialog(
-            onDismissRequest = { isSamplingDialogVisible = false },
-            containerColor = AppColors.Surface,
-            title = { Text("采样参数", fontSize = 16.sp) },
+            onDismissRequest = { showSamplingDialog = false },
+            title = { Text("Sampling Parameters", fontSize = 16.sp) },
             text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(390.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(
-                        text = "Temperature 为 0 时使用稳定的 greedy 模式；此时 Top-K、Top-P、Min-P、Repeat Penalty 与 Seed 不参与选词。",
-                        color = AppColors.TextTertiary,
-                        fontSize = 12.sp
+                        text = "When Temperature is 0, greedy mode is used. Presets offer stable or creative generation.",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary
                     )
-                    Text(
-                        text = "预设",
-                        modifier = Modifier.padding(top = 12.dp),
-                        color = AppColors.TextPrimary,
-                        fontSize = 14.sp
-                    )
-                    SamplingPreset.entries.chunked(2).forEach { row ->
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            row.forEach { preset ->
-                                OutlinedButton(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(end = 6.dp, top = 4.dp),
-                                    onClick = {
-                                        samplingDraft = preset.configFor(nCtx ?: requestedNctx)
-                                    }
-                                ) {
-                                    Text(preset.label, fontSize = 12.sp)
-                                }
-                            }
-                            if (row.size == 1) {
-                                Box(modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                    SamplingSlider("Temperature", listOf("0（稳定）" to 0f, "0.2" to 0.2f, "0.7" to 0.7f, "1.0" to 1.0f), samplingDraft.temperature) {
-                        samplingDraft = samplingDraft.copy(temperature = it)
-                    }
-                    SamplingSlider("Top-K", listOf("20" to 20, "40" to 40, "80" to 80, "不限制" to 0), samplingDraft.topK) {
-                        samplingDraft = samplingDraft.copy(topK = it)
-                    }
-                    SamplingSlider("Top-P", listOf("0.8" to 0.8f, "0.9" to 0.9f, "0.95" to 0.95f, "1.0" to 1.0f), samplingDraft.topP) {
-                        samplingDraft = samplingDraft.copy(topP = it)
-                    }
-                    SamplingSlider("Min-P", listOf("0" to 0f, "0.05" to 0.05f, "0.1" to 0.1f), samplingDraft.minP) {
-                        samplingDraft = samplingDraft.copy(minP = it)
-                    }
-                    SamplingSlider("Repeat Penalty", listOf("1.0" to 1.0f, "1.05" to 1.05f, "1.1" to 1.1f, "1.2" to 1.2f), samplingDraft.repeatPenalty) {
-                        samplingDraft = samplingDraft.copy(repeatPenalty = it)
-                    }
-                    SamplingSlider("Seed", listOf("42" to 42, "2026" to 2026, "随机" to -1), samplingDraft.seed) {
-                        samplingDraft = samplingDraft.copy(seed = it)
-                    }
-                    SamplingSlider(
-                        title = "Max Tokens",
-                        options = listOf(128, 256, 512, 1024)
-                            .filter { it < (nCtx ?: requestedNctx) }
-                            .map { "$it" to it },
-                        selected = samplingDraft.maxTokens
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text("Presets", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        samplingDraft = samplingDraft.copy(maxTokens = it)
+                        SamplingPreset.values().forEach { preset ->
+                            OutlinedButton(
+                                onClick = { samplingDraft = preset.config },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Text(preset.label, fontSize = 10.sp, maxLines = 1)
+                            }
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    SamplingSlider(
+                        name = "Temperature",
+                        presets = listOf("0 (Greedy)" to 0f, "0.2" to 0.2f, "0.7" to 0.7f, "1.0" to 1.0f),
+                        current = samplingDraft.temperature
+                    ) { samplingDraft = samplingDraft.copy(temperature = it) }
+
+                    SamplingSlider(
+                        name = "Top-K",
+                        presets = listOf("20" to 20, "40" to 40, "80" to 80, "None" to 0),
+                        current = samplingDraft.topK
+                    ) { samplingDraft = samplingDraft.copy(topK = it) }
+
+                    SamplingSlider(
+                        name = "Seed",
+                        presets = listOf("42" to 42, "2026" to 2026, "Random" to -1),
+                        current = samplingDraft.seed
+                    ) { samplingDraft = samplingDraft.copy(seed = it) }
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        onInferenceConfigChange(samplingDraft)
-                        isSamplingDialogVisible = false
-                    }
-                ) {
-                    Text("保存")
+                TextButton(onClick = {
+                    viewModel.updateInferenceConfig(samplingDraft)
+                    showSamplingDialog = false
+                }) {
+                    Text("Save")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { isSamplingDialogVisible = false }) {
-                    Text("取消")
+                TextButton(onClick = { showSamplingDialog = false }) {
+                    Text("Cancel")
                 }
             }
         )
     }
 
-    if (isClearConversationDialogVisible) {
+    if (showClearConfirm) {
         ConfirmActionDialog(
-            title = "清空聊天消息？",
-            message = "只清空当前页面的聊天记录；模型和 Native Context 会继续保留。",
-            confirmText = "清空",
+            title = "Clear chat history?",
+            message = "This clears all chat messages from memory. The loaded model and context remain available.",
+            confirmText = "Clear",
             onConfirm = {
-                onClearConversation()
-                isClearConversationDialogVisible = false
+                viewModel.clearConversation()
+                showClearConfirm = false
             },
-            onDismiss = { isClearConversationDialogVisible = false }
+            onDismiss = { showClearConfirm = false }
         )
     }
 
-    if (isResetContextDialogVisible) {
+    if (showResetConfirm) {
         ConfirmActionDialog(
-            title = "重置 Context？",
-            message = "这会清空 Native KV Cache，但不会删除当前聊天消息或卸载模型。",
-            confirmText = "重置",
+            title = "Reset KV Cache / Context?",
+            message = "This clears the native KV cache without removing chat messages or unloading the model.",
+            confirmText = "Reset",
             onConfirm = {
-                onResetContext()
-                isResetContextDialogVisible = false
+                viewModel.resetContext()
+                showResetConfirm = false
             },
-            onDismiss = { isResetContextDialogVisible = false }
+            onDismiss = { showResetConfirm = false }
         )
     }
 
-    if (isReleaseModelDialogVisible) {
+    if (showReleaseConfirm) {
         ConfirmActionDialog(
-            title = "卸载本地模型？",
-            message = "这会释放 Native Context、模型权重和 Runtime，并取消下次启动时自动恢复该模型。",
-            confirmText = "卸载",
+            title = "Unload local model?",
+            message = "This frees the native context, model weights, and runtime memory.",
+            confirmText = "Unload",
             onConfirm = {
-                onReleaseModel()
-                isReleaseModelDialogVisible = false
+                viewModel.releaseModel()
+                showReleaseConfirm = false
             },
-            onDismiss = { isReleaseModelDialogVisible = false }
+            onDismiss = { showReleaseConfirm = false }
+        )
+    }
+}
+
+/* =========================================================================================
+ * 5. SHARED UI HELPERS & MARKDOWN
+ * ========================================================================================= */
+
+@Composable
+private fun SettingsSection(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = AppColors.TextPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsRow(
+    title: String,
+    summary: String,
+    onClick: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            fontSize = 13.sp,
+            color = AppColors.TextPrimary
+        )
+        Text(
+            text = summary,
+            fontSize = 13.sp,
+            color = if (onClick != null) AppColors.PrimaryAction else AppColors.TextSecondary
+        )
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, fontSize = 13.sp, color = AppColors.TextPrimary)
+            Text(text = subtitle, fontSize = 11.sp, color = AppColors.TextSecondary)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
         )
     }
 }
 
 @Composable
 private fun <T> SamplingSlider(
-    title: String,
-    options: List<Pair<String, T>>,
-    selected: T,
+    name: String,
+    presets: List<Pair<String, T>>,
+    current: T,
     onSelect: (T) -> Unit
 ) {
-    val selectedIndex = options.indexOfFirst { (_, value) -> value == selected }
-        .coerceAtLeast(0)
-    val currentLabel = options[selectedIndex].first
-
-    Column(modifier = Modifier.padding(top = 14.dp)) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f),
-                color = AppColors.TextSecondary,
-                fontSize = 14.sp
-            )
-            Text(
-                text = currentLabel,
-                color = AppColors.TextHint,
-                fontSize = 14.sp
-            )
+    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(name, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text("$current", fontSize = 12.sp, color = AppColors.TextSecondary)
         }
-        Slider(
-            value = selectedIndex.toFloat(),
-            onValueChange = { position -> onSelect(options[position.roundToInt()].second) },
-            valueRange = 0f..(options.lastIndex.toFloat()),
-            // 不显示 Material 默认的离散刻度线；值仍会在 onValueChange 时吸附到预设档位。
-            steps = 0,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            presets.forEach { (label, value) ->
+                OutlinedButton(
+                    onClick = { onSelect(value) },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(2.dp)
+                ) {
+                    Text(label, fontSize = 9.sp, maxLines = 1)
+                }
+            }
+        }
     }
 }
 
@@ -1433,158 +1927,93 @@ private fun ConfirmActionDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = AppColors.Surface,
-        title = { Text(title, fontSize = 16.sp) },
-        text = {
-            Text(
-                text = message,
-                color = AppColors.TextTertiary,
-                fontSize = 12.sp
-            )
-        },
+        title = { Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = { Text(message, fontSize = 13.sp, color = AppColors.TextSecondary) },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text(confirmText)
+                Text(confirmText, color = AppColors.Error, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text("Cancel")
             }
         }
     )
 }
 
-private fun formatTokensPerSecond(value: Double): String =
-    String.format(Locale.US, "%.1f", value)
+@Composable
+private fun SourceLinks(sources: List<SourceLink>) {
+    val context = LocalContext.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Sources",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = AppColors.TextSecondary
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        sources.forEach { source ->
+            Text(
+                text = "• ${source.title}",
+                fontSize = 11.sp,
+                color = AppColors.PrimaryAction,
+                modifier = Modifier
+                    .clickable {
+                        runCatching {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(source.url))
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                        }
+                    }
+                    .padding(vertical = 2.dp)
+            )
+        }
+    }
+}
 
 @Composable
-private fun SettingsSection(
-    title: String,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = title,
-            modifier = Modifier.padding(start = 12.dp, bottom = 12.dp),
-            color = AppColors.TextHint,
-            fontSize = 14.sp
-        )
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = AppColors.Surface,
-            shape = RoundedCornerShape(24.dp)
-        ) {
-            Column {
-                content()
+private fun MarkdownText(markdown: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        markdown.lines().forEach { line ->
+            when {
+                line.startsWith("# ") -> Text(line.removePrefix("# "), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                line.startsWith("## ") -> Text(line.removePrefix("## "), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                line.startsWith("### ") -> Text(line.removePrefix("### "), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                line.startsWith("- ") || line.startsWith("* ") -> {
+                    Row {
+                        Text("• ", fontSize = 14.sp)
+                        Text(line.substring(2), fontSize = 14.sp, color = AppColors.TextPrimary)
+                    }
+                }
+                line.isBlank() -> Spacer(modifier = Modifier.height(4.dp))
+                else -> Text(line, fontSize = 14.sp, color = AppColors.TextPrimary, lineHeight = 20.sp)
             }
         }
-    }
-}
-
-@Composable
-private fun SettingsRow(
-    title: String,
-    summary: String? = null,
-    enabled: Boolean = true,
-    showChevron: Boolean = true,
-    clickable: Boolean = true,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (clickable) {
-                    Modifier.clickable(enabled = enabled, onClick = onClick)
-                } else {
-                    Modifier
-                }
-            )
-            .padding(horizontal = 20.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title,
-            modifier = Modifier.weight(1f),
-            color = if (enabled) AppColors.TextPrimary else AppColors.TextDisabled,
-            fontSize = 16.sp
-        )
-        if (summary != null) {
-            Text(
-            text = summary,
-            modifier = Modifier.align(Alignment.CenterVertically),
-            color = AppColors.TextHint,
-            fontSize = 14.sp,
-            lineHeight = 20.sp
-            )
-        }
-        if (showChevron) {
-            Text(
-                text = "›",
-                modifier = Modifier
-                    .padding(start = 10.dp)
-                    .offset(y = (-2).dp),
-                color = AppColors.Chevron,
-                fontSize = 22.sp,
-                lineHeight = 22.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsSwitchRow(
-    title: String,
-    summary: String,
-    checked: Boolean,
-    enabled: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled) { onCheckedChange(!checked) }
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = if (enabled) AppColors.TextPrimary else AppColors.TextDisabled,
-                fontSize = 16.sp
-            )
-            Text(
-                text = summary,
-                modifier = Modifier.padding(top = 2.dp),
-                color = AppColors.TextHint,
-                fontSize = 12.sp
-            )
-        }
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange
-        )
     }
 }
 
 @Composable
 private fun EmptyState(
     title: String,
+    subtitle: String,
     actionText: String,
     onAction: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(title, color = AppColors.TextTertiary, fontSize = 14.sp)
-        OutlinedButton(
-            modifier = Modifier.padding(top = 12.dp),
-            onClick = onAction
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(subtitle, fontSize = 13.sp, color = AppColors.TextSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = onAction,
+            colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
         ) {
             Text(actionText)
         }
@@ -1593,12 +2022,23 @@ private fun EmptyState(
 
 @Composable
 private fun CenterMessage(message: String) {
-    Text(
-        text = message,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        color = AppColors.TextTertiary,
-        fontSize = 12.sp
-    )
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(message, fontSize = 14.sp, color = AppColors.TextSecondary)
+    }
 }
+
+private fun formatDuration(durationMillis: Long): String = when {
+    durationMillis < 1000 -> "${durationMillis}ms"
+    else -> String.format(Locale.US, "%.1fs", durationMillis / 1000.0)
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", bytes / 1024.0)
+    bytes < 1024 * 1024 * 1024 -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+    else -> String.format(Locale.US, "%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+}
+
+private fun formatKb(kb: Int): String = formatBytes(kb.toLong() * 1024L)
+
+private fun formatTokensPerSecond(value: Double): String = String.format(Locale.US, "%.1f t/s", value)

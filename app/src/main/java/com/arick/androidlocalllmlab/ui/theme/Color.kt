@@ -3,9 +3,8 @@ package com.arick.androidlocalllmlab.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * 应用固定视觉色板。
- *
- * 聊天页采用浅色方案，不跟随系统壁纸或深色模式变化；页面、卡片和弹窗可以保持一致。
+ * Application color palette.
+ * Consistent clean light theme for pages, cards, and dialogs.
  */
 object AppColors {
     val PageBackground = Color.White

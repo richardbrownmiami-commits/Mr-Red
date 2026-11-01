@@ -96,7 +96,7 @@ class LocalLlmRuntime : AutoCloseable {
         this.cpuThreads = cpuThreads
         createIfNeeded()
 
-        // 切换模型前先释放旧 Context 和旧模型，避免旧 KV Cache 和权重继续占用 Native 内存。
+        // Release old context and model before switching, avoiding leaked native memory.
         unloadModel()
 
         val modelLoadStartedAt = SystemClock.elapsedRealtime()
@@ -114,7 +114,7 @@ class LocalLlmRuntime : AutoCloseable {
         val actualNctx = createContext(requestedNctx)
         val contextCreateMillis = SystemClock.elapsedRealtime() - contextCreateStartedAt
         if (actualNctx == 0) {
-            // Context 创建失败时同步卸载模型，防止 UI 误以为模型已经可推理。
+            // Unload model if context creation fails, preventing inconsistent UI state.
             unloadModel()
         }
 
@@ -129,14 +129,14 @@ class LocalLlmRuntime : AutoCloseable {
         check(nativeHandle != 0L) { "Runtime has not been created" }
         check(requestedNctx > 0) { "n_ctx must be positive" }
 
-        // 只重建推理现场：模型权重仍留在 Native 内存中，旧 KV Cache 会随 Context 释放。
+        // Recreate inference context: model weights remain in native memory, KV cache is freed.
         releaseContext()
         return createContext(requestedNctx)
     }
 
     /**
-     * llama.cpp 区分单 Token Decode 和批量 Prefill 的线程数。
-     * 当前实验先让两者使用同一个值，避免一次引入两个变量。
+     * llama.cpp differentiates single-token decode and batched prefill thread counts.
+     * Using the same value for both decode and prefill threads for stability.
      */
     fun setCpuThreads(threads: Int): Int {
         check(threads > 0) { "cpu threads must be positive" }
@@ -157,8 +157,8 @@ class LocalLlmRuntime : AutoCloseable {
     }
 
     /**
-     * 先应用当前 GGUF 的 Chat Template，再计算真实 Prompt Token 数。
-     * 这个计数用于 Kotlin 的历史裁剪，不能用字符串长度或普通 tokenize() 替代。
+     * Applies GGUF Chat Template first, then computes actual prompt token count.
+     * Token count used for context history trimming.
      */
     fun countChatPromptTokens(messages: List<ChatMessage>): Int {
         check(nativeHandle != 0L) { "Runtime has not been created" }
@@ -252,7 +252,7 @@ class LocalLlmRuntime : AutoCloseable {
     }
 }
 
-/** Native 仍需看到完整 assistant 轨迹；UI 只是把 reasoning 从普通回答中分栏展示。 */
+/** Assistant trace for native runtime; UI displays reasoning separately. */
 private fun ChatMessage.toNativeContent(): String {
     if (role != MessageRole.Assistant || reasoningContent.isBlank()) {
         return content
@@ -261,8 +261,8 @@ private fun ChatMessage.toNativeContent(): String {
 }
 
 /**
- * 采样器配置。temperature 为 0 时 Native 使用 greedy，其他随机采样参数不会参与选词；
- * 这样可以保留当前稳定、可复现的默认行为。
+ * Sampler configuration. Greedy sampling is used when temperature is 0;
+ * other parameters do not participate during greedy mode.
  */
 data class InferenceConfig(
     val temperature: Float = 0f,
@@ -271,17 +271,17 @@ data class InferenceConfig(
     val minP: Float = 0.05f,
     val repeatPenalty: Float = 1.10f,
     val seed: Int = 42,
-    // 输出上限是硬截断边界；日常长回答默认留出 2048 Token。
+    // Default output ceiling of 2048 tokens.
     val maxTokens: Int = 2048
 ) {
     val isGreedy: Boolean
         get() = temperature <= 0f
 }
 
-/** 一轮 Native 推理的真实耗时；单位统一为毫秒，避免 Kotlin 侧猜测。 */
+/** Native inference duration in milliseconds. */
 data class GenerationMetrics(
     val generatedTokenCount: Int,
-    /** 本轮 Prompt 中已经存在于 Native Context/KV Cache 的 Token 数。 */
+    /** Number of tokens already cached in native KV cache. */
     val reusedPromptTokenCount: Int,
     val prefillMillis: Long,
     val firstTokenMillis: Long,
@@ -296,10 +296,10 @@ enum class SamplingPreset(
     val label: String,
     val config: InferenceConfig
 ) {
-    Stable("稳定", InferenceConfig(temperature = 0f, maxTokens = 2048)),
-    Balanced("均衡", InferenceConfig(temperature = 0.7f, topK = 40, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.10f, seed = -1, maxTokens = 2048)),
-    Creative("创意", InferenceConfig(temperature = 1.0f, topK = 80, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.05f, seed = -1, maxTokens = 2048)),
-    Reproducible("可复现", InferenceConfig(temperature = 0.7f, topK = 40, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.10f, seed = 42, maxTokens = 2048));
+    Stable("Stable", InferenceConfig(temperature = 0f, maxTokens = 2048)),
+    Balanced("Balanced", InferenceConfig(temperature = 0.7f, topK = 40, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.10f, seed = -1, maxTokens = 2048)),
+    Creative("Creative", InferenceConfig(temperature = 1.0f, topK = 80, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.05f, seed = -1, maxTokens = 2048)),
+    Reproducible("Reproducible", InferenceConfig(temperature = 0.7f, topK = 40, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.10f, seed = 42, maxTokens = 2048));
 
     fun configFor(nCtx: Int): InferenceConfig = config.copy(maxTokens = config.maxTokens.coerceAtMost(nCtx - 1))
 }
