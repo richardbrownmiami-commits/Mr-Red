@@ -380,7 +380,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             messagesForModel = messagesForModel + listOf(
                 ChatMessage(
                     role = MessageRole.Assistant,
-                    content = generatedParts.answer,
+                    content = "{\"name\":\"${toolCall.name}\"}",
                     reasoningContent = generatedParts.reasoning
                 ),
                 ChatMessage(
@@ -770,6 +770,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         "get_weather" -> "Weather tool: ${arguments.optString("city").trim()}"
         "web_search" -> "Web search: ${arguments.optString("query").trim()}"
         "open_settings" -> "Device settings: ${arguments.optString("page").trim()}"
+        "device_vitals" -> "Checking battery, storage & RAM"
+        "send_message" -> "Drafting message to ${arguments.optString("recipient")}"
+        "make_call" -> "Dialing ${arguments.optString("phone_number")}"
+        "open_app" -> "Opening app: ${arguments.optString("app_name")}"
+        "set_timer" -> "Setting timer: ${arguments.optString("seconds")}s"
         else -> "Tool: $name"
     }
 

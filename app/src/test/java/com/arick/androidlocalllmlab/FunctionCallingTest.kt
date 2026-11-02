@@ -61,6 +61,39 @@ class FunctionCallingTest {
     }
 
     @Test
+    fun parseToolCall_jsonArrayFormat() {
+        val input = """[{"name": "device_vitals", "arguments": {"tool": "device_vitals"}}]Checking your phone's battery level, available RAM, and free storage."""
+        val call = FunctionCalling.parseToolCall(input)
+        assertNotNull("ToolCall should parse from JSON array with follow-up text", call)
+        assertEquals("device_vitals", call?.name)
+    }
+
+    @Test
+    fun parseToolCall_jsonArrayWebSearchWithFollowupText() {
+        val input = """[{"name": "web_search", "arguments": {"query": "today's trending news"}}]I am searching the web for the latest trending news articles."""
+        val call = FunctionCalling.parseToolCall(input)
+        assertNotNull("ToolCall should parse web_search array", call)
+        assertEquals("web_search", call?.name)
+        assertEquals("today's trending news", call?.arguments?.optString("query"))
+    }
+
+    @Test
+    fun parseToolCall_objectWithFollowupText() {
+        val input = """{"tool": "open_settings", "arguments": {"page": "battery"}} Opening settings for you!"""
+        val call = FunctionCalling.parseToolCall(input)
+        assertNotNull(call)
+        assertEquals("open_settings", call?.name)
+        assertEquals("battery", call?.arguments?.optString("page"))
+    }
+
+    @Test
+    fun shouldDeferToolRendering_jsonArrayBracket() {
+        assertTrue(FunctionCalling.shouldDeferToolRendering("["))
+        assertTrue(FunctionCalling.shouldDeferToolRendering("[{\"name\""))
+        assertTrue(FunctionCalling.shouldDeferToolRendering("```json\n[{\"name\""))
+    }
+
+    @Test
     fun parseToolCall_normalChatReturnsNull() {
         val input = "Hello! I am your offline assistant. How can I help you today?"
         val call = FunctionCalling.parseToolCall(input)

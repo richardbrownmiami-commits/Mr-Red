@@ -10,6 +10,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.provider.AlarmClock
 import android.provider.Settings
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -501,7 +502,7 @@ object FunctionCalling {
     const val maxToolCalls = 3
 
     val systemInstruction = """
-        You have access to Android device automation tools. If needed, call a tool by outputting JSON only:
+        You are Mr-Red, an offline phone assistant. Use tools when needed by replying ONLY with JSON (no extra text):
         {"tool":"tool_name","arguments":{...}}
         If no tool is needed, respond directly to the user.
         Available tools:
@@ -512,34 +513,91 @@ object FunctionCalling {
         systemInstruction.format(toolInstruction)
 
     fun parseToolCall(modelText: String): ToolCall? {
-        val rawText = modelText.substringAfterLast("</think>", modelText)
-        val text = rawText
+        val rawText = modelText.substringAfterLast("</think>", modelText).trim()
+        val textWithoutMarkdown = rawText
+            .replace("```json", "")
+            .replace("```", "")
             .trim()
-            .removePrefix("```json")
-            .removePrefix("```")
-            .removeSuffix("```")
-            .trim()
-        if (!text.startsWith("{") || !text.endsWith("}")) {
-            return null
+
+        val candidates = extractJsonCandidates(textWithoutMarkdown)
+        for (candidate in candidates) {
+            val toolCall = runCatching {
+                if (candidate.startsWith("[")) {
+                    val arr = JSONArray(candidate)
+                    if (arr.length() > 0) {
+                        val first = arr.getJSONObject(0)
+                        val toolName = first.optString("name").ifEmpty { first.optString("tool") }
+                        if (toolName.isNotEmpty()) {
+                            val args = first.optJSONObject("arguments") ?: JSONObject()
+                            ToolCall(toolName, args)
+                        } else null
+                    } else null
+                } else if (candidate.startsWith("{")) {
+                    val obj = JSONObject(candidate)
+                    val toolName = obj.optString("name").ifEmpty { obj.optString("tool") }
+                    if (toolName.isNotEmpty()) {
+                        val args = obj.optJSONObject("arguments") ?: JSONObject()
+                        ToolCall(toolName, args)
+                    } else null
+                } else null
+            }.getOrNull()
+
+            if (toolCall != null) {
+                return toolCall
+            }
         }
-        return runCatching {
-            val json = JSONObject(text)
-            val toolName = json.optString("tool").ifEmpty { json.optString("name") }
-            if (toolName.isEmpty()) return null
-            ToolCall(
-                name = toolName,
-                arguments = json.optJSONObject("arguments") ?: JSONObject()
-            )
-        }.getOrNull()
+        return null
+    }
+
+    private fun extractJsonCandidates(text: String): List<String> {
+        val candidates = mutableListOf<String>()
+        for (i in text.indices) {
+            val ch = text[i]
+            if (ch == '{' || ch == '[') {
+                val openCh = ch
+                val closeCh = if (ch == '{') '}' else ']'
+                var depth = 0
+                var inString = false
+                var escape = false
+                for (j in i until text.length) {
+                    val c = text[j]
+                    if (escape) {
+                        escape = false
+                        continue
+                    }
+                    if (c == '\\') {
+                        escape = true
+                        continue
+                    }
+                    if (c == '"') {
+                        inString = !inString
+                        continue
+                    }
+                    if (!inString) {
+                        if (c == openCh) {
+                            depth++
+                        } else if (c == closeCh) {
+                            depth--
+                            if (depth == 0) {
+                                candidates.add(text.substring(i, j + 1))
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return candidates
     }
 
     fun shouldDeferToolRendering(streamedText: String): Boolean {
         val text = streamedText
             .substringAfterLast("</think>", streamedText)
             .trimStart()
-        val toolPrefix = "{\"tool"
-        val namePrefix = "{\"name"
-        return text.isEmpty() || toolPrefix.startsWith(text) || text.startsWith(toolPrefix) ||
-                namePrefix.startsWith(text) || text.startsWith(namePrefix)
+        if (text.isEmpty()) return true
+        if (text.startsWith("[") || text.startsWith("{") || text.startsWith("`")) {
+            return true
+        }
+        return false
     }
 }
