@@ -111,7 +111,9 @@ import androidx.compose.ui.unit.sp
 import com.arick.androidlocalllmlab.ui.theme.AndroidLocalLlmLabTheme
 import com.arick.androidlocalllmlab.ui.theme.AppColors
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -1055,6 +1057,10 @@ private fun ToolsPage(
     // Web Search State
     var searchQuery by remember { mutableStateOf("") }
 
+    // Weather State
+    var weatherCity by remember { mutableStateOf("") }
+    val coroutineScope = rememberCoroutineScope()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1380,6 +1386,109 @@ private fun ToolsPage(
                     colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
                 ) {
                     Text("Run Web Search in Chat")
+                }
+            }
+        }
+
+        // 6. Device Vitals Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Device Vitals & Status",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Reads battery capacity, available storage, and free RAM.",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        val result = viewModel.toolExecutor.getDeviceVitals()
+                        when (result) {
+                            is ToolResult.Success -> {
+                                toolMessage = result.content
+                                isError = false
+                            }
+                            is ToolResult.Failure -> {
+                                toolMessage = result.message
+                                isError = true
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                ) {
+                    Text("Check Battery, Storage & RAM")
+                }
+            }
+        }
+
+        // 7. Weather Lookup Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Weather & Forecast",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Live temperature and 3-day forecast via Open-Meteo.",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = weatherCity,
+                    onValueChange = { weatherCity = it },
+                    label = { Text("City Name") },
+                    placeholder = { Text("e.g. Miami, London, Tokyo") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = {
+                        val trimmed = weatherCity.trim()
+                        if (trimmed.isNotEmpty()) {
+                            coroutineScope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    viewModel.toolExecutor.getWeather(JSONObject().put("city", trimmed)) {}
+                                }
+                                when (result) {
+                                    is ToolResult.Success -> {
+                                        toolMessage = result.content
+                                        isError = false
+                                    }
+                                    is ToolResult.Failure -> {
+                                        toolMessage = result.message
+                                        isError = true
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                ) {
+                    Text("Lookup Live Weather")
                 }
             }
         }
@@ -1721,9 +1830,10 @@ private fun SettingsPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        val currentNctx = (uiState as? ChatUiState.Ready)?.nCtx ?: requestedNctx
                         SamplingPreset.values().forEach { preset ->
                             OutlinedButton(
-                                onClick = { samplingDraft = preset.config },
+                                onClick = { samplingDraft = preset.configFor(currentNctx) },
                                 modifier = Modifier.weight(1f),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                             ) {
@@ -1751,6 +1861,12 @@ private fun SettingsPage(
                         presets = listOf("42" to 42, "2026" to 2026, "Random" to -1),
                         current = samplingDraft.seed
                     ) { samplingDraft = samplingDraft.copy(seed = it) }
+
+                    SamplingSlider(
+                        name = "Max Output Tokens",
+                        presets = listOf("128" to 128, "256" to 256, "512" to 512, "1024" to 1024),
+                        current = samplingDraft.maxTokens
+                    ) { samplingDraft = samplingDraft.copy(maxTokens = it) }
                 }
             },
             confirmButton = {

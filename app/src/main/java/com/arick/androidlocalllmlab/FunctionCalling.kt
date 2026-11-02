@@ -452,6 +452,7 @@ class AndroidToolExecutor(private val context: Context) {
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
             connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; MrRed)")
             check(connection.responseCode in 200..299) { "HTTP ${connection.responseCode}" }
             JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
         } finally {
@@ -468,6 +469,7 @@ class AndroidToolExecutor(private val context: Context) {
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
             connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; MrRed)")
             connection.setRequestProperty("Authorization", "Bearer $bearerToken")
             connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
                 writer.write(body)

@@ -116,7 +116,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _cpuThreads = MutableStateFlow(DEFAULT_CPU_THREADS)
     val cpuThreads: StateFlow<Int> = _cpuThreads.asStateFlow()
 
-    private val _inferenceConfig = MutableStateFlow(InferenceConfig())
+    private val _inferenceConfig = MutableStateFlow(InferenceConfig(maxTokens = 256))
     val inferenceConfig: StateFlow<InferenceConfig> = _inferenceConfig.asStateFlow()
 
     private val _thinkingEnabled = MutableStateFlow(true)
@@ -189,6 +189,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun defaultMaxTokensFor(nCtx: Int): Int = when {
+        nCtx <= 512 -> 256
+        nCtx <= 1024 -> 512
+        nCtx <= 2048 -> 1024
+        else -> 2048
+    }
+
     private suspend fun prepareModel(modelFile: File) {
         _uiState.value = ChatUiState.Preparing("Loading model and creating context…")
         val beforeLoad = takeMemorySnapshot()
@@ -227,6 +234,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _generationProgress.value = null
         _generationMetrics.value = null
         _generationError.value = null
+        val safeMaxTokens = defaultMaxTokensFor(preparationMetrics.actualNctx)
+        _inferenceConfig.value = _inferenceConfig.value.copy(
+            maxTokens = _inferenceConfig.value.maxTokens.coerceAtMost(safeMaxTokens)
+        )
         _uiState.value = ChatUiState.Ready(
             modelFile,
             preparationMetrics.actualNctx,
@@ -309,8 +320,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         repeat(FunctionCalling.maxToolCalls + 1) { attempt ->
             val promptTokenCount = runtime.countChatPromptTokens(messagesForModel)
             val availableOutputTokens = nCtx - promptTokenCount
-            check(availableOutputTokens >= 128) {
-                "Available output space after tool result is only $availableOutputTokens tokens. Please shorten prompt or clear history."
+            val minOutputTokens = minOf(32, (nCtx / 10).coerceAtLeast(16))
+            if (availableOutputTokens < minOutputTokens) {
+                // If context is completely exhausted after tool execution, return last response
+                return if (attempt > 0) {
+                    messagesForModel.lastOrNull { it.role == MessageRole.Assistant }?.content?.ifBlank { null }
+                        ?: "Tool executed successfully."
+                } else {
+                    error("Prompt uses $promptTokenCount tokens, leaving only $availableOutputTokens tokens. Please shorten prompt or clear history.")
+                }
             }
             // Context trimming budget management.
             // Adjust output tokens based on remaining context space.
@@ -327,7 +345,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             val toolCall = FunctionCalling.parseToolCall(generatedAnswer) ?: return generatedAnswer
             if (attempt == FunctionCalling.maxToolCalls) {
-                error("Tool execution limit reached")
+                return "Tool execution limit reached. Result: $generatedAnswer"
             }
 
             // Intermediate tool call JSON is processed and replaced by final response.
@@ -349,6 +367,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     "Tool failed: ${toolResult.message}"
                 }
             }
+
+            // Truncate tool result if context is compact (e.g. 512 context)
+            val maxToolChars = if (nCtx <= 512) 250 else if (nCtx <= 1024) 500 else 1500
+            val compactToolText = if (toolResultText.length > maxToolChars) {
+                toolResultText.take(maxToolChars) + "… [trimmed]"
+            } else {
+                toolResultText
+            }
+
             val generatedParts = splitAssistantResponse(generatedAnswer, templateStartsThinking = false)
             messagesForModel = messagesForModel + listOf(
                 ChatMessage(
@@ -358,11 +385,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 ),
                 ChatMessage(
                     MessageRole.User,
-                    "Tool result: $toolResultText. Answer the user based on this result. Do not call tools again unless necessary."
+                    "Tool result: $compactToolText. Answer the user based on this result. Do not call tools again unless necessary."
                 )
             )
         }
-        error("Tool call process ended abnormally")
+        return "Tool call process finished."
     }
 
     private fun generateForCurrentTurn(
@@ -495,17 +522,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         nCtx: Int,
         reservedOutputTokens: Int
     ): TrimmedHistory {
-        // Reserve token space for output generation.
-        val promptBudget = nCtx - reservedOutputTokens
-        check(promptBudget > 0) { "Context window too small for output response budget" }
+        // Guarantee minimal output generation headroom (e.g. 48 tokens or 1/8th of nCtx)
+        val minOutputReserve = minOf(48, (nCtx / 8).coerceAtLeast(16))
+        val maxPromptBudget = (nCtx - minOutputReserve).coerceAtLeast(minOutputReserve)
+
+        // Effective reserved output tokens: aim for reservedOutputTokens, but bounded
+        val targetOutputTokens = reservedOutputTokens.coerceIn(minOutputReserve, maxPromptBudget)
+        val promptBudget = nCtx - targetOutputTokens
 
         val baseMessages = buildList {
             systemPrompt?.let { add(ChatMessage(MessageRole.System, it)) }
             add(ChatMessage(MessageRole.User, currentUserPrompt))
         }
         val baseTokenCount = runtime.countChatPromptTokens(baseMessages)
-        check(baseTokenCount in 1..promptBudget) {
-            "System prompt and current turn used $baseTokenCount tokens, exceeding budget of $promptBudget"
+        check(baseTokenCount <= maxPromptBudget) {
+            "Prompt is too long ($baseTokenCount tokens). Context window of $nCtx requires at least $minOutputReserve tokens for output."
         }
 
         val completedTurns = visibleHistory.toCompletedTurns()
@@ -618,11 +649,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 _requestedNctx.value = requestedNctx
                 // Adjust output reservation when n_ctx shrinks.
-                // Prevents failure where maxTokens exceeds context window.
-                val maxTokens = listOf(2048, 4096, 6000)
-                    .last { it < actualNctx }
+                val safeMaxTokens = defaultMaxTokensFor(actualNctx)
                 _inferenceConfig.value = _inferenceConfig.value.copy(
-                    maxTokens = _inferenceConfig.value.maxTokens.coerceAtMost(maxTokens)
+                    maxTokens = _inferenceConfig.value.maxTokens.coerceAtMost(safeMaxTokens)
                 )
                 _uiState.value = ChatUiState.Ready(
                     currentState.modelFile,
@@ -664,10 +693,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         require(config.repeatPenalty > 0f) { "repeatPenalty must be positive" }
         require(config.maxTokens > 0) { "maxTokens must be positive" }
         val actualNctx = (_uiState.value as? ChatUiState.Ready)?.nCtx
-        require(actualNctx == null || config.maxTokens < actualNctx) {
-            "maxTokens must be smaller than n_ctx"
+        val safeMaxTokens = if (actualNctx != null) {
+            config.maxTokens.coerceIn(32, (actualNctx - 48).coerceAtLeast(32))
+        } else {
+            config.maxTokens
         }
-        _inferenceConfig.value = config
+        _inferenceConfig.value = config.copy(maxTokens = safeMaxTokens)
     }
 
     fun updateThinkingEnabled(enabled: Boolean) {

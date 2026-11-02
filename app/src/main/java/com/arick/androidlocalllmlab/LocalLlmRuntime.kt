@@ -272,7 +272,7 @@ data class InferenceConfig(
     val repeatPenalty: Float = 1.10f,
     val seed: Int = 42,
     // Default output ceiling of 2048 tokens.
-    val maxTokens: Int = 2048
+    val maxTokens: Int = 512
 ) {
     val isGreedy: Boolean
         get() = temperature <= 0f
@@ -296,10 +296,10 @@ enum class SamplingPreset(
     val label: String,
     val config: InferenceConfig
 ) {
-    Stable("Stable", InferenceConfig(temperature = 0f, maxTokens = 2048)),
-    Balanced("Balanced", InferenceConfig(temperature = 0.7f, topK = 40, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.10f, seed = -1, maxTokens = 2048)),
-    Creative("Creative", InferenceConfig(temperature = 1.0f, topK = 80, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.05f, seed = -1, maxTokens = 2048)),
-    Reproducible("Reproducible", InferenceConfig(temperature = 0.7f, topK = 40, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.10f, seed = 42, maxTokens = 2048));
+    Stable("Stable", InferenceConfig(temperature = 0f, maxTokens = 512)),
+    Balanced("Balanced", InferenceConfig(temperature = 0.7f, topK = 40, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.10f, seed = -1, maxTokens = 512)),
+    Creative("Creative", InferenceConfig(temperature = 1.0f, topK = 80, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.05f, seed = -1, maxTokens = 512)),
+    Reproducible("Reproducible", InferenceConfig(temperature = 0.7f, topK = 40, topP = 0.95f, minP = 0.05f, repeatPenalty = 1.10f, seed = 42, maxTokens = 512));
 
-    fun configFor(nCtx: Int): InferenceConfig = config.copy(maxTokens = config.maxTokens.coerceAtMost(nCtx - 1))
+    fun configFor(nCtx: Int): InferenceConfig = config.copy(maxTokens = config.maxTokens.coerceIn(32, maxOf(32, nCtx - 64)))
 }
