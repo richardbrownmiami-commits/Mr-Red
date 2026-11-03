@@ -340,8 +340,12 @@ class AndroidToolExecutor(private val context: Context) {
     }.getOrElse { ToolResult.Failure("Could not open notification access settings: ${it.message ?: "not available"}") }
 
     private fun readNotifications(): ToolResult {
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val enabled = manager.activeNotificationListenerPackages?.contains(context.packageName) == true
+        val enabled = android.provider.Settings.Secure.getString(
+            context.contentResolver,
+            "enabled_notification_listeners"
+        )?.split(":")?.any { component ->
+            runCatching { android.content.ComponentName.unflattenFromString(component)?.packageName == context.packageName }.getOrDefault(false)
+        } == true
         if (!enabled) {
             return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
         }
