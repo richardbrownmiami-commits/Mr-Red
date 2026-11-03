@@ -246,23 +246,47 @@ private fun ChatPage(
         ) {
             when (val state = uiState) {
                 is ChatUiState.Idle -> {
-                    EmptyState(
-                        title = "Select a GGUF model to start",
-                        subtitle = "Mr-Red runs local LLM models and Android automation tools completely offline.",
-                        actionText = "Select Model",
-                        onAction = onOpenModelPicker
-                    )
+                    if (messages.isEmpty()) {
+                        EmptyState(
+                            title = "Select a GGUF model to start",
+                            subtitle = "Device status, Android actions, weather, news, and web search work without a model. Load a model for general answers.",
+                            actionText = "Select Model",
+                            onAction = onOpenModelPicker
+                        )
+                    } else {
+                        ChatMessagesList(
+                            messages = messages,
+                            isGenerating = isGenerating,
+                            isStopRequested = isStopRequested,
+                            generationProgress = generationProgress,
+                            errorMessage = generationError,
+                            onToggleReasoning = viewModel::toggleReasoning,
+                            onToggleAgentTrace = viewModel::toggleAgentTrace
+                        )
+                    }
                 }
                 is ChatUiState.Preparing -> {
                     CenterMessage(message = state.message)
                 }
                 is ChatUiState.Error -> {
-                    EmptyState(
-                        title = "Model load failed",
-                        subtitle = state.message,
-                        actionText = "Retry / Select Model",
-                        onAction = onOpenModelPicker
-                    )
+                    if (messages.isEmpty()) {
+                        EmptyState(
+                            title = "Model load failed",
+                            subtitle = state.message,
+                            actionText = "Retry / Select Model",
+                            onAction = onOpenModelPicker
+                        )
+                    } else {
+                        ChatMessagesList(
+                            messages = messages,
+                            isGenerating = isGenerating,
+                            isStopRequested = isStopRequested,
+                            generationProgress = generationProgress,
+                            errorMessage = generationError,
+                            onToggleReasoning = viewModel::toggleReasoning,
+                            onToggleAgentTrace = viewModel::toggleAgentTrace
+                        )
+                    }
                 }
                 is ChatUiState.Ready -> {
                     if (messages.isEmpty()) {
@@ -294,7 +318,7 @@ private fun ChatPage(
         }
 
         ChatComposer(
-            enabled = uiState is ChatUiState.Ready,
+            enabled = uiState !is ChatUiState.Preparing,
             isGenerating = isGenerating,
             isStopRequested = isStopRequested,
             onSend = viewModel::send,

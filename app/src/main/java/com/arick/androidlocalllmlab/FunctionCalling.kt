@@ -1,6 +1,9 @@
 package com.arick.androidlocalllmlab
 
 import android.app.ActivityManager
+import android.app.NotificationManager
+import android.text.Html
+import android.os.SystemClock
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -17,6 +20,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import javax.xml.parsers.DocumentBuilderFactory
+import org.xml.sax.InputSource
+import java.io.StringReader
 
 data class ToolCall(
     val name: String,
@@ -126,6 +132,34 @@ class AndroidToolExecutor(private val context: Context) {
                 )
 
                 override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = setTimer(arguments)
+            },
+            object : ToolDefinition {
+                override val name = "set_alarm"
+                override val description = "Set a clock alarm on the Android device"
+                override val parameterSchema = listOf(
+                    ToolParameterSchema("hour", "Hour in 24-hour time (0-23)"),
+                    ToolParameterSchema("minute", "Minute (0-59)"),
+                    ToolParameterSchema("message", "Optional alarm label", maxLength = 60)
+                )
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = setAlarm(arguments)
+            },
+            object : ToolDefinition {
+                override val name = "read_notifications"
+                override val description = "Read recent notifications after the user grants Android notification access"
+                override val parameterSchema: List<ToolParameterSchema> = emptyList()
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = readNotifications()
+            },
+            object : ToolDefinition {
+                override val name = "open_notification_access"
+                override val description = "Open Android settings so the user can explicitly grant notification access"
+                override val parameterSchema: List<ToolParameterSchema> = emptyList()
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = openNotificationAccess()
+            },
+            object : ToolDefinition {
+                override val name = "get_news"
+                override val description = "Fetch current news headlines for a topic from free Google News RSS"
+                override val parameterSchema = listOf(ToolParameterSchema("query", "News topic; leave blank for top stories", maxLength = 120))
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = getNews(arguments, onProgress)
             },
             object : ToolDefinition {
                 override val name = "device_vitals"
@@ -279,14 +313,108 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
+    private fun setAlarm(arguments: JSONObject): ToolResult {
+        val hour = arguments.optInt("hour", -1)
+        val minute = arguments.optInt("minute", -1)
+        if (hour !in 0..23 || minute !in 0..59) {
+            return ToolResult.Failure("Use an alarm time with hour 0-23 and minute 0-59.")
+        }
+        return runCatching {
+            val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+                putExtra(AlarmClock.EXTRA_HOUR, hour)
+                putExtra(AlarmClock.EXTRA_MINUTES, minute)
+                putExtra(AlarmClock.EXTRA_MESSAGE, arguments.optString("message", "Mr-Red alarm").take(60))
+                putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            ToolResult.Success(String.format("Opened the clock app to set an alarm for %02d:%02d. Confirm it in the clock app.", hour, minute))
+        }.getOrElse { ToolResult.Failure("Could not open the alarm app: ${it.message ?: "not available"}") }
+    }
+
+    private fun openNotificationAccess(): ToolResult = runCatching {
+        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        ToolResult.Success("Opened Notification access settings. Choose Mr-Red and grant access if you want it to read notifications.")
+    }.getOrElse { ToolResult.Failure("Could not open notification access settings: ${it.message ?: "not available"}") }
+
+    private fun readNotifications(): ToolResult {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val enabled = manager.activeNotificationListenerPackages?.contains(context.packageName) == true
+        if (!enabled) {
+            return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
+        }
+        val records = MrRedNotificationListenerService.recentNotifications()
+        if (records.isEmpty()) return ToolResult.Success("Notification access is enabled, but there are no recent notifications to show.")
+        return ToolResult.Success("Recent notifications (stored in memory only):\n" + records.joinToString("\n") { "• ${it.app}: ${it.title}${it.text.takeIf(String::isNotBlank)?.let { text -> ": $text" }.orEmpty()}" })
+    }
+
+    private fun getNews(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
+        val query = arguments.optString("query").trim().take(120)
+        return runCatching {
+            onProgress("Fetching current headlines…")
+            val encoded = URLEncoder.encode(query.ifBlank { "top news" }, "UTF-8")
+            val xml = requestText("https://news.google.com/rss/search?q=$encoded&hl=en-US&gl=US&ceid=US:en")
+            val factory = DocumentBuilderFactory.newInstance().apply {
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                setFeature("http://xml.org/sax/features/external-general-entities", false)
+                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                isXIncludeAware = false
+                isExpandEntityReferences = false
+            }
+            val document = factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
+            val nodes = document.getElementsByTagName("item")
+            val sources = mutableListOf<SourceLink>()
+            val headlines = buildString {
+                for (index in 0 until minOf(nodes.length, 5)) {
+                    val item = nodes.item(index)
+                    fun value(tag: String) = item.childNodes.let { children ->
+                        (0 until children.length).asSequence().map { children.item(it) }
+                            .firstOrNull { it.nodeName == tag }?.textContent?.trim().orEmpty()
+                    }
+                    val title = value("title").replace(Regex("\\s+"), " ")
+                    val link = value("link")
+                    val date = value("pubDate")
+                    if (title.isNotBlank()) {
+                        if (isNotEmpty()) append("\n")
+                        append("• ").append(title)
+                        if (date.isNotBlank()) append(" (" ).append(date).append(")")
+                        if (link.isNotBlank()) sources.add(SourceLink(title, link))
+                    }
+                }
+            }
+            if (headlines.isBlank()) ToolResult.Success("No headlines found for ${query.ifBlank { "top news" }}, try a different topic.")
+            else ToolResult.Success("Current headlines${query.takeIf(String::isNotBlank)?.let { " about $it" }.orEmpty()} (Google News RSS):\n$headlines", sources)
+        }.getOrElse { ToolResult.Failure("News lookup failed: ${it.message ?: "network error"}") }
+    }
+
+    private fun requestText(url: String): String {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        return try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 10_000
+            connection.setRequestProperty("User-Agent", "Mr-Red Android Assistant")
+            check(connection.responseCode in 200..299) { "HTTP ${connection.responseCode}" }
+            connection.inputStream.bufferedReader().use { it.readText() }
+        } finally { connection.disconnect() }
+    }
+
     fun getDeviceVitals(): ToolResult {
         return runCatching {
             val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
             val batteryPct = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
 
             val stat = StatFs(Environment.getDataDirectory().path)
-            val freeStorageMb = (stat.availableBlocksLong * stat.blockSizeLong) / (1024 * 1024)
-            val freeStorageGb = String.format("%.2f GB", freeStorageMb / 1024.0)
+            val freeStorageBytes = stat.availableBlocksLong * stat.blockSizeLong
+            val totalStorageBytes = stat.blockCountLong * stat.blockSizeLong
+            val usedStorageBytes = (totalStorageBytes - freeStorageBytes).coerceAtLeast(0)
+            val freeStorageGb = String.format("%.2f GB", freeStorageBytes / (1024.0 * 1024.0 * 1024.0))
+            val usedStorageGb = String.format("%.2f GB", usedStorageBytes / (1024.0 * 1024.0 * 1024.0))
+            val totalStorageGb = String.format("%.2f GB", totalStorageBytes / (1024.0 * 1024.0 * 1024.0))
+            val uptimeSeconds = SystemClock.elapsedRealtime() / 1000
+            val uptime = "${uptimeSeconds / 86400}d ${(uptimeSeconds % 86400) / 3600}h ${(uptimeSeconds % 3600) / 60}m"
 
             val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
             val memInfo = ActivityManager.MemoryInfo()
@@ -294,7 +422,7 @@ class AndroidToolExecutor(private val context: Context) {
             val availRamMb = memInfo.availMem / (1024 * 1024)
             val totalRamMb = memInfo.totalMem / (1024 * 1024)
 
-            val summary = "Device Vitals: Battery: $batteryPct% | Free Storage: $freeStorageGb | Available RAM: ${availRamMb}MB / ${totalRamMb}MB"
+            val summary = "Device status: Battery: ${if (batteryPct >= 0) "$batteryPct%" else "unavailable"} | RAM available: ${availRamMb}MB / ${totalRamMb}MB | Storage used: $usedStorageGb / $totalStorageGb (free: $freeStorageGb) | Uptime: $uptime"
             ToolResult.Success(summary)
         }.getOrElse { error ->
             ToolResult.Failure("Failed to read device vitals: ${error.message}")
@@ -421,29 +549,42 @@ class AndroidToolExecutor(private val context: Context) {
     }
 
     private fun fallbackDuckDuckGoSearch(query: String, onProgress: (String) -> Unit): ToolResult {
-        return runCatching {
-            onProgress("Searching DuckDuckGo for: $query")
+        onProgress("Searching the web for: $query")
+        val instantAnswer = runCatching {
             val encoded = URLEncoder.encode(query, "UTF-8")
             val json = requestJson("https://api.duckduckgo.com/?q=$encoded&format=json&no_html=1&skip_disambig=1")
             val heading = json.optString("Heading")
             val abstractText = json.optString("AbstractText")
             val abstractUrl = json.optString("AbstractURL")
+            if (abstractText.isNotBlank()) {
+                ToolResult.Success("Search result: $abstractText", if (abstractUrl.isNotBlank()) listOf(SourceLink(heading.ifBlank { "DuckDuckGo" }, abstractUrl)) else emptyList())
+            } else null
+        }.getOrNull()
+        if (instantAnswer != null) return instantAnswer
 
-            if (abstractText.isNotEmpty()) {
-                val sources = if (abstractUrl.isNotEmpty()) listOf(SourceLink(heading.ifEmpty { "DuckDuckGo" }, abstractUrl)) else emptyList()
-                ToolResult.Success("Search result: $abstractText", sources)
-            } else {
-                val related = json.optJSONArray("RelatedTopics")
-                val firstTopic = related?.optJSONObject(0)?.optString("Text") ?: ""
-                if (firstTopic.isNotEmpty()) {
-                    ToolResult.Success("Search result: $firstTopic")
-                } else {
-                    ToolResult.Success("Web search completed for '$query', but no instant summary was found.")
-                }
+        return runCatching {
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            val html = requestText("https://html.duckduckgo.com/html/?q=$encoded")
+            val links = Regex("<a[^>]*class=\"result__a\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>", RegexOption.IGNORE_CASE)
+                .findAll(html).take(5).toList()
+            val results = links.mapNotNull { match ->
+                val href = match.groupValues[1].replace("&amp;", "&")
+                val title = Html.fromHtml(match.groupValues[2], Html.FROM_HTML_MODE_LEGACY).toString().trim()
+                val decodedUrl = runCatching {
+                    val uri = Uri.parse(if (href.startsWith("//")) "https:$href" else href)
+                    uri.getQueryParameter("uddg") ?: uri.toString()
+                }.getOrDefault(href)
+                if (title.isBlank() || !decodedUrl.startsWith("http")) null else title to decodedUrl
             }
-        }.getOrElse { error ->
-            ToolResult.Failure("Web search failed: ${error.message ?: "Network error"}")
-        }
+            if (results.isEmpty()) return@runCatching ToolResult.Success("No web results were returned for '$query'.")
+            val excerpts = Regex("<(?:a|div)[^>]*class=\"result__snippet\"[^>]*>(.*?)</(?:a|div)>", RegexOption.IGNORE_CASE)
+                .findAll(html).take(5).map { Html.fromHtml(it.groupValues[1], Html.FROM_HTML_MODE_LEGACY).toString().replace(Regex("\\s+"), " ").trim() }.toList()
+            val sources = results.map { (title, url) -> SourceLink(title, url) }
+            val body = results.mapIndexed { index, (title, _) ->
+                "[${index + 1}] $title" + excerpts.getOrNull(index)?.takeIf(String::isNotBlank)?.let { "\n$it" }.orEmpty()
+            }.joinToString("\n\n")
+            ToolResult.Success("Web search results for '$query':\n$body", sources)
+        }.getOrElse { error -> ToolResult.Failure("Web search failed: ${error.message ?: "Network error"}") }
     }
 
     private fun requestJson(url: String): JSONObject {

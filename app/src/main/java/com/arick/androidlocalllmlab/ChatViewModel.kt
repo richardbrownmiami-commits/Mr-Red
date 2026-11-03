@@ -274,11 +274,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun send(prompt: String) {
-        if (
-            prompt.isBlank() ||
-            _uiState.value !is ChatUiState.Ready ||
-            _isGenerating.value
-        ) {
+        if (prompt.isBlank() || _isGenerating.value) return
+
+        // Deterministic device actions and lookups are handled by Kotlin before any model call.
+        DeviceIntentRouter.route(prompt)?.let { toolCall ->
+            executeRoutedDeviceRequest(prompt, toolCall)
+            return
+        }
+        if (_uiState.value !is ChatUiState.Ready) {
+            _generationError.value = "That request needs a model. Device actions, device status, weather, news, and web search work without one."
             return
         }
 
@@ -342,6 +346,59 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _generationProgress.value = null
                 _isGenerating.value = false
                 _isStopRequested.value = false
+            }
+        }
+    }
+
+    private fun executeRoutedDeviceRequest(prompt: String, call: ToolCall) {
+        val userMessage = ChatMessage(MessageRole.User, prompt)
+        val startedAt = System.nanoTime()
+        _messages.value = _messages.value.filter { it.content.isNotBlank() } + listOf(
+            userMessage,
+            ChatMessage(MessageRole.Assistant, "", agentTrace = listOf(AgentTraceItem("Handled locally: ${call.name}")))
+        )
+        _generationError.value = null
+        _generationProgress.value = when (call.name) {
+            "get_news", "get_weather", "web_search" -> "Checking the internet…"
+            "read_notifications" -> "Reading recent notifications…"
+            else -> "Checking your device…"
+        }
+        _isGenerating.value = true
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    toolExecutor.execute(call) { progress ->
+                        _generationProgress.value = progress
+                    }
+                }
+                val (content, sources, trace) = when (result) {
+                    is ToolResult.Success -> Triple(result.content, result.sources, "Completed locally: ${call.name}")
+                    is ToolResult.Failure -> Triple(result.message, emptyList(), "Could not complete: ${call.name}")
+                }
+                val elapsed = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0)
+                val assistant = ChatMessage(
+                    role = MessageRole.Assistant,
+                    content = content,
+                    agentTrace = listOf(AgentTraceItem("Handled locally: ${call.name}"), AgentTraceItem(trace)),
+                    agentDurationMillis = elapsed,
+                    sourceLinks = sources
+                )
+                _messages.value = _messages.value.dropLast(1) + assistant
+                withContext(Dispatchers.IO) {
+                    conversationDatabase.saveMessage(userMessage)
+                    conversationDatabase.saveMessage(assistant)
+                }
+            } catch (error: Throwable) {
+                _generationError.value = error.message ?: "Device request failed"
+                val assistant = ChatMessage(MessageRole.Assistant, error.message ?: "Device request failed")
+                _messages.value = _messages.value.dropLast(1) + assistant
+                withContext(Dispatchers.IO) {
+                    conversationDatabase.saveMessage(userMessage)
+                    conversationDatabase.saveMessage(assistant)
+                }
+            } finally {
+                _generationProgress.value = null
+                _isGenerating.value = false
             }
         }
     }
