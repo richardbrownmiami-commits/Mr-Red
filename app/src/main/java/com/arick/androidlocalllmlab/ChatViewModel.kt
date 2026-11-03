@@ -460,11 +460,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             toolResult.content.trim()
                         }
-                        val aug = "Context from internet:
-$compactFacts
-
-Question: $prompt
-Answer the question concisely using the context."
+                        val aug = "Context from internet:\n$compactFacts\n\nQuestion: $prompt\nAnswer the question concisely using the context."
                         aug to toolResult.sources
                     }
                     is ToolResult.Failure -> {
