@@ -541,15 +541,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun buildSystemPrompt(userSystemPrompt: String?): String {
+    private fun buildSystemPrompt(userSystemPrompt: String?): String? {
         val memorySection = _conversationSummary.value.takeIf { it.isNotBlank() }?.let {
-            "Conversation Memory (retained from earlier turns):\n$it"
+            "Conversation Memory:\n$it"
         }
-        return listOfNotNull(
-            userSystemPrompt,
-            memorySection,
-            FunctionCalling.systemInstruction(toolExecutor.modelInstruction())
-        ).joinToString("\n\n")
+        val parts = listOfNotNull(
+            userSystemPrompt?.takeIf { it.isNotBlank() },
+            memorySection
+        )
+        return if (parts.isEmpty()) null else parts.joinToString("\n\n")
     }
 
     /**
@@ -572,7 +572,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val promptBudget = nCtx - targetOutputTokens
 
         val baseMessages = buildList {
-            systemPrompt?.let { add(ChatMessage(MessageRole.System, it)) }
+            systemPrompt?.takeIf { it.isNotBlank() }?.let { add(ChatMessage(MessageRole.System, it)) }
             add(ChatMessage(MessageRole.User, currentUserPrompt))
         }
         val baseTokenCount = runtime.countChatPromptTokens(baseMessages)
@@ -584,7 +584,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         var keptTurns: List<List<ChatMessage>> = emptyList()
         for (turn in completedTurns.asReversed()) {
             val candidate = buildList {
-                systemPrompt?.let { add(ChatMessage(MessageRole.System, it)) }
+                systemPrompt?.takeIf { it.isNotBlank() }?.let { add(ChatMessage(MessageRole.System, it)) }
                 addAll(turn)
                 keptTurns.asReversed().forEach { keptTurn ->
                     addAll(keptTurn)
@@ -605,7 +605,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val messagesForNative = buildList {
-            systemPrompt?.let { add(ChatMessage(MessageRole.System, it)) }
+            systemPrompt?.takeIf { it.isNotBlank() }?.let { add(ChatMessage(MessageRole.System, it)) }
             keptTurns.asReversed().forEach { keptTurn ->
                 addAll(keptTurn)
             }
