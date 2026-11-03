@@ -23,6 +23,8 @@ class DeviceIntentRouterTest {
     @Test fun routesWeatherNewsAndSearch() {
         assertEquals("get_weather", DeviceIntentRouter.route("weather in Miami")?.name)
         assertEquals("get_news", DeviceIntentRouter.route("what is the latest news about Android")?.name)
+        assertEquals("get_news", DeviceIntentRouter.route("what is current news")?.name)
+        assertEquals("web_search", DeviceIntentRouter.route("what is the latest about bitcoin")?.name)
         assertEquals("web_search", DeviceIntentRouter.route("search online for Android 11 notification access")?.name)
     }
 
@@ -32,5 +34,6 @@ class DeviceIntentRouterTest {
         assertNull(DeviceIntentRouter.route("Explain how Android notifications work"))
         assertNull(DeviceIntentRouter.route("Tell me a story about the weather"))
         assertNull(DeviceIntentRouter.route("Explain how batteries work"))
+        assertNull(DeviceIntentRouter.route("Write a python script to reverse a string"))
     }
 }

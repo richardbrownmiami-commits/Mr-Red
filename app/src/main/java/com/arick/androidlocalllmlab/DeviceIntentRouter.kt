@@ -64,6 +64,10 @@ object DeviceIntentRouter {
                 ?: return null
             return ToolCall("get_weather", JSONObject().put("city", city))
         }
+        Regex("\\b(?:latest|today'?s?)\\s+(?:updates?(?:\\s+(?:on|about))?|information(?:\\s+(?:on|about))?|info(?:\\s+(?:on|about))?|news(?:\\s+(?:on|about))?|about|on)\\s+([a-z0-9][a-z0-9 ._-]{1,60})$").find(text)?.let {
+            val topic = it.groupValues[1].trim()
+            if (topic.isNotBlank()) return ToolCall("web_search", JSONObject().put("query", topic.take(240)))
+        }
         if (Regex("\\b(search|research|look up|find online|web search)\\b").containsMatchIn(text)) {
             val query = text.replace(Regex("\\b(please|search|research|look up|find online|web search|the web|online|for)\\b"), " ")
                 .replace(Regex("\\s+"), " ").trim()

@@ -276,8 +276,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value) return
 
-        // Deterministic device actions and lookups are handled by Kotlin before any model call.
+        // Deterministic device actions and lookups are routed by Kotlin.
         DeviceIntentRouter.route(prompt)?.let { toolCall ->
+            if (isResearchTool(toolCall.name) && _uiState.value is ChatUiState.Ready) {
+                executeSearchAugmentedRequest(prompt, toolCall)
+                return
+            }
             executeRoutedDeviceRequest(prompt, toolCall)
             return
         }
@@ -399,6 +403,116 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _generationProgress.value = null
                 _isGenerating.value = false
+            }
+        }
+    }
+
+
+    private fun isResearchTool(name: String): Boolean =
+        name in setOf("get_news", "get_weather", "web_search")
+
+    private fun executeSearchAugmentedRequest(prompt: String, call: ToolCall) {
+        val visibleHistory = _messages.value.filter { it.content.isNotBlank() }
+        val actualNctx = (_uiState.value as? ChatUiState.Ready)?.nCtx ?: return
+        val systemPrompt = buildSystemPrompt(_systemPrompt.value.trim().takeIf { it.isNotEmpty() })
+        val inferenceConfig = _inferenceConfig.value
+        val userMessage = ChatMessage(MessageRole.User, prompt)
+        _messages.value = visibleHistory + userMessage + listOf(
+            ChatMessage(
+                role = MessageRole.Assistant,
+                content = "",
+                agentTrace = listOf(AgentTraceItem("Checking live internet: ${call.name}"))
+            )
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            conversationDatabase.saveMessage(userMessage)
+        }
+        _generationError.value = null
+        _finalPrompt.value = ""
+        _promptTokenCount.value = 0
+        _trimmedHistoryTurnCount.value = 0
+        _generationProgress.value = when (call.name) {
+            "get_news" -> "Fetching latest headlines…"
+            "get_weather" -> "Checking current weather…"
+            else -> "Searching the web…"
+        }
+        _generationMetrics.value = null
+        runtime.resetStopRequest()
+        _isStopRequested.value = false
+        _isGenerating.value = true
+        val generationStartedAtNanos = System.nanoTime()
+
+        viewModelScope.launch {
+            try {
+                val toolResult = withContext(Dispatchers.IO) {
+                    toolExecutor.execute(call) { progress ->
+                        _generationProgress.value = progress
+                    }
+                }
+
+                val (augmentedPrompt, sources) = when (toolResult) {
+                    is ToolResult.Success -> {
+                        appendLatestAssistantAgentTrace("Retrieved online data (${call.name})")
+                        appendLatestAssistantSources(toolResult.sources)
+                        val maxFactChars = if (actualNctx <= 512) 350 else if (actualNctx <= 1024) 700 else 1500
+                        val compactFacts = if (toolResult.content.length > maxFactChars) {
+                            toolResult.content.take(maxFactChars).trimEnd() + "…"
+                        } else {
+                            toolResult.content.trim()
+                        }
+                        val aug = "Context from internet:
+$compactFacts
+
+Question: $prompt
+Answer the question concisely using the context."
+                        aug to toolResult.sources
+                    }
+                    is ToolResult.Failure -> {
+                        appendLatestAssistantAgentTrace("Web lookup failed (${toolResult.message})")
+                        prompt to emptyList<SourceLink>()
+                    }
+                }
+
+                _generationProgress.value = "Answering with model…"
+                val nativeUserPrompt = augmentedPrompt.withQwen3ThinkingInstruction()
+
+                val answer = withContext(Dispatchers.Default) {
+                    val trimmedHistory = buildHistoryWithinContextBudget(
+                        systemPrompt = systemPrompt,
+                        visibleHistory = visibleHistory,
+                        currentUserPrompt = nativeUserPrompt,
+                        nCtx = actualNctx,
+                        reservedOutputTokens = inferenceConfig.maxTokens
+                    )
+                    _trimmedHistoryTurnCount.value = trimmedHistory.droppedTurnCount
+                    runFunctionCallingLoop(
+                        initialMessages = trimmedHistory.messages,
+                        inferenceConfig = inferenceConfig,
+                        nCtx = actualNctx
+                    )
+                }
+
+                if (answer.isBlank() && !_isStopRequested.value) {
+                    error("Model returned no content")
+                } else if (answer.isNotBlank()) {
+                    appendLatestAssistantAgentTrace("Synthesized with local model")
+                    val finalAssistant = _messages.value.lastOrNull { it.role == MessageRole.Assistant }
+                    if (finalAssistant != null && finalAssistant.content.isNotBlank()) {
+                        val toSave = if (sources.isNotEmpty() && finalAssistant.sourceLinks.isEmpty()) {
+                            finalAssistant.copy(sourceLinks = sources)
+                        } else finalAssistant
+                        withContext(Dispatchers.IO) {
+                            conversationDatabase.saveMessage(toSave)
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                _generationError.value = error.message ?: "Generation failed"
+            } finally {
+                finishLatestAssistantAgentTrace(generationStartedAtNanos)
+                _generationProgress.value = null
+                _isGenerating.value = false
+                _isStopRequested.value = false
             }
         }
     }
