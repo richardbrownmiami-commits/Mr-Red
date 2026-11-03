@@ -87,6 +87,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val toolExecutor = AndroidToolExecutor(application)
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
+    private val conversationDatabase = ConversationDatabase(application)
+
+    private val _conversationSummary = MutableStateFlow("")
+    val conversationSummary: StateFlow<String> = _conversationSummary.asStateFlow()
 
     private val _uiState = MutableStateFlow<ChatUiState>(ChatUiState.Idle)
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -146,6 +150,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Models in filesDir persist across app restarts.
         restoreLastModel()
+        restorePersistedConversation()
+    }
+
+    private fun restorePersistedConversation() {
+        viewModelScope.launch {
+            val savedMessages = withContext(Dispatchers.IO) {
+                conversationDatabase.loadAllMessages()
+            }
+            val savedSummary = withContext(Dispatchers.IO) {
+                conversationDatabase.getSummary()
+            }
+            if (savedMessages.isNotEmpty()) {
+                _messages.value = savedMessages
+            }
+            _conversationSummary.value = savedSummary
+        }
     }
 
     fun loadModel(uri: Uri) {
@@ -227,7 +247,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if ("$modelName $modelDescription".contains("instruct-2507", ignoreCase = true)) {
             _thinkingEnabled.value = false
         }
-        _messages.value = emptyList()
+        val savedMessages = withContext(Dispatchers.IO) {
+            conversationDatabase.loadAllMessages()
+        }
+        val savedSummary = withContext(Dispatchers.IO) {
+            conversationDatabase.getSummary()
+        }
+        _messages.value = savedMessages
+        _conversationSummary.value = savedSummary
         _finalPrompt.value = ""
         _promptTokenCount.value = 0
         _trimmedHistoryTurnCount.value = 0
@@ -262,12 +289,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val systemPrompt = buildSystemPrompt(_systemPrompt.value.trim().takeIf { it.isNotEmpty() })
         val inferenceConfig = _inferenceConfig.value
         val nativeUserPrompt = prompt.withQwen3ThinkingInstruction()
-        _messages.value = visibleHistory + ChatMessage(
-            MessageRole.User,
-            prompt
-        ) + listOf(
+        val userMessage = ChatMessage(MessageRole.User, prompt)
+        _messages.value = visibleHistory + userMessage + listOf(
             ChatMessage(MessageRole.Assistant, "")
         )
+        viewModelScope.launch(Dispatchers.IO) {
+            conversationDatabase.saveMessage(userMessage)
+        }
         _generationError.value = null
         _finalPrompt.value = ""
         _promptTokenCount.value = 0
@@ -299,6 +327,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 if (answer.isBlank() && !_isStopRequested.value) {
                     error("Model returned no content")
+                } else if (answer.isNotBlank()) {
+                    val finalAssistant = _messages.value.lastOrNull { it.role == MessageRole.Assistant }
+                    if (finalAssistant != null && finalAssistant.content.isNotBlank()) {
+                        withContext(Dispatchers.IO) {
+                            conversationDatabase.saveMessage(finalAssistant)
+                        }
+                    }
                 }
             } catch (error: Throwable) {
                 _generationError.value = error.message ?: "Generation failed"
@@ -506,10 +541,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun buildSystemPrompt(userSystemPrompt: String?): String = listOfNotNull(
-        userSystemPrompt,
-        FunctionCalling.systemInstruction(toolExecutor.modelInstruction())
-    ).joinToString("\n\n")
+    private fun buildSystemPrompt(userSystemPrompt: String?): String {
+        val memorySection = _conversationSummary.value.takeIf { it.isNotBlank() }?.let {
+            "Conversation Memory (retained from earlier turns):\n$it"
+        }
+        return listOfNotNull(
+            userSystemPrompt,
+            memorySection,
+            FunctionCalling.systemInstruction(toolExecutor.modelInstruction())
+        ).joinToString("\n\n")
+    }
 
     /**
      * Keep recent user/assistant turns within context token budget.
@@ -557,6 +598,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             keptTurns = keptTurns + listOf(turn)
         }
 
+        val droppedCount = completedTurns.size - keptTurns.size
+        if (droppedCount > 0) {
+            val droppedTurns = completedTurns.take(droppedCount)
+            updateMemorySummaryFromDroppedTurns(droppedTurns)
+        }
+
         val messagesForNative = buildList {
             systemPrompt?.let { add(ChatMessage(MessageRole.System, it)) }
             keptTurns.asReversed().forEach { keptTurn ->
@@ -566,7 +613,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         return TrimmedHistory(
             messages = messagesForNative,
-            droppedTurnCount = completedTurns.size - keptTurns.size
+            droppedTurnCount = droppedCount
         )
     }
 
@@ -585,6 +632,30 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         return completedTurns
+    }
+
+    private fun updateMemorySummaryFromDroppedTurns(droppedTurns: List<List<ChatMessage>>) {
+        val newNotes = droppedTurns.mapNotNull { turn ->
+            val userMsg = turn.firstOrNull { it.role == MessageRole.User }?.content?.trim() ?: return@mapNotNull null
+            val assistantMsg = turn.firstOrNull { it.role == MessageRole.Assistant }?.content?.trim() ?: return@mapNotNull null
+            val cleanUser = userMsg.take(80).replace("\n", " ")
+            val cleanAssistant = assistantMsg.take(120).replace("\n", " ")
+            "User: $cleanUser -> Assistant: $cleanAssistant"
+        }
+        if (newNotes.isEmpty()) return
+
+        val current = _conversationSummary.value
+        val combined = if (current.isBlank()) {
+            newNotes.joinToString("\n")
+        } else {
+            (current.split("\n") + newNotes).takeLast(4).joinToString("\n")
+        }
+        if (combined != current) {
+            _conversationSummary.value = combined
+            viewModelScope.launch(Dispatchers.IO) {
+                conversationDatabase.saveSummary(combined)
+            }
+        }
     }
 
     private data class TrimmedHistory(
@@ -789,13 +860,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         runtime.requestStop()
     }
 
-    /** Clears chat history in UI; retains loaded model and native context. */
+    /** Clears chat history in UI and SQLite; retains loaded model and native context. */
     fun clearConversation() {
         if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
             return
         }
 
         _messages.value = emptyList()
+        _conversationSummary.value = ""
+        viewModelScope.launch(Dispatchers.IO) {
+            conversationDatabase.clearAll()
+        }
         clearLastPromptState()
         _generationError.value = null
     }

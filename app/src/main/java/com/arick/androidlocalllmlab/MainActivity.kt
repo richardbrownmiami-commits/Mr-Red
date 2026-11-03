@@ -820,6 +820,7 @@ private fun DashboardPage(
     val cpuThreads by viewModel.cpuThreads.collectAsState()
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
+    val conversationSummary by viewModel.conversationSummary.collectAsState()
 
     var batteryPct by remember { mutableIntStateOf(-1) }
     var freeStorageGb by remember { mutableStateOf("...") }
@@ -966,6 +967,18 @@ private fun DashboardPage(
 
                 val nativeAlloc = memorySnapshots.current?.nativeAllocatedBytes?.let(::formatBytes) ?: "None"
                 DashboardMetricRow("Native Memory", nativeAlloc)
+
+                val cacheReuseText = generationMetrics?.reusedPromptTokenCount?.let {
+                    if (it > 0) "$it tokens reused from KV cache" else "0 tokens (fresh prefill)"
+                } ?: "No runs yet"
+                DashboardMetricRow("KV Cache Reuse", cacheReuseText)
+
+                val memoryText = if (conversationSummary.isNotBlank()) {
+                    "Active (${conversationSummary.lines().size} notes in SQLite)"
+                } else {
+                    "SQLite Ready (persisting chat)"
+                }
+                DashboardMetricRow("Persistent Memory", memoryText)
             }
         }
 
