@@ -86,10 +86,15 @@ class ConversationDatabase(context: Context) : SQLiteOpenHelper(context, DATABAS
             put(COL_CREATED_AT, System.currentTimeMillis())
         }
         db.insert(TABLE_MESSAGES, null, values)
+        pruneOldMessages(keepCount = 300)
     }
 
+    /**
+     * Loads the most recent messages (up to [limit]) in chronological order to protect
+     * 32-bit Android devices from memory pressure on large chat histories.
+     */
     @Synchronized
-    fun loadAllMessages(): List<ChatMessage> {
+    fun loadRecentMessages(limit: Int = 100): List<ChatMessage> {
         val db = readableDatabase
         val messages = mutableListOf<ChatMessage>()
         val cursor = db.query(
@@ -99,7 +104,8 @@ class ConversationDatabase(context: Context) : SQLiteOpenHelper(context, DATABAS
             null,
             null,
             null,
-            "$COL_ID ASC"
+            "$COL_ID DESC",
+            limit.toString()
         )
         cursor.use {
             val roleIdx = it.getColumnIndexOrThrow(COL_ROLE)
@@ -154,7 +160,23 @@ class ConversationDatabase(context: Context) : SQLiteOpenHelper(context, DATABAS
                 )
             }
         }
+        messages.reverse()
         return messages
+    }
+
+    @Synchronized
+    fun loadAllMessages(): List<ChatMessage> = loadRecentMessages(limit = 100)
+
+    @Synchronized
+    fun pruneOldMessages(keepCount: Int = 300) {
+        val db = writableDatabase
+        db.execSQL(
+            """
+            DELETE FROM $TABLE_MESSAGES WHERE $COL_ID NOT IN (
+                SELECT $COL_ID FROM $TABLE_MESSAGES ORDER BY $COL_ID DESC LIMIT $keepCount
+            )
+            """.trimIndent()
+        )
     }
 
     @Synchronized

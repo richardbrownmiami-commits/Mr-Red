@@ -238,7 +238,7 @@ private fun ChatPage(
             onOpenSettings = onNavigateToSettings
         )
 
-        HorizontalDivider(color = Color(0xFFEEEEEE), thickness = 1.dp)
+        HorizontalDivider(color = AppColors.CardBorder, thickness = 1.dp)
 
         Box(
             modifier = Modifier
@@ -949,7 +949,7 @@ private fun DashboardPage(
                     }
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = Color(0xFFEEEEEE))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = AppColors.CardBorder)
 
                 DashboardMetricRow("Battery Level", if (batteryPct > 0) "$batteryPct%" else "Unavailable")
                 DashboardMetricRow("Internal Storage", "$freeStorageGb free / $totalStorageGb total")
@@ -972,7 +972,7 @@ private fun DashboardPage(
                     color = AppColors.TextPrimary
                 )
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = Color(0xFFEEEEEE))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = AppColors.CardBorder)
 
                 val modelState = when (val s = uiState) {
                     is ChatUiState.Ready -> s.modelName

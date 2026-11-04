@@ -15,8 +15,9 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
             ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
         if (title.isBlank() && text.isBlank()) return
-        notifications.removeAll { it.app == sbn.packageName && it.title == title }
-        notifications.add(0, MrRedNotification(sbn.packageName.substringAfterLast('.'), title.take(160), text.take(400)))
+        val shortApp = sbn.packageName.substringAfterLast('.')
+        notifications.removeAll { (it.app == shortApp || it.app == sbn.packageName) && it.title == title }
+        notifications.add(0, MrRedNotification(shortApp, title.take(160), text.take(400)))
         while (notifications.size > MAX_NOTIFICATIONS) notifications.removeAt(notifications.lastIndex)
     }
 

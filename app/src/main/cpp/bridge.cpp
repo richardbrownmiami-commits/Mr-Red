@@ -208,6 +208,18 @@ namespace {
 
         // 使用当前 GGUF 自带的 Chat Template 生成 Prompt。计数和真正推理必须复用
         // 这条路径，否则 Kotlin 按 Token 预算裁剪时会与 Native 实际 Prefill 不一致。
+        std::string formatChatPromptFallback(const std::vector<ChatMessage> &history) const {
+            std::string prompt;
+            for (const ChatMessage &message : history) {
+                if (message.role.empty()) {
+                    continue;
+                }
+                prompt += "<|im_start|>" + message.role + "\n" + message.content + "<|im_end|>\n";
+            }
+            prompt += "<|im_start|>assistant\n";
+            return prompt;
+        }
+
         std::string formatChatPrompt(const std::vector<ChatMessage> &history) const {
             if (model_ == nullptr || history.empty()) {
                 return {};
@@ -218,20 +230,24 @@ namespace {
                 __android_log_print(
                         ANDROID_LOG_WARN,
                         kLogTag,
-                        "The loaded GGUF has no chat template"
+                        "The loaded GGUF has no chat template; using ChatML fallback"
                 );
-                return {};
+                return formatChatPromptFallback(history);
             }
 
             std::vector<llama_chat_message> messages;
             messages.reserve(history.size());
             size_t totalCharacters = 0;
             for (const ChatMessage &message : history) {
-                if (message.role.empty() || message.content.empty()) {
-                    return {};
+                if (message.role.empty()) {
+                    continue;
                 }
                 messages.push_back({message.role.c_str(), message.content.c_str()});
                 totalCharacters += message.role.size() + message.content.size();
+            }
+
+            if (messages.empty()) {
+                return {};
             }
 
             std::vector<char> formattedPrompt(totalCharacters * 2 + 128);
@@ -245,7 +261,13 @@ namespace {
             );
 
             if (promptLength < 0) {
-                return {};
+                __android_log_print(
+                        ANDROID_LOG_WARN,
+                        kLogTag,
+                        "llama_chat_apply_template returned %d; using ChatML fallback",
+                        promptLength
+                );
+                return formatChatPromptFallback(history);
             }
 
             if (promptLength > static_cast<int32_t>(formattedPrompt.size())) {
@@ -261,7 +283,7 @@ namespace {
             }
 
             if (promptLength <= 0) {
-                return {};
+                return formatChatPromptFallback(history);
             }
 
             return {
@@ -434,7 +456,6 @@ namespace {
                 // 但不会把半个多字节字符转换成问号。
                 if (!pendingUtf8Piece.empty() && isCompleteValidUtf8(pendingUtf8Piece) &&
                     !onToken(pendingUtf8Piece)) {
-                    answer.clear();
                     break;
                 }
                 if (isCompleteValidUtf8(pendingUtf8Piece)) {
@@ -448,7 +469,12 @@ namespace {
                 llama_sampler_accept(sampler, token);
 
                 if (!decodeToken(token)) {
-                    answer.clear();
+                    __android_log_print(
+                            ANDROID_LOG_WARN,
+                            kLogTag,
+                            "decodeToken failed (context limit or allocation budget reached); preserving %zu generated tokens",
+                            generatedTokenCount
+                    );
                     break;
                 }
                 cachedTokens_.push_back(token);

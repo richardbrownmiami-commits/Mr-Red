@@ -485,7 +485,12 @@ class AndroidToolExecutor(private val context: Context) {
             connection.requestMethod = "GET"
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
-            connection.setRequestProperty("User-Agent", "Mr-Red Android Assistant")
+            connection.setRequestProperty(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 11; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+            )
+            connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             check(connection.responseCode in 200..299) { "HTTP ${connection.responseCode}" }
             connection.inputStream.bufferedReader().use { it.readText() }
         } finally { connection.disconnect() }

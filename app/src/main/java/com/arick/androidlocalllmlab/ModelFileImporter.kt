@@ -40,4 +40,19 @@ class ModelFileImporter(
             }
         }
     }
+
+    /**
+     * Deletes orphan or unselected GGUF model files in the internal models directory
+     * to prevent filling flash storage on re-imports.
+     */
+    fun cleanOrphanModels(exceptFile: File? = null) {
+        val modelDir = File(context.filesDir, "models")
+        if (modelDir.isDirectory) {
+            modelDir.listFiles()?.forEach { file ->
+                if (file.isFile && file != exceptFile && file.extension.equals("gguf", ignoreCase = true)) {
+                    file.delete()
+                }
+            }
+        }
+    }
 }

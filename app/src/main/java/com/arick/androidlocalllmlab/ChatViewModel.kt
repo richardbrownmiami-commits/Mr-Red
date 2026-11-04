@@ -174,14 +174,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
+            var importedFile: File? = null
             try {
                 _uiState.value = ChatUiState.Preparing("Importing model file…")
                 val modelFile = modelFileImporter.importModel(uri)
+                importedFile = modelFile
 
                 // Save model for auto-restore only after successful initialization.
                 prepareModel(modelFile)
                 selectedModelStore.save(modelFile)
+                modelFileImporter.cleanOrphanModels(exceptFile = modelFile)
             } catch (error: Throwable) {
+                importedFile?.delete()
                 _uiState.value = ChatUiState.Error(
                     error.message ?: "Failed to load model"
                 )
