@@ -465,7 +465,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     is ToolResult.Failure -> {
                         appendLatestAssistantAgentTrace("Web lookup failed (${toolResult.message})")
-                        prompt to emptyList<SourceLink>()
+                        val failureNotice = "Could not fetch online updates (${toolResult.message}). Please check your internet connection."
+                        val finalAssistant = _messages.value.lastOrNull { it.role == MessageRole.Assistant }
+                        if (finalAssistant != null) {
+                            val updated = finalAssistant.copy(content = failureNotice)
+                            _messages.value = _messages.value.dropLast(1) + updated
+                            withContext(Dispatchers.IO) {
+                                conversationDatabase.saveMessage(updated)
+                            }
+                        }
+                        return@launch
                     }
                 }
 

@@ -204,4 +204,29 @@ class FunctionCallingTest {
         assertTrue(formatted.contains("Custom tool definitions here"))
         assertTrue(formatted.contains("{\"tool\":\"tool_name\""))
     }
+    @Test
+    fun parseRssItems_extractsHeadlinesAndHandlesCData() {
+        val sampleXml = """
+            <rss version="2.0">
+              <channel>
+                <item>
+                  <title>Breaking: SpaceX launches mission</title>
+                  <link>https://news.google.com/articles/1</link>
+                  <pubDate>Tue, 03 Nov 2026 10:00:00 GMT</pubDate>
+                </item>
+                <item>
+                  <title><![CDATA[Android 16 &amp; New Features]]></title>
+                  <link>https://news.google.com/articles/2</link>
+                  <pubDate>Tue, 03 Nov 2026 11:00:00 GMT</pubDate>
+                </item>
+              </channel>
+            </rss>
+        """.trimIndent()
+
+        val items = AndroidToolExecutor.parseRssItems(sampleXml)
+        assertEquals(2, items.size)
+        assertEquals("Breaking: SpaceX launches mission", items[0].title)
+        assertEquals("https://news.google.com/articles/1", items[0].link)
+        assertEquals("Android 16 & New Features", items[1].title)
+    }
 }

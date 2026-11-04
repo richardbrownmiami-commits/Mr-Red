@@ -360,30 +360,17 @@ class AndroidToolExecutor(private val context: Context) {
             onProgress("Fetching current headlines…")
             val encoded = URLEncoder.encode(query.ifBlank { "top news" }, "UTF-8")
             val xml = requestText("https://news.google.com/rss/search?q=$encoded&hl=en-US&gl=US&ceid=US:en")
-            val factory = DocumentBuilderFactory.newInstance().apply {
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                setFeature("http://xml.org/sax/features/external-general-entities", false)
-                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                isXIncludeAware = false
-                isExpandEntityReferences = false
-            }
-            val document = factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
-            val nodes = document.getElementsByTagName("item")
+            val items = parseRssItems(xml)
             val sources = mutableListOf<SourceLink>()
             val headlines = buildString {
-                for (index in 0 until minOf(nodes.length, 5)) {
-                    val item = nodes.item(index)
-                    fun value(tag: String) = item.childNodes.let { children ->
-                        (0 until children.length).asSequence().map { children.item(it) }
-                            .firstOrNull { it.nodeName == tag }?.textContent?.trim().orEmpty()
-                    }
-                    val title = value("title").replace(Regex("\\s+"), " ")
-                    val link = value("link")
-                    val date = value("pubDate")
+                for (item in items.take(5)) {
+                    val title = item.title
+                    val link = item.link
+                    val date = item.date
                     if (title.isNotBlank()) {
                         if (isNotEmpty()) append("\n")
                         append("• ").append(title)
-                        if (date.isNotBlank()) append(" (" ).append(date).append(")")
+                        if (date.isNotBlank()) append(" (").append(date).append(")")
                         if (link.isNotBlank()) sources.add(SourceLink(title, link))
                     }
                 }
@@ -391,6 +378,71 @@ class AndroidToolExecutor(private val context: Context) {
             if (headlines.isBlank()) ToolResult.Success("No headlines found for ${query.ifBlank { "top news" }}, try a different topic.")
             else ToolResult.Success("Current headlines${query.takeIf(String::isNotBlank)?.let { " about $it" }.orEmpty()} (Google News RSS):\n$headlines", sources)
         }.getOrElse { ToolResult.Failure("News lookup failed: ${it.message ?: "network error"}") }
+    }
+
+    companion object {
+        internal data class RssItem(val title: String, val link: String, val date: String)
+
+        internal fun parseRssItems(xml: String): List<RssItem> {
+            val items = mutableListOf<RssItem>()
+            // 1. Safe DocumentBuilderFactory (ignores unsupported features on Android runtime)
+            val docParsed = runCatching {
+                val factory = DocumentBuilderFactory.newInstance().apply {
+                    runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+                    runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
+                    runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
+                    runCatching { isXIncludeAware = false }
+                    runCatching { isExpandEntityReferences = false }
+                }
+                val document = factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
+                val nodes = document.getElementsByTagName("item")
+                for (i in 0 until nodes.length) {
+                    val node = nodes.item(i)
+                    val children = node.childNodes
+                    fun value(tag: String): String = (0 until children.length)
+                        .map { children.item(it) }
+                        .firstOrNull { it.nodeName.equals(tag, ignoreCase = true) }
+                        ?.textContent?.trim().orEmpty()
+                    val title = unescapeXml(value("title"))
+                    val link = value("link")
+                    val pubDate = value("pubDate")
+                    if (title.isNotBlank()) {
+                        items.add(RssItem(title, link, pubDate))
+                    }
+                }
+                items.isNotEmpty()
+            }.getOrDefault(false)
+
+            if (docParsed && items.isNotEmpty()) return items
+
+            // 2. Resilient Regex Fallback
+            val itemRegex = Regex("<item[ >](.*?)</item>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            val titleRegex = Regex("<title>(?:<!\\[CDATA\\[(.*?)\\]\\]>|(.*?))</title>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            val linkRegex = Regex("<link>(?:<!\\[CDATA\\[(.*?)\\]\\]>|(.*?))</link>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+            val pubDateRegex = Regex("<pubDate>(?:<!\\[CDATA\\[(.*?)\\]\\]>|(.*?))</pubDate>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+
+            itemRegex.findAll(xml).forEach { match ->
+                val content = match.groupValues[1]
+                val title = titleRegex.find(content)?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }?.trim().orEmpty()
+                val link = linkRegex.find(content)?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }?.trim().orEmpty()
+                val pubDate = pubDateRegex.find(content)?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }?.trim().orEmpty()
+                if (title.isNotBlank()) {
+                    items.add(RssItem(unescapeXml(title), link, pubDate))
+                }
+            }
+            return items
+        }
+
+        internal fun unescapeXml(text: String): String {
+            return text.replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        }
     }
 
     private fun requestText(url: String): String {
