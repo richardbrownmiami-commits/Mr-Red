@@ -216,6 +216,36 @@ class AndroidToolExecutor(private val context: Context) {
         val appName = arguments.optString("app_name").trim().lowercase()
         if (appName.isEmpty()) return ToolResult.Failure("app_name cannot be empty")
 
+        if (appName in setOf("dialer", "phone dialer", "phone", "keypad", "call", "telephone")) {
+            return makeCall(JSONObject().put("phone_number", ""))
+        }
+        if (appName in setOf("battery", "battery settings", "device battery settings")) {
+            return openSettings(JSONObject().put("page", "battery"))
+        }
+        if (appName in setOf("settings", "device settings", "system settings")) {
+            return openSettings(JSONObject().put("page", "system"))
+        }
+        if (appName in setOf("wifi", "wifi settings")) {
+            return openSettings(JSONObject().put("page", "wifi"))
+        }
+        if (appName in setOf("bluetooth", "bluetooth settings")) {
+            return openSettings(JSONObject().put("page", "bluetooth"))
+        }
+        if (appName in setOf("display", "display settings")) {
+            return openSettings(JSONObject().put("page", "display"))
+        }
+        if (appName in setOf("clock", "alarm", "alarms", "timer")) {
+            return runCatching {
+                val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                ToolResult.Success("Opened clock.")
+            }.getOrElse {
+                ToolResult.Failure("Could not open clock: ${it.message ?: it::class.java.simpleName}")
+            }
+        }
+
         val knownPackages = mapOf(
             "whatsapp" to "com.whatsapp",
             "youtube" to "com.google.android.youtube",
@@ -283,16 +313,20 @@ class AndroidToolExecutor(private val context: Context) {
 
     fun makeCall(arguments: JSONObject): ToolResult {
         val phoneNumber = arguments.optString("phone_number").trim()
-        if (phoneNumber.isEmpty()) return ToolResult.Failure("phone_number cannot be empty")
+        val uri = if (phoneNumber.isNotEmpty()) Uri.parse("tel:${Uri.encode(phoneNumber)}") else null
 
         return runCatching {
-            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phoneNumber)}")).apply {
+            val intent = (if (uri != null) Intent(Intent.ACTION_DIAL, uri) else Intent(Intent.ACTION_DIAL)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
-            ToolResult.Success("Dialer opened with phone number $phoneNumber.")
+            if (phoneNumber.isNotEmpty()) {
+                ToolResult.Success("Dialer opened with phone number $phoneNumber.")
+            } else {
+                ToolResult.Success("Opened phone dialer.")
+            }
         }.getOrElse { error ->
-            ToolResult.Failure("Failed to open dialer: ${error.message}")
+            ToolResult.Failure("Failed to open dialer: ${error.message ?: error::class.java.simpleName}")
         }
     }
 

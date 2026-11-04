@@ -8,6 +8,8 @@ class DeviceIntentRouterTest {
     @Test fun routesDeviceStatusWithoutModel() {
         assertEquals("device_vitals", DeviceIntentRouter.route("what is my battery and free RAM")?.name)
         assertEquals("device_vitals", DeviceIntentRouter.route("show storage and uptime")?.name)
+        assertEquals("device_vitals", DeviceIntentRouter.route("battery")?.name)
+        assertEquals("device_vitals", DeviceIntentRouter.route("check phone battery")?.name)
     }
 
     @Test fun routesAlarmAndTimerArguments() {
@@ -26,6 +28,16 @@ class DeviceIntentRouterTest {
         assertEquals("get_news", DeviceIntentRouter.route("what is current news")?.name)
         assertEquals("web_search", DeviceIntentRouter.route("what is the latest about bitcoin")?.name)
         assertEquals("web_search", DeviceIntentRouter.route("search online for Android 11 notification access")?.name)
+        assertEquals("web_search", DeviceIntentRouter.route("today stock price")?.name)
+        assertEquals("web_search", DeviceIntentRouter.route("today stock price trending in world")?.name)
+        assertEquals("web_search", DeviceIntentRouter.route("trending in world")?.name)
+    }
+
+    @Test fun routesDialerAndSettings() {
+        assertEquals("make_call", DeviceIntentRouter.route("Open the phone dialer")?.name)
+        assertEquals("make_call", DeviceIntentRouter.route("open dialer")?.name)
+        assertEquals("open_settings", DeviceIntentRouter.route("Open device battery settings")?.name)
+        assertEquals("open_settings", DeviceIntentRouter.route("Open phone battery settings")?.name)
     }
 
     @Test fun routesNotificationRequestsButNotUnrelatedChat() {

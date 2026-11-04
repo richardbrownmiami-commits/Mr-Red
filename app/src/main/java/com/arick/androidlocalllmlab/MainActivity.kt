@@ -97,6 +97,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -422,7 +423,7 @@ private fun QuickActionChipsRow(onActionSelected: (String) -> Unit) {
     val quickActions = listOf(
         "⚡ Battery & RAM" to "Check my phone battery, RAM and storage vitals",
         "💬 Draft WhatsApp" to "Draft a WhatsApp message to +1234567890 saying Hello from Mr-Red",
-        "📞 Open Dialer" to "Open the phone dialer",
+        "📞 Open Dialer" to "Open phone dialer",
         "⏰ Set 5m Timer" to "Set a countdown timer for 5 minutes",
         "⚙️ Battery Settings" to "Open device battery settings",
         "🌐 Web Search" to "Search the web for latest AI news"
@@ -755,7 +756,8 @@ private fun ChatComposer(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .background(Color.White, RoundedCornerShape(24.dp))
+                    .background(AppColors.CardBackground, RoundedCornerShape(24.dp))
+                    .border(1.dp, AppColors.CardBorder, RoundedCornerShape(24.dp))
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 if (text.isEmpty()) {
@@ -770,6 +772,7 @@ private fun ChatComposer(
                     value = text,
                     onValueChange = { text = it },
                     textStyle = TextStyle(fontSize = 14.sp, color = AppColors.TextPrimary),
+                    cursorBrush = SolidColor(AppColors.PrimaryActionGlow),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1335,12 +1338,12 @@ private fun ToolsPage(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 val appList = listOf(
-                    "WhatsApp" to "whatsapp",
-                    "YouTube" to "youtube",
-                    "Chrome" to "chrome",
+                    "Dialer" to "dialer",
                     "Camera" to "camera",
-                    "Maps" to "maps",
-                    "Settings" to "settings"
+                    "Settings" to "settings",
+                    "Battery" to "battery",
+                    "WhatsApp" to "whatsapp",
+                    "YouTube" to "youtube"
                 )
 
                 Row(
