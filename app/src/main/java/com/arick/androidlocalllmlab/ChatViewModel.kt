@@ -458,13 +458,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     is ToolResult.Success -> {
                         appendLatestAssistantAgentTrace("Retrieved online data (${call.name})")
                         appendLatestAssistantSources(toolResult.sources)
-                        val maxFactChars = if (actualNctx <= 512) 350 else if (actualNctx <= 1024) 700 else 1500
+                        // Preserve enough live-search evidence for the small ARMv7 models,
+                        // while keeping the augmented prompt bounded for short contexts.
+                        val maxFactChars = when {
+                            actualNctx <= 512 -> 600
+                            actualNctx <= 1024 -> 1200
+                            else -> 2400
+                        }
                         val compactFacts = if (toolResult.content.length > maxFactChars) {
                             toolResult.content.take(maxFactChars).trimEnd() + "…"
                         } else {
                             toolResult.content.trim()
                         }
-                        val aug = "Context from internet:\n$compactFacts\n\nQuestion: $prompt\nAnswer the question concisely using the context."
+                        val aug = "Live web research for the user's question. Treat the internet context as evidence, not as text to copy. Write a short answer in your own words, directly answering the question; do not merely list or repeat headlines. Use only facts supported by the context, preserve important names, dates and numbers, and do not guess. If the context contains headlines but not enough detail to answer, say that clearly.\n\nInternet context:\n$compactFacts\n\nQuestion: $prompt\nAnswer in 1-3 concise sentences."
                         aug to toolResult.sources
                     }
                     is ToolResult.Failure -> {
@@ -516,7 +522,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (error: Throwable) {
-                _generationError.value = error.message ?: "Generation failed"
+                val detail = error.message?.takeIf { it.isNotBlank() } ?: "Generation failed"
+                _generationError.value = detail
+                // Keep a visible explanation beside the already-attached sources instead
+                // of leaving the user with links and an empty assistant bubble.
+                val finalAssistant = _messages.value.lastOrNull { it.role == MessageRole.Assistant }
+                if (finalAssistant != null && finalAssistant.content.isBlank()) {
+                    val updated = finalAssistant.copy(
+                        content = "I found live results, but the local model couldn't write a summary: $detail"
+                    )
+                    _messages.value = _messages.value.dropLast(1) + updated
+                    withContext(Dispatchers.IO) {
+                        conversationDatabase.saveMessage(updated)
+                    }
+                }
             } finally {
                 finishLatestAssistantAgentTrace(generationStartedAtNanos)
                 _generationProgress.value = null

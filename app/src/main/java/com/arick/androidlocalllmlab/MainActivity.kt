@@ -422,7 +422,7 @@ private fun ChatHeader(
 private fun QuickActionChipsRow(onActionSelected: (String) -> Unit) {
     val quickActions = listOf(
         "⚡ Battery & RAM" to "Check my phone battery, RAM and storage vitals",
-        "💬 Draft WhatsApp" to "Draft a WhatsApp message to +1234567890 saying Hello from Mr-Red",
+        "💬 Draft message" to "Draft a message saying Hello from Mr-Red",
         "📞 Open Dialer" to "Open phone dialer",
         "⏰ Set 5m Timer" to "Set a countdown timer for 5 minutes",
         "⚙️ Battery Settings" to "Open device battery settings",
