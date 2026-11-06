@@ -28,7 +28,19 @@ class SelectedModelStore(context: Context) {
             .apply()
     }
 
-    private companion object {
-        const val KEY_SELECTED_MODEL_PATH = "selected_model_path"
+    fun getSummaryLines(): Int {
+        return preferences.getInt(KEY_SUMMARY_LINES, DEFAULT_SUMMARY_LINES)
+    }
+
+    fun setSummaryLines(lines: Int) {
+        preferences.edit()
+            .putInt(KEY_SUMMARY_LINES, lines)
+            .apply()
+    }
+
+    companion object {
+        const val DEFAULT_SUMMARY_LINES = 4
+        private const val KEY_SELECTED_MODEL_PATH = "selected_model_path"
+        private const val KEY_SUMMARY_LINES = "summary_lines"
     }
 }

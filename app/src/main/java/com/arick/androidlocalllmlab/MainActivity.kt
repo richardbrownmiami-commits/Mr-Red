@@ -136,7 +136,6 @@ class MainActivity : ComponentActivity() {
 enum class AppPage(val title: String, val icon: ImageVector) {
     Chat("Chat", Icons.Default.Chat),
     Dashboard("Dashboard", Icons.Default.Dashboard),
-    Tools("Tools", Icons.Default.Build),
     Settings("Settings", Icons.Default.Settings)
 }
 
@@ -186,11 +185,6 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                     onNavigateToSettings = { selectedPage = AppPage.Settings }
                 )
                 AppPage.Dashboard -> DashboardPage(
-                    viewModel = viewModel,
-                    onNavigateToChat = { selectedPage = AppPage.Chat },
-                    onNavigateToTools = { selectedPage = AppPage.Tools }
-                )
-                AppPage.Tools -> ToolsPage(
                     viewModel = viewModel,
                     onNavigateToChat = { selectedPage = AppPage.Chat }
                 )
@@ -839,8 +833,7 @@ private fun ChatComposer(
 @Composable
 private fun DashboardPage(
     viewModel: ChatViewModel,
-    onNavigateToChat: () -> Unit,
-    onNavigateToTools: () -> Unit
+    onNavigateToChat: () -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -1072,471 +1065,7 @@ private fun DashboardMetricRow(label: String, value: String) {
 }
 
 /* =========================================================================================
- * 3. TOOLS & SKILLS PAGE
- * ========================================================================================= */
-
-@Composable
-private fun ToolsPage(
-    viewModel: ChatViewModel,
-    onNavigateToChat: () -> Unit
-) {
-    var toolMessage by remember { mutableStateOf<String?>(null) }
-    var isError by remember { mutableStateOf(false) }
-
-    // WhatsApp / SMS Form State
-    var messagePlatform by remember { mutableStateOf("whatsapp") }
-    var messageRecipient by remember { mutableStateOf("") }
-    var messageContent by remember { mutableStateOf("") }
-
-    // Dialer State
-    var dialerNumber by remember { mutableStateOf("") }
-
-    // Timer State
-    var timerSeconds by remember { mutableStateOf("300") }
-
-    // Web Search State
-    var searchQuery by remember { mutableStateOf("") }
-
-    // Weather State
-    var weatherCity by remember { mutableStateOf("") }
-    val coroutineScope = rememberCoroutineScope()
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text(
-            text = "Tools & Skills",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = AppColors.TextPrimary
-        )
-
-        // Feedback Banner
-        if (toolMessage != null) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isError) Color(0x33E53935) else Color(0x3300C46A)
-                ),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = toolMessage!!,
-                        fontSize = 13.sp,
-                        color = if (isError) AppColors.Error else AppColors.Success,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = { toolMessage = null }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
-                    }
-                }
-            }
-        }
-
-        // 1. WhatsApp & SMS Messenger Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Message Composer (WhatsApp / SMS)",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = messagePlatform == "whatsapp",
-                        onClick = { messagePlatform = "whatsapp" }
-                    )
-                    Text("WhatsApp", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.width(16.dp))
-                    RadioButton(
-                        selected = messagePlatform == "sms",
-                        onClick = { messagePlatform = "sms" }
-                    )
-                    Text("SMS", fontSize = 14.sp)
-                }
-
-                OutlinedTextField(
-                    value = messageRecipient,
-                    onValueChange = { messageRecipient = it },
-                    label = { Text("Phone Number or Contact") },
-                    placeholder = { Text("e.g. +1234567890") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = messageContent,
-                    onValueChange = { messageContent = it },
-                    label = { Text("Message Text") },
-                    placeholder = { Text("Write your message here…") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 3
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        val result = viewModel.toolExecutor.sendMessage(
-                            JSONObject().apply {
-                                put("platform", messagePlatform)
-                                put("recipient", messageRecipient.trim())
-                                put("message", messageContent.trim())
-                            }
-                        )
-                        when (result) {
-                            is ToolResult.Success -> {
-                                toolMessage = result.content
-                                isError = false
-                            }
-                            is ToolResult.Failure -> {
-                                toolMessage = result.message
-                                isError = true
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
-                ) {
-                    Text("Draft Message in ${if (messagePlatform == "whatsapp") "WhatsApp" else "SMS"}")
-                }
-            }
-        }
-
-        // 2. Phone Dialer Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Phone Dialer",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = dialerNumber,
-                    onValueChange = { dialerNumber = it },
-                    label = { Text("Phone Number to Dial") },
-                    placeholder = { Text("e.g. 1234567890") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        val result = viewModel.toolExecutor.makeCall(
-                            JSONObject().put("phone_number", dialerNumber.trim())
-                        )
-                        when (result) {
-                            is ToolResult.Success -> {
-                                toolMessage = result.content
-                                isError = false
-                            }
-                            is ToolResult.Failure -> {
-                                toolMessage = result.message
-                                isError = true
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
-                ) {
-                    Text("Open Phone Dialer")
-                }
-            }
-        }
-
-        // 3. Countdown Timer Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Alarms & Timers",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = timerSeconds,
-                    onValueChange = { timerSeconds = it },
-                    label = { Text("Duration in Seconds") },
-                    placeholder = { Text("300") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        val secs = timerSeconds.toIntOrNull() ?: 60
-                        val result = viewModel.toolExecutor.setTimer(
-                            JSONObject().put("seconds", secs)
-                        )
-                        when (result) {
-                            is ToolResult.Success -> {
-                                toolMessage = result.content
-                                isError = false
-                            }
-                            is ToolResult.Failure -> {
-                                toolMessage = result.message
-                                isError = true
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
-                ) {
-                    Text("Set Countdown Timer")
-                }
-            }
-        }
-
-        // 4. Quick App Launcher Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Launch Installed App",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                val appList = listOf(
-                    "Dialer" to "dialer",
-                    "Camera" to "camera",
-                    "Settings" to "settings",
-                    "Battery" to "battery",
-                    "WhatsApp" to "whatsapp",
-                    "YouTube" to "youtube"
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    appList.take(3).forEach { (label, name) ->
-                        OutlinedButton(
-                            onClick = {
-                                val res = viewModel.toolExecutor.openApp(JSONObject().put("app_name", name))
-                                if (res is ToolResult.Failure) {
-                                    toolMessage = res.message
-                                    isError = true
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(label, fontSize = 11.sp, maxLines = 1)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    appList.drop(3).forEach { (label, name) ->
-                        OutlinedButton(
-                            onClick = {
-                                val res = viewModel.toolExecutor.openApp(JSONObject().put("app_name", name))
-                                if (res is ToolResult.Failure) {
-                                    toolMessage = res.message
-                                    isError = true
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(label, fontSize = 11.sp, maxLines = 1)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 5. Web Search Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Web Search Tool",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    label = { Text("Search Query") },
-                    placeholder = { Text("e.g. latest news or Wikipedia topic") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        val trimmed = searchQuery.trim()
-                        if (trimmed.isNotEmpty()) {
-                            viewModel.send("Search the web for: $trimmed")
-                            onNavigateToChat()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
-                ) {
-                    Text("Run Web Search in Chat")
-                }
-            }
-        }
-
-        // 6. Device Vitals Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Device Vitals & Status",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Reads battery capacity, available storage, and free RAM.",
-                    fontSize = 12.sp,
-                    color = AppColors.TextSecondary
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(
-                    onClick = {
-                        val result = viewModel.toolExecutor.getDeviceVitals()
-                        when (result) {
-                            is ToolResult.Success -> {
-                                toolMessage = result.content
-                                isError = false
-                            }
-                            is ToolResult.Failure -> {
-                                toolMessage = result.message
-                                isError = true
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
-                ) {
-                    Text("Check Battery, Storage & RAM")
-                }
-            }
-        }
-
-        // 7. Weather Lookup Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Weather & Forecast",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Live temperature and 3-day forecast via Open-Meteo.",
-                    fontSize = 12.sp,
-                    color = AppColors.TextSecondary
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = weatherCity,
-                    onValueChange = { weatherCity = it },
-                    label = { Text("City Name") },
-                    placeholder = { Text("e.g. Miami, London, Tokyo") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        val trimmed = weatherCity.trim()
-                        if (trimmed.isNotEmpty()) {
-                            coroutineScope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    viewModel.toolExecutor.getWeather(JSONObject().put("city", trimmed)) {}
-                                }
-                                when (result) {
-                                    is ToolResult.Success -> {
-                                        toolMessage = result.content
-                                        isError = false
-                                    }
-                                    is ToolResult.Failure -> {
-                                        toolMessage = result.message
-                                        isError = true
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
-                ) {
-                    Text("Lookup Live Weather")
-                }
-            }
-        }
-    }
-}
-
-/* =========================================================================================
- * 4. SETTINGS & MODEL PAGE
+ * 3. SETTINGS & MODEL PAGE
  * ========================================================================================= */
 
 @Composable
@@ -1556,8 +1085,10 @@ private fun SettingsPage(
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val modelPreparationMetrics by viewModel.modelPreparationMetrics.collectAsState()
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
+    val summaryLines by viewModel.summaryLines.collectAsState()
 
     var showSystemPromptDialog by remember { mutableStateOf(false) }
+    var showSummaryLinesDialog by remember { mutableStateOf(false) }
     var showFinalPromptDialog by remember { mutableStateOf(false) }
     var showContextWindowDialog by remember { mutableStateOf(false) }
     var showCpuThreadsDialog by remember { mutableStateOf(false) }
@@ -1609,6 +1140,11 @@ private fun SettingsPage(
                 title = "System Prompt",
                 summary = if (systemPrompt.isBlank()) "Default (Offline Agent)" else "Custom",
                 onClick = { showSystemPromptDialog = true }
+            )
+            SettingsRow(
+                title = "Conversation Memory Summary",
+                summary = "$summaryLines lines (rolling)",
+                onClick = { showSummaryLinesDialog = true }
             )
             SettingsRow(
                 title = "Final Formatted Prompt",
@@ -1695,6 +1231,59 @@ private fun SettingsPage(
                 summary = memorySnapshots.current?.nativePssKb?.let(::formatKb) ?: "None"
             )
         }
+    }
+
+    // Summary Lines Dialog
+    if (showSummaryLinesDialog) {
+        val options = listOf(
+            2 to "2 lines (Ultra-fast, lowest prefill)",
+            4 to "4 lines (Default, balanced memory)",
+            7 to "7 lines (Extended recall)"
+        )
+        var selectedLines by remember { mutableIntStateOf(summaryLines) }
+
+        AlertDialog(
+            onDismissRequest = { showSummaryLinesDialog = false },
+            title = { Text("Conversation Memory Lines", fontSize = 16.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Controls how many past Q&A turns are rolled into the compact conversation summary. Only this summary and your current question are sent to the model, keeping prefill token usage stable.",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary
+                    )
+                    options.forEach { (count, label) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedLines = count }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = selectedLines == count,
+                                onClick = { selectedLines = count }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(label, fontSize = 14.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.updateSummaryLines(selectedLines)
+                    showSummaryLinesDialog = false
+                }) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSummaryLinesDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // System Prompt Dialog
