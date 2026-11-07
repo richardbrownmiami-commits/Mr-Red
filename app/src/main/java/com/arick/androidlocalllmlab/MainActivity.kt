@@ -1819,7 +1819,7 @@ private fun ScheduledTasksPage(
             Button(
                 onClick = { showReminderDialog = true },
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.SurfaceCard)
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.CardBackground)
             ) {
                 Text("+ Add Reminder", fontSize = 12.sp, color = AppColors.TextPrimary)
             }
@@ -1832,7 +1832,7 @@ private fun ScheduledTasksPage(
             OutlinedButton(
                 onClick = {
                     val res = AlarmScheduler.dismissAlarm(context)
-                    actionFeedback = if (res is ToolResult.Success) res.output else "Dismissed"
+                    actionFeedback = if (res is ToolResult.Success) res.content else "Dismissed"
                 },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.PrimaryAction)
@@ -1843,7 +1843,7 @@ private fun ScheduledTasksPage(
             OutlinedButton(
                 onClick = {
                     val res = AlarmScheduler.cancelReminders(context)
-                    actionFeedback = if (res is ToolResult.Success) res.output else "Reminders cleared"
+                    actionFeedback = if (res is ToolResult.Success) res.content else "Reminders cleared"
                 },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.TextSecondary)
@@ -1863,7 +1863,7 @@ private fun ScheduledTasksPage(
         if (alarms.isEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = AppColors.SurfaceCard)
+                colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
@@ -1884,7 +1884,7 @@ private fun ScheduledTasksPage(
             alarms.forEach { item ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = AppColors.SurfaceCard)
+                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(
@@ -1944,7 +1944,7 @@ private fun ScheduledTasksPage(
         if (reminders.isEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = AppColors.SurfaceCard)
+                colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
@@ -1965,7 +1965,7 @@ private fun ScheduledTasksPage(
             reminders.forEach { item ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = AppColors.SurfaceCard)
+                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Row(
@@ -1981,7 +1981,7 @@ private fun ScheduledTasksPage(
                             )
                             IconButton(onClick = {
                                 val res = AlarmScheduler.cancelSingleReminder(context, item.id)
-                                actionFeedback = if (res is ToolResult.Success) res.output else "Cancelled"
+                                actionFeedback = if (res is ToolResult.Success) res.content else "Cancelled"
                             }) {
                                 Icon(Icons.Default.Close, contentDescription = "Cancel Reminder", tint = AppColors.TextSecondary)
                             }
@@ -2069,7 +2069,7 @@ private fun ScheduledTasksPage(
                         val m = alarmMinuteInput.toIntOrNull() ?: 0
                         if (h != null && h in 0..23 && m in 0..59) {
                             val res = AlarmScheduler.setInAppAlarm(context, h, m, alarmNoteInput.ifBlank { "Alarm" })
-                            actionFeedback = if (res is ToolResult.Success) res.output else "Alarm set"
+                            actionFeedback = if (res is ToolResult.Success) res.content else "Alarm set"
                             showAlarmDialog = false
                         } else {
                             actionFeedback = "Please enter a valid hour (0-23) and minute (0-59)."
@@ -2085,7 +2085,7 @@ private fun ScheduledTasksPage(
                     Text("Cancel", color = AppColors.TextSecondary)
                 }
             },
-            containerColor = AppColors.SurfaceCard
+            containerColor = AppColors.CardBackground
         )
     }
 
@@ -2141,7 +2141,7 @@ private fun ScheduledTasksPage(
                         if (note.isNotBlank() && num != null && num > 0) {
                             val totalMins = if (reminderIsHours) num * 60L else num
                             val res = AlarmScheduler.scheduleReminder(context, note, totalMins, reminderIsRecurring)
-                            actionFeedback = if (res is ToolResult.Success) res.output else "Reminder set"
+                            actionFeedback = if (res is ToolResult.Success) res.content else "Reminder set"
                             showReminderDialog = false
                         } else {
                             actionFeedback = "Please enter a note and positive interval number."
@@ -2157,7 +2157,7 @@ private fun ScheduledTasksPage(
                     Text("Cancel", color = AppColors.TextSecondary)
                 }
             },
-            containerColor = AppColors.SurfaceCard
+            containerColor = AppColors.CardBackground
         )
     }
 }
