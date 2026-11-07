@@ -46,6 +46,12 @@ class DeviceIntentRouterTest {
 
         val cancelReminders = DeviceIntentRouter.route("cancel all reminders")
         assertEquals("cancel_reminders", cancelReminders?.name)
+
+        assertEquals("list_scheduled_tasks", DeviceIntentRouter.route("check upcoming reminders")?.name)
+        assertEquals("list_scheduled_tasks", DeviceIntentRouter.route("what are my reminders")?.name)
+        assertEquals("list_scheduled_tasks", DeviceIntentRouter.route("show reminders")?.name)
+        assertEquals("list_scheduled_tasks", DeviceIntentRouter.route("scheduled tasks")?.name)
+        assertEquals("list_scheduled_tasks", DeviceIntentRouter.route("check schedule")?.name)
     }
 
     @Test fun routesWeatherNewsAndSearch() {

@@ -166,6 +166,12 @@ class AndroidToolExecutor(private val context: Context) {
                 override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = cancelReminders()
             },
             object : ToolDefinition {
+                override val name = "list_scheduled_tasks"
+                override val description = "List all active alarms and upcoming reminders with notes set by Mr-Red"
+                override val parameterSchema: List<ToolParameterSchema> = emptyList()
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = listScheduledTasks()
+            },
+            object : ToolDefinition {
                 override val name = "read_notifications"
                 override val description = "Read recent notifications after the user grants Android notification access"
                 override val parameterSchema: List<ToolParameterSchema> = emptyList()
@@ -389,6 +395,29 @@ class AndroidToolExecutor(private val context: Context) {
     }
 
     fun cancelReminders(): ToolResult = AlarmScheduler.cancelReminders(context)
+
+    fun listScheduledTasks(): ToolResult {
+        val tasks = ScheduledTasksStore.tasks.value
+        if (tasks.isEmpty()) {
+            return ToolResult.Success("No active alarms or reminders currently scheduled. You can view or manage them anytime on the Tasks tab.")
+        }
+        val alarms = tasks.filter { it.type == "alarm" }
+        val reminders = tasks.filter { it.type == "reminder" }
+        val sb = StringBuilder("Scheduled Tasks in Mr-Red:\n")
+        if (alarms.isNotEmpty()) {
+            sb.append("\n⏰ Active Alarms:\n")
+            alarms.forEach { sb.append("• ").append(it.title).append(" - Note: ").append(it.note).append("\n") }
+        }
+        if (reminders.isNotEmpty()) {
+            sb.append("\n🔔 Upcoming Reminders:\n")
+            reminders.forEach {
+                val rep = if (it.isRecurring) "Repeating" else "One-time"
+                sb.append("• ").append(it.scheduleDisplay).append(": ").append(it.note).append(" [").append(rep).append("]\n")
+            }
+        }
+        sb.append("\nYou can view and manage all of them on the Tasks tab.")
+        return ToolResult.Success(sb.toString().trim())
+    }
 
     private fun openNotificationAccess(): ToolResult = runCatching {
         val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)

@@ -61,6 +61,8 @@ object AlarmScheduler {
                 pendingIntent
             )
 
+            ScheduledTasksStore.recordAlarm(context, hour, minute, message, triggerMillis)
+
             val timeFormatted = String.format("%02d:%02d", hour, minute)
             val inTimeStr = if (diffHours > 0) "${diffHours}h ${diffMins}m" else "${diffMins}m"
             ToolResult.Success("Alarm set in Mr-Red for $timeFormatted (rings in $inTimeStr) with ringtone and notification.")
@@ -71,6 +73,7 @@ object AlarmScheduler {
 
     fun dismissAlarm(context: Context): ToolResult {
         MrRedAlarmReceiver.stopRingtone(context)
+        ScheduledTasksStore.clearAlarms(context)
         return ToolResult.Success("Alarm dismissed and sound stopped.")
     }
 
@@ -113,6 +116,16 @@ object AlarmScheduler {
                 } else {
                     "$effectiveMinutes minutes"
                 }
+
+                ScheduledTasksStore.recordReminder(
+                    context = context,
+                    id = cleanTag,
+                    message = message,
+                    scheduleDisplay = "Every $intervalDisplay$note",
+                    recurring = true,
+                    targetMillis = System.currentTimeMillis() + (effectiveMinutes * 60 * 1000)
+                )
+
                 ToolResult.Success("Recurring reminder set: '$message' every $intervalDisplay$note.")
             } else {
                 val delayMinutes = intervalMinutes.coerceAtLeast(1)
@@ -134,6 +147,16 @@ object AlarmScheduler {
                 } else {
                     "$delayMinutes minute(s)"
                 }
+
+                ScheduledTasksStore.recordReminder(
+                    context = context,
+                    id = cleanTag,
+                    message = message,
+                    scheduleDisplay = "In $delayDisplay",
+                    recurring = false,
+                    targetMillis = System.currentTimeMillis() + (delayMinutes * 60 * 1000)
+                )
+
                 ToolResult.Success("Reminder scheduled: '$message' in $delayDisplay.")
             }
         }.getOrElse {
@@ -141,10 +164,22 @@ object AlarmScheduler {
         }
     }
 
+    fun cancelSingleReminder(context: Context, id: String): ToolResult {
+        return runCatching {
+            val wm = WorkManager.getInstance(context)
+            wm.cancelUniqueWork(id)
+            ScheduledTasksStore.removeReminder(context, id)
+            ToolResult.Success("Reminder cancelled.")
+        }.getOrElse {
+            ToolResult.Failure("Failed to cancel reminder: ${it.message ?: "error"}")
+        }
+    }
+
     fun cancelReminders(context: Context): ToolResult {
         return runCatching {
             val wm = WorkManager.getInstance(context)
             wm.cancelAllWorkByTag("mr_red_reminder")
+            ScheduledTasksStore.clearReminders(context)
             ToolResult.Success("All Mr-Red reminders have been cancelled.")
         }.getOrElse {
             ToolResult.Failure("Failed to cancel reminders: ${it.message ?: "error"}")

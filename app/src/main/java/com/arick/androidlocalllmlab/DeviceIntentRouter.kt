@@ -82,6 +82,11 @@ object DeviceIntentRouter {
             return ToolCall("cancel_reminders", JSONObject())
         }
 
+        if (Regex("\\b(?:list|show|check|get|view|what(?:\\s+are)?)\\s+(?:my\\s+)?(?:upcoming\\s+)?(?:reminders?|alarms?|schedules?|scheduled\\s+tasks?|tasks?)\\b").containsMatchIn(text) ||
+            text in setOf("check reminders", "upcoming reminders", "my reminders", "scheduled tasks", "check schedule", "list tasks", "my tasks", "check alarms", "schedule task", "scheduled task")) {
+            return ToolCall("list_scheduled_tasks", JSONObject())
+        }
+
         // Recurring reminders: any action, any interval
         // e.g. "remind me to stretch every 2 hours", "remind me every 30 mins to drink water", "set reminder to walk every hour"
         val recurringMatch1 = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)\\s+(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)

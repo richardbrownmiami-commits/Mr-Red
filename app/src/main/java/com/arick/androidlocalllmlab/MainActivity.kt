@@ -125,6 +125,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ScheduledTasksStore.init(this)
         enableEdgeToEdge()
         setContent {
             AndroidLocalLlmLabTheme {
@@ -136,6 +137,7 @@ class MainActivity : ComponentActivity() {
 
 enum class AppPage(val title: String, val icon: ImageVector) {
     Chat("Chat", Icons.Default.Chat),
+    Tasks("Tasks", Icons.Default.Alarm),
     Dashboard("Dashboard", Icons.Default.Dashboard),
     Settings("Settings", Icons.Default.Settings)
 }
@@ -184,6 +186,9 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                     viewModel = viewModel,
                     onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) },
                     onNavigateToSettings = { selectedPage = AppPage.Settings }
+                )
+                AppPage.Tasks -> ScheduledTasksPage(
+                    onNavigateToChat = { selectedPage = AppPage.Chat }
                 )
                 AppPage.Dashboard -> DashboardPage(
                     viewModel = viewModel,
@@ -1730,6 +1735,261 @@ private fun SourceLinks(sources: List<SourceLink>) {
                     }
                     .padding(vertical = 2.dp)
             )
+        }
+    }
+}
+
+
+@Composable
+private fun ScheduledTasksPage(
+    onNavigateToChat: () -> Unit
+) {
+    val context = LocalContext.current
+    val tasks by ScheduledTasksStore.tasks.collectAsState()
+    val alarms = tasks.filter { it.type == "alarm" }
+    val reminders = tasks.filter { it.type == "reminder" }
+
+    var actionFeedback by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Scheduled Tasks",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Text(
+                    text = "Alarms and reminders set by Mr-Red",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary
+                )
+            }
+            IconButton(onClick = {
+                ScheduledTasksStore.init(context)
+                actionFeedback = "Refreshed list"
+            }) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = AppColors.TextSecondary)
+            }
+        }
+
+        if (actionFeedback != null) {
+            Text(
+                text = actionFeedback!!,
+                fontSize = 12.sp,
+                color = AppColors.PrimaryActionGlow,
+                modifier = Modifier.padding(vertical = 2.dp)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = {
+                    val res = AlarmScheduler.dismissAlarm(context)
+                    actionFeedback = if (res is ToolResult.Success) res.output else "Dismissed"
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.PrimaryAction)
+            ) {
+                Text("Dismiss Sound", fontSize = 12.sp)
+            }
+
+            OutlinedButton(
+                onClick = {
+                    val res = AlarmScheduler.cancelReminders(context)
+                    actionFeedback = if (res is ToolResult.Success) res.output else "Reminders cleared"
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.TextSecondary)
+            ) {
+                Text("Clear Reminders", fontSize = 12.sp)
+            }
+        }
+
+        Text(
+            text = "ACTIVE ALARMS",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = AppColors.PrimaryActionGlow,
+            letterSpacing = 1.sp
+        )
+
+        if (alarms.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = AppColors.SurfaceCard)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "No active alarm scheduled",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AppColors.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Ask Mr-Red in Chat: "Wake me up at 7:00 AM" or "Set alarm 6:30"",
+                        fontSize = 11.sp,
+                        color = AppColors.TextSecondary
+                    )
+                }
+            }
+        } else {
+            alarms.forEach { item ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = AppColors.SurfaceCard)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Alarm,
+                                    contentDescription = null,
+                                    tint = AppColors.PrimaryAction,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = item.title,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.TextPrimary
+                                )
+                            }
+                            IconButton(onClick = {
+                                AlarmScheduler.dismissAlarm(context)
+                                actionFeedback = "Alarm cancelled."
+                            }) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel Alarm", tint = AppColors.TextSecondary)
+                            }
+                        }
+                        if (item.note.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Note: ${item.note}",
+                                fontSize = 12.sp,
+                                color = AppColors.TextSecondary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = item.scheduleDisplay,
+                            fontSize = 11.sp,
+                            color = AppColors.PrimaryActionGlow
+                        )
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = "UPCOMING REMINDERS",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = AppColors.PrimaryActionGlow,
+            letterSpacing = 1.sp
+        )
+
+        if (reminders.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = AppColors.SurfaceCard)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "No upcoming reminders",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AppColors.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Ask Mr-Red in Chat: "Remind me to drink water every 2 hours" or "Remind me in 30 minutes to check oven"",
+                        fontSize = 11.sp,
+                        color = AppColors.TextSecondary
+                    )
+                }
+            }
+        } else {
+            reminders.forEach { item ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = AppColors.SurfaceCard)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = item.title,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AppColors.TextPrimary
+                            )
+                            IconButton(onClick = {
+                                AlarmScheduler.cancelSingleReminder(context, item.id)
+                                actionFeedback = "Cancelled '${item.note}'"
+                            }) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel Reminder", tint = AppColors.TextSecondary)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Note: ${item.note}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = AppColors.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = item.scheduleDisplay,
+                                fontSize = 11.sp,
+                                color = AppColors.PrimaryActionGlow
+                            )
+                            Text(
+                                text = if (item.isRecurring) "Repeating" else "One-time",
+                                fontSize = 11.sp,
+                                color = AppColors.TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onNavigateToChat,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+        ) {
+            Text("Open Chat to Ask Mr-Red")
         }
     }
 }
