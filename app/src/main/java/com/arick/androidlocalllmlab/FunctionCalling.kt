@@ -135,13 +135,35 @@ class AndroidToolExecutor(private val context: Context) {
             },
             object : ToolDefinition {
                 override val name = "set_alarm"
-                override val description = "Set a clock alarm on the Android device"
+                override val description = "Set an in-app alarm in Mr-Red with ringtone and notification"
                 override val parameterSchema = listOf(
                     ToolParameterSchema("hour", "Hour in 24-hour time (0-23)"),
                     ToolParameterSchema("minute", "Minute (0-59)"),
                     ToolParameterSchema("message", "Optional alarm label", maxLength = 60)
                 )
                 override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = setAlarm(arguments)
+            },
+            object : ToolDefinition {
+                override val name = "dismiss_alarm"
+                override val description = "Dismiss and stop any actively ringing Mr-Red alarm"
+                override val parameterSchema: List<ToolParameterSchema> = emptyList()
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = dismissAlarm()
+            },
+            object : ToolDefinition {
+                override val name = "schedule_reminder"
+                override val description = "Schedule a recurring or one-time reminder using WorkManager"
+                override val parameterSchema = listOf(
+                    ToolParameterSchema("message", "Reminder message text"),
+                    ToolParameterSchema("interval_minutes", "Interval or delay in minutes"),
+                    ToolParameterSchema("recurring", "True for repeating, false for one-time")
+                )
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = scheduleReminder(arguments)
+            },
+            object : ToolDefinition {
+                override val name = "cancel_reminders"
+                override val description = "Cancel all scheduled background reminders"
+                override val parameterSchema: List<ToolParameterSchema> = emptyList()
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = cancelReminders()
             },
             object : ToolDefinition {
                 override val name = "read_notifications"
@@ -347,24 +369,26 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
-    private fun setAlarm(arguments: JSONObject): ToolResult {
+    fun setAlarm(arguments: JSONObject): ToolResult {
         val hour = arguments.optInt("hour", -1)
         val minute = arguments.optInt("minute", -1)
         if (hour !in 0..23 || minute !in 0..59) {
             return ToolResult.Failure("Use an alarm time with hour 0-23 and minute 0-59.")
         }
-        return runCatching {
-            val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
-                putExtra(AlarmClock.EXTRA_HOUR, hour)
-                putExtra(AlarmClock.EXTRA_MINUTES, minute)
-                putExtra(AlarmClock.EXTRA_MESSAGE, arguments.optString("message", "Mr-Red alarm").take(60))
-                putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-            ToolResult.Success(String.format("Opened the clock app to set an alarm for %02d:%02d. Confirm it in the clock app.", hour, minute))
-        }.getOrElse { ToolResult.Failure("Could not open the alarm app: ${it.message ?: "not available"}") }
+        val message = arguments.optString("message", "Mr-Red alarm").take(60)
+        return AlarmScheduler.setInAppAlarm(context, hour, minute, message)
     }
+
+    fun dismissAlarm(): ToolResult = AlarmScheduler.dismissAlarm(context)
+
+    fun scheduleReminder(arguments: JSONObject): ToolResult {
+        val message = arguments.optString("message", "").trim()
+        val intervalMinutes = arguments.optLong("interval_minutes", 60L)
+        val recurring = arguments.optBoolean("recurring", true)
+        return AlarmScheduler.scheduleReminder(context, message, intervalMinutes, recurring)
+    }
+
+    fun cancelReminders(): ToolResult = AlarmScheduler.cancelReminders(context)
 
     private fun openNotificationAccess(): ToolResult = runCatching {
         val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)

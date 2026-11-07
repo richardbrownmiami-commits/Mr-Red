@@ -71,8 +71,49 @@ object DeviceIntentRouter {
             }
         }
 
-        // 6. Alarms & Timers
-        Regex("\\b(?:set|create)\\s+(?:an?\\s+)?alarm\\s+(?:for|at)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b").find(text)?.let { match ->
+        // 6. Alarms & Reminders
+        if (Regex("\\b(stop|dismiss|turn off|cancel|silence)\\s+(?:the\\s+)?alarm\\b").containsMatchIn(text) ||
+            text in setOf("stop alarm", "dismiss alarm", "cancel alarm", "turn off alarm")) {
+            return ToolCall("dismiss_alarm", JSONObject())
+        }
+
+        if (Regex("\\b(cancel|clear|stop|remove)\\s+(?:all\\s+)?reminders?\\b").containsMatchIn(text) ||
+            text in setOf("cancel reminders", "cancel reminder", "stop reminders", "clear reminders")) {
+            return ToolCall("cancel_reminders", JSONObject())
+        }
+
+        // Recurring reminders: "remind me to [do something] every [X] hours/minutes"
+        Regex("\\bremind\\s+(?:me\\s+)?to\\s+(.+?)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)?.let { match ->
+            val action = match.groupValues[1].trim()
+            val amt = match.groupValues[2].ifBlank { "1" }.toLongOrNull() ?: 1L
+            val unit = match.groupValues[3]
+            val mins = if (unit.startsWith("h")) amt * 60L else amt
+            if (action.isNotBlank() && mins > 0) {
+                return ToolCall(
+                    "schedule_reminder",
+                    JSONObject().put("message", action).put("interval_minutes", mins).put("recurring", true)
+                )
+            }
+        }
+
+        // One-time reminders: "remind me to [do something] in [X] hours/minutes"
+        Regex("\\bremind\\s+(?:me\\s+)?to\\s+(.+?)\\s+in\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)?.let { match ->
+            val action = match.groupValues[1].trim()
+            val amt = match.groupValues[2].ifBlank { "1" }.toLongOrNull() ?: 1L
+            val unit = match.groupValues[3]
+            val mins = if (unit.startsWith("h")) amt * 60L else amt
+            if (action.isNotBlank() && mins > 0) {
+                return ToolCall(
+                    "schedule_reminder",
+                    JSONObject().put("message", action).put("interval_minutes", mins).put("recurring", false)
+                )
+            }
+        }
+
+        val alarmMatch = Regex("\\b(?:set|create)\\s+(?:an?\\s+)?alarm\\s+(?:for|at)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b").find(text)
+            ?: Regex("\\bwake\\s+me\\s+up\\s+(?:at|for)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b").find(text)
+
+        alarmMatch?.let { match ->
             var hour = match.groupValues[1].toIntOrNull() ?: return null
             val minute = match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null
             val meridiem = match.groupValues[3]
@@ -82,6 +123,7 @@ object DeviceIntentRouter {
             if (hour !in 0..23 || (meridiem.isNotBlank() && match.groupValues[1].toInt() !in 1..12)) return null
             return ToolCall("set_alarm", JSONObject().put("hour", hour).put("minute", minute).put("message", "Mr-Red alarm"))
         }
+
         Regex("\\b(?:set|start)\\s+(?:a\\s+)?timer\\s+(?:for\\s+)?(\\d+)\\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\\b").find(text)?.let { match ->
             val amount = match.groupValues[1].toLongOrNull() ?: return null
             val unit = match.groupValues[2]

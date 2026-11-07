@@ -80,6 +80,10 @@ data class RuntimeMemorySnapshots(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         val DEFAULT_CPU_THREADS = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+        const val DEFAULT_SYSTEM_PROMPT =
+            "You are Mr-Red, an offline AI assistant running locally on this Android device. " +
+            "Be direct, helpful, and concise. You have device skills and local tools. " +
+            "If you cannot perform an action or do not know something, state it plainly without generic AI disclaimers."
     }
 
     // Runtime holds native JNI handle with ViewModel lifecycle.
@@ -383,6 +387,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _generationProgress.value = when (call.name) {
             "get_news", "get_weather", "web_search" -> "Checking the internet…"
             "read_notifications" -> "Reading recent notifications…"
+            "set_alarm", "dismiss_alarm", "schedule_reminder", "cancel_reminders" -> "Updating alarms & reminders…"
             else -> "Checking your device…"
         }
         _isGenerating.value = true
@@ -843,8 +848,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 "Conversation Memory:\n" + activeLines.joinToString("\n")
             } else null
 
+            val effectiveSystemPrompt = userSystemPrompt?.takeIf { it.isNotBlank() } ?: DEFAULT_SYSTEM_PROMPT
             val systemText = listOfNotNull(
-                userSystemPrompt?.takeIf { it.isNotBlank() },
+                effectiveSystemPrompt,
                 memoryText
             ).takeIf { it.isNotEmpty() }?.joinToString("\n\n")
 
