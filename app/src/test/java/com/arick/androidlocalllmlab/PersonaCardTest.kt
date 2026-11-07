@@ -28,4 +28,12 @@ class PersonaCardTest {
         assertTrue(card.compactInstruction().length < 200)
         assertTrue(card.compactInstruction().contains("Mr-Red"))
     }
+    @Test fun guidesIncompleteAlarmAndReminderQueries() {
+        val card = PersonaCard()
+        val alarmPrompt = AssistantKnowledgeRouter.answer("set alarm", card)
+        assertTrue(alarmPrompt!!.contains("What time"))
+
+        val reminderPrompt = AssistantKnowledgeRouter.answer("remind me to call mom", card)
+        assertTrue(reminderPrompt!!.contains("When should I remind you to call mom"))
+    }
 }

@@ -74,4 +74,47 @@ class DeviceIntentRouterTest {
         assertNull(DeviceIntentRouter.route("Explain how batteries work"))
         assertNull(DeviceIntentRouter.route("Write a python script to reverse a string"))
     }
+    @Test fun routesFlexibleNaturalAlarmPhrasings() {
+        val a1 = DeviceIntentRouter.route("alarm 7am")
+        assertEquals("set_alarm", a1?.name)
+        assertEquals(7, a1?.arguments?.optInt("hour"))
+        assertEquals(0, a1?.arguments?.optInt("minute"))
+
+        val a2 = DeviceIntentRouter.route("set alarm 8:15 pm")
+        assertEquals("set_alarm", a2?.name)
+        assertEquals(20, a2?.arguments?.optInt("hour"))
+        assertEquals(15, a2?.arguments?.optInt("minute"))
+
+        val a3 = DeviceIntentRouter.route("wake me 6am")
+        assertEquals("set_alarm", a3?.name)
+        assertEquals(6, a3?.arguments?.optInt("hour"))
+
+        val a4 = DeviceIntentRouter.route("7am alarm")
+        assertEquals("set_alarm", a4?.name)
+        assertEquals(7, a4?.arguments?.optInt("hour"))
+
+        val a5 = DeviceIntentRouter.route("add alarm for 22:00")
+        assertEquals("set_alarm", a5?.name)
+        assertEquals(22, a5?.arguments?.optInt("hour"))
+        assertEquals(0, a5?.arguments?.optInt("minute"))
+    }
+
+    @Test fun routesFlexibleNaturalReminderPhrasings() {
+        val r1 = DeviceIntentRouter.route("remind me in 15 mins to call mom")
+        assertEquals("schedule_reminder", r1?.name)
+        assertEquals("call mom", r1?.arguments?.optString("message"))
+        assertEquals(15L, r1?.arguments?.optLong("interval_minutes"))
+        assertEquals(false, r1?.arguments?.optBoolean("recurring"))
+
+        val r2 = DeviceIntentRouter.route("remind me every 3 hours to take medicine")
+        assertEquals("schedule_reminder", r2?.name)
+        assertEquals("take medicine", r2?.arguments?.optString("message"))
+        assertEquals(180L, r2?.arguments?.optLong("interval_minutes"))
+        assertEquals(true, r2?.arguments?.optBoolean("recurring"))
+
+        val r3 = DeviceIntentRouter.route("add reminder to check oven in 45 minutes")
+        assertEquals("schedule_reminder", r3?.name)
+        assertEquals("check oven", r3?.arguments?.optString("message"))
+        assertEquals(45L, r3?.arguments?.optLong("interval_minutes"))
+    }
 }

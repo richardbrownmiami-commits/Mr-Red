@@ -80,6 +80,20 @@ object AssistantKnowledgeRouter {
             return card.greeting
         }
         if (text in setOf("thanks", "thank you", "thx")) return "You're welcome."
+
+        // Interactive guidance when an alarm or reminder is requested without a time
+        if (text.matches(Regex("(?:set|add|create)?\\s*(?:an?\\s+)?alarm$")) || text in setOf("alarm", "wake me up", "wake me")) {
+            return "What time should I set the alarm for? (e.g. 'alarm at 7:00 am' or 'wake me up at 6:30 am')"
+        }
+        if (text.matches(Regex("^(?:set|add|create)?\\s*(?:a\\s+)?reminder$")) || text in setOf("remind me", "reminder")) {
+            return "What should I remind you about and when? (e.g. 'remind me to drink water in 30 minutes' or 'remind me to stretch every 2 hours')"
+        }
+        Regex("^(?:please\\s+)?remind\\s+(?:me\\s+)?(?:to\\s+)?(.+)$").find(text)?.let { m ->
+            val task = m.groupValues[1].trim()
+            if (!task.contains("every") && !task.contains(" in ") && !task.contains("hour") && !task.contains("min")) {
+                return "When should I remind you to $task? You can say 'in 30 minutes' or 'every 2 hours'."
+            }
+        }
         if (text.matches(Regex("(?:who are you|what are you|what is your name|what's your name|your name|who am i talking to)"))) {
             return "I'm ${card.name}, ${card.description.lowercase().removeSuffix(".")}."
         }
