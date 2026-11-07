@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -1074,7 +1075,7 @@ private fun SettingsPage(
     onOpenModelPicker: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val systemPrompt by viewModel.systemPrompt.collectAsState()
+    val personaCard by viewModel.personaCard.collectAsState()
     val finalPrompt by viewModel.finalPrompt.collectAsState()
     val promptTokenCount by viewModel.promptTokenCount.collectAsState()
     val trimmedHistoryTurnCount by viewModel.trimmedHistoryTurnCount.collectAsState()
@@ -1087,7 +1088,7 @@ private fun SettingsPage(
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
     val summaryLines by viewModel.summaryLines.collectAsState()
 
-    var showSystemPromptDialog by remember { mutableStateOf(false) }
+    var showPersonaCardDialog by remember { mutableStateOf(false) }
     var showSummaryLinesDialog by remember { mutableStateOf(false) }
     var showFinalPromptDialog by remember { mutableStateOf(false) }
     var showContextWindowDialog by remember { mutableStateOf(false) }
@@ -1137,9 +1138,9 @@ private fun SettingsPage(
         // Conversation Configuration
         SettingsSection(title = "Conversation & Persona") {
             SettingsRow(
-                title = "System Prompt",
-                summary = if (systemPrompt.isBlank()) "Default (Offline Agent)" else "Custom",
-                onClick = { showSystemPromptDialog = true }
+                title = "Character Card",
+                summary = "${personaCard.name}: editable voice and personality, saved on this phone",
+                onClick = { showPersonaCardDialog = true }
             )
             SettingsRow(
                 title = "Conversation Memory Summary",
@@ -1286,33 +1287,46 @@ private fun SettingsPage(
         )
     }
 
-    // System Prompt Dialog
-    if (showSystemPromptDialog) {
-        var draftPrompt by remember { mutableStateOf(systemPrompt) }
+    // Local Character Card editor (stored on device; compact identity is used when GGUF writes).
+    if (showPersonaCardDialog) {
+        var name by remember(personaCard) { mutableStateOf(personaCard.name) }
+        var description by remember(personaCard) { mutableStateOf(personaCard.description) }
+        var personality by remember(personaCard) { mutableStateOf(personaCard.personality) }
+        var speakingStyle by remember(personaCard) { mutableStateOf(personaCard.speakingStyle) }
+        var greeting by remember(personaCard) { mutableStateOf(personaCard.greeting) }
         AlertDialog(
-            onDismissRequest = { showSystemPromptDialog = false },
-            title = { Text("System Prompt", fontSize = 16.sp) },
+            onDismissRequest = { showPersonaCardDialog = false },
+            title = { Text("Mr-Red Character Card", fontSize = 16.sp) },
             text = {
-                OutlinedTextField(
-                    value = draftPrompt,
-                    onValueChange = { draftPrompt = it },
-                    placeholder = { Text("e.g. You are Mr-Red, an offline living-phone assistant.") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 6
-                )
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Edit the local persona. The APK answers phone actions itself; the local model uses a compact voice identity only when generating prose.", fontSize = 12.sp)
+                    OutlinedTextField(name, { name = it }, label = { Text("Character name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
+                    OutlinedTextField(personality, { personality = it }, label = { Text("Personality") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
+                    OutlinedTextField(speakingStyle, { speakingStyle = it }, label = { Text("Speaking style") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
+                    OutlinedTextField(greeting, { greeting = it }, label = { Text("Greeting") }, modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 2)
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.updateSystemPrompt(draftPrompt)
-                    showSystemPromptDialog = false
-                }) {
-                    Text("Save")
-                }
+                    viewModel.updatePersonaCard(PersonaCard(
+                        name = name.trim().ifBlank { "Mr-Red" },
+                        description = description.trim().ifBlank { PersonaCard().description },
+                        personality = personality.trim().ifBlank { PersonaCard().personality },
+                        speakingStyle = speakingStyle.trim().ifBlank { PersonaCard().speakingStyle },
+                        greeting = greeting.trim().ifBlank { PersonaCard().greeting }
+                    ))
+                    showPersonaCardDialog = false
+                }) { Text("Save") }
             },
             dismissButton = {
-                TextButton(onClick = { showSystemPromptDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = {
+                    viewModel.updatePersonaCard(PersonaCard())
+                    showPersonaCardDialog = false
+                }) { Text("Reset") }
             }
         )
     }

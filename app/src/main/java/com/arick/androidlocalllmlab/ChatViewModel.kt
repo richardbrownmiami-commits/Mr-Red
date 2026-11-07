@@ -80,10 +80,6 @@ data class RuntimeMemorySnapshots(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         val DEFAULT_CPU_THREADS = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
-        const val DEFAULT_SYSTEM_PROMPT =
-            "You are Mr-Red, an offline AI assistant running locally on this Android device. " +
-            "Be direct, helpful, and concise. You have device skills and local tools. " +
-            "If you cannot perform an action or do not know something, state it plainly without generic AI disclaimers."
     }
 
     // Runtime holds native JNI handle with ViewModel lifecycle.
@@ -92,6 +88,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
     private val conversationDatabase = ConversationDatabase(application)
+    private val personaCardStore = PersonaCardStore(application)
+    private val _personaCard = MutableStateFlow(personaCardStore.load())
+    val personaCard: StateFlow<PersonaCard> = _personaCard.asStateFlow()
 
     private val _conversationSummary = MutableStateFlow("")
     val conversationSummary: StateFlow<String> = _conversationSummary.asStateFlow()
@@ -299,6 +298,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value) return
 
+        // Local personality/help answers need neither model tokens nor model availability.
+        AssistantKnowledgeRouter.answer(prompt, _personaCard.value)?.let { localAnswer ->
+            appendLocalAssistantTurn(prompt, localAnswer, "Answered by Mr-Red locally")
+            return
+        }
+
         // Deterministic device actions and lookups are routed by Kotlin.
         DeviceIntentRouter.route(prompt)?.let { toolCall ->
             if (isResearchTool(toolCall.name) && _uiState.value is ChatUiState.Ready) {
@@ -309,7 +314,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (_uiState.value !is ChatUiState.Ready) {
-            _generationError.value = "That request needs a model. Device actions, device status, weather, news, and web search work without one."
+            appendLocalAssistantTurn(
+                prompt,
+                "I can handle phone actions, device status, alarms, reminders, and online lookups without a model. For general questions, explanations, or writing, load a local GGUF model and I can help with that.",
+                "Explained local-model requirement"
+            )
             return
         }
 
@@ -848,11 +857,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 "Conversation Memory:\n" + activeLines.joinToString("\n")
             } else null
 
-            val effectiveSystemPrompt = userSystemPrompt?.takeIf { it.isNotBlank() } ?: DEFAULT_SYSTEM_PROMPT
             val systemText = listOfNotNull(
-                effectiveSystemPrompt,
+                userSystemPrompt?.takeIf { it.isNotBlank() },
+                _personaCard.value.compactInstruction(),
                 memoryText
-            ).takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+            ).joinToString("\n\n").takeIf { it.isNotBlank() }
 
             candidateMessages = buildList {
                 systemText?.takeIf { it.isNotBlank() }?.let { add(ChatMessage(MessageRole.System, it)) }
@@ -898,10 +907,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val droppedTurnCount: Int
     )
 
-    fun updateSystemPrompt(value: String) {
+    fun updatePersonaCard(value: PersonaCard) {
         if (!_isGenerating.value) {
-            _systemPrompt.value = value
+            _personaCard.value = value
+            personaCardStore.save(value)
+            // Retain the optional advanced custom prompt, if the user has set one.
         }
+    }
+
+    private fun appendLocalAssistantTurn(prompt: String, answer: String, trace: String) {
+        val userMessage = ChatMessage(MessageRole.User, prompt)
+        val assistant = ChatMessage(
+            role = MessageRole.Assistant,
+            content = answer,
+            agentTrace = listOf(AgentTraceItem(trace))
+        )
+        _messages.value = _messages.value.filter { it.content.isNotBlank() } + userMessage + assistant
+        _generationError.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            conversationDatabase.saveMessage(userMessage)
+            conversationDatabase.saveMessage(assistant)
+        }
+        recordCompletedTurnInSummary(prompt, answer)
     }
 
     fun toggleReasoning(messageIndex: Int) {
