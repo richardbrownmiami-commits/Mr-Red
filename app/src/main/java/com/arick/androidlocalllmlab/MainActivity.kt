@@ -1750,6 +1750,17 @@ private fun ScheduledTasksPage(
     val reminders = tasks.filter { it.type == "reminder" }
 
     var actionFeedback by remember { mutableStateOf<String?>(null) }
+    var showAlarmDialog by remember { mutableStateOf(false) }
+    var showReminderDialog by remember { mutableStateOf(false) }
+
+    var alarmHourInput by remember { mutableStateOf("") }
+    var alarmMinuteInput by remember { mutableStateOf("00") }
+    var alarmNoteInput by remember { mutableStateOf("Alarm") }
+
+    var reminderNoteInput by remember { mutableStateOf("") }
+    var reminderIntervalInput by remember { mutableStateOf("30") }
+    var reminderIsHours by remember { mutableStateOf(false) }
+    var reminderIsRecurring by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -1771,7 +1782,7 @@ private fun ScheduledTasksPage(
                     color = AppColors.TextPrimary
                 )
                 Text(
-                    text = "Alarms and reminders set by Mr-Red",
+                    text = "Set any alarm or reminder you choose",
                     fontSize = 12.sp,
                     color = AppColors.TextSecondary
                 )
@@ -1791,6 +1802,27 @@ private fun ScheduledTasksPage(
                 color = AppColors.PrimaryActionGlow,
                 modifier = Modifier.padding(vertical = 2.dp)
             )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { showAlarmDialog = true },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+            ) {
+                Text("+ Set Alarm", fontSize = 12.sp, color = Color.White)
+            }
+
+            Button(
+                onClick = { showReminderDialog = true },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.SurfaceCard)
+            ) {
+                Text("+ Add Reminder", fontSize = 12.sp, color = AppColors.TextPrimary)
+            }
         }
 
         Row(
@@ -1835,14 +1867,14 @@ private fun ScheduledTasksPage(
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
-                        text = "No active alarm scheduled",
+                        text = "No active alarm",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = AppColors.TextPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Ask Mr-Red in Chat: "Wake me up at 7:00 AM" or "Set alarm 6:30"",
+                        text = "Use + Set Alarm above or ask Mr-Red in Chat with any time you want.",
                         fontSize = 11.sp,
                         color = AppColors.TextSecondary
                     )
@@ -1877,7 +1909,7 @@ private fun ScheduledTasksPage(
                             }
                             IconButton(onClick = {
                                 AlarmScheduler.dismissAlarm(context)
-                                actionFeedback = "Alarm cancelled."
+                                actionFeedback = "Alarm cancelled"
                             }) {
                                 Icon(Icons.Default.Close, contentDescription = "Cancel Alarm", tint = AppColors.TextSecondary)
                             }
@@ -1885,7 +1917,7 @@ private fun ScheduledTasksPage(
                         if (item.note.isNotBlank()) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Note: ${item.note}",
+                                text = "Note: " + item.note,
                                 fontSize = 12.sp,
                                 color = AppColors.TextSecondary
                             )
@@ -1923,7 +1955,7 @@ private fun ScheduledTasksPage(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Ask Mr-Red in Chat: "Remind me to drink water every 2 hours" or "Remind me in 30 minutes to check oven"",
+                        text = "Use + Add Reminder above or ask Mr-Red in Chat with any interval and note.",
                         fontSize = 11.sp,
                         color = AppColors.TextSecondary
                     )
@@ -1948,49 +1980,185 @@ private fun ScheduledTasksPage(
                                 color = AppColors.TextPrimary
                             )
                             IconButton(onClick = {
-                                AlarmScheduler.cancelSingleReminder(context, item.id)
-                                actionFeedback = "Cancelled '${item.note}'"
+                                val res = AlarmScheduler.cancelSingleReminder(context, item.id)
+                                actionFeedback = if (res is ToolResult.Success) res.output else "Cancelled"
                             }) {
                                 Icon(Icons.Default.Close, contentDescription = "Cancel Reminder", tint = AppColors.TextSecondary)
                             }
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Note: ${item.note}",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = AppColors.TextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
+                        if (item.note.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = item.scheduleDisplay,
-                                fontSize = 11.sp,
-                                color = AppColors.PrimaryActionGlow
-                            )
-                            Text(
-                                text = if (item.isRecurring) "Repeating" else "One-time",
-                                fontSize = 11.sp,
+                                text = "Note: " + item.note,
+                                fontSize = 12.sp,
                                 color = AppColors.TextSecondary
                             )
                         }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = item.scheduleDisplay,
+                            fontSize = 11.sp,
+                            color = AppColors.PrimaryActionGlow
+                        )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Button(
-            onClick = onNavigateToChat,
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground)
         ) {
-            Text("Open Chat to Ask Mr-Red")
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Need help setting tasks?",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Mr-Red accepts any hour, minute, interval number, or note you choose. You can also chat directly.",
+                    fontSize = 11.sp,
+                    color = AppColors.TextSecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onNavigateToChat,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.PrimaryActionGlow)
+                ) {
+                    Text("Go to Chat", fontSize = 12.sp)
+                }
+            }
         }
+    }
+
+    if (showAlarmDialog) {
+        AlertDialog(
+            onDismissRequest = { showAlarmDialog = false },
+            title = { Text("Set Custom Alarm", color = AppColors.TextPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Hour (0-23):", fontSize = 12.sp, color = AppColors.TextSecondary)
+                    OutlinedTextField(
+                        value = alarmHourInput,
+                        onValueChange = { alarmHourInput = it },
+                        placeholder = { Text("e.g. 7, 8, 14, 21") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Minute (0-59):", fontSize = 12.sp, color = AppColors.TextSecondary)
+                    OutlinedTextField(
+                        value = alarmMinuteInput,
+                        onValueChange = { alarmMinuteInput = it },
+                        placeholder = { Text("0-59") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Label / Note:", fontSize = 12.sp, color = AppColors.TextSecondary)
+                    OutlinedTextField(
+                        value = alarmNoteInput,
+                        onValueChange = { alarmNoteInput = it },
+                        placeholder = { Text("e.g. Wake up, Meeting") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val h = alarmHourInput.toIntOrNull()
+                        val m = alarmMinuteInput.toIntOrNull() ?: 0
+                        if (h != null && h in 0..23 && m in 0..59) {
+                            val res = AlarmScheduler.setInAppAlarm(context, h, m, alarmNoteInput.ifBlank { "Alarm" })
+                            actionFeedback = if (res is ToolResult.Success) res.output else "Alarm set"
+                            showAlarmDialog = false
+                        } else {
+                            actionFeedback = "Please enter a valid hour (0-23) and minute (0-59)."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                ) {
+                    Text("Save Alarm", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAlarmDialog = false }) {
+                    Text("Cancel", color = AppColors.TextSecondary)
+                }
+            },
+            containerColor = AppColors.SurfaceCard
+        )
+    }
+
+    if (showReminderDialog) {
+        AlertDialog(
+            onDismissRequest = { showReminderDialog = false },
+            title = { Text("Set Custom Reminder", color = AppColors.TextPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("What to remind you:", fontSize = 12.sp, color = AppColors.TextSecondary)
+                    OutlinedTextField(
+                        value = reminderNoteInput,
+                        onValueChange = { reminderNoteInput = it },
+                        placeholder = { Text("e.g. Drink water, Call doctor") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Interval number:", fontSize = 12.sp, color = AppColors.TextSecondary)
+                    OutlinedTextField(
+                        value = reminderIntervalInput,
+                        onValueChange = { reminderIntervalInput = it },
+                        placeholder = { Text("e.g. 15, 30, 45, 60, 2") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(if (reminderIsHours) "Unit: Hours" else "Unit: Minutes", fontSize = 12.sp, color = AppColors.TextPrimary)
+                        Switch(
+                            checked = reminderIsHours,
+                            onCheckedChange = { reminderIsHours = it }
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(if (reminderIsRecurring) "Repeats periodically" else "One-time reminder", fontSize = 12.sp, color = AppColors.TextPrimary)
+                        Switch(
+                            checked = reminderIsRecurring,
+                            onCheckedChange = { reminderIsRecurring = it }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val num = reminderIntervalInput.toLongOrNull()
+                        val note = reminderNoteInput.trim()
+                        if (note.isNotBlank() && num != null && num > 0) {
+                            val totalMins = if (reminderIsHours) num * 60L else num
+                            val res = AlarmScheduler.scheduleReminder(context, note, totalMins, reminderIsRecurring)
+                            actionFeedback = if (res is ToolResult.Success) res.output else "Reminder set"
+                            showReminderDialog = false
+                        } else {
+                            actionFeedback = "Please enter a note and positive interval number."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                ) {
+                    Text("Save Reminder", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReminderDialog = false }) {
+                    Text("Cancel", color = AppColors.TextSecondary)
+                }
+            },
+            containerColor = AppColors.SurfaceCard
+        )
     }
 }
 

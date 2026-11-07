@@ -87,13 +87,29 @@ object DeviceIntentRouter {
             return ToolCall("list_scheduled_tasks", JSONObject())
         }
 
-        // Recurring reminders: any action, any interval
-        // e.g. "remind me to stretch every 2 hours", "remind me every 30 mins to drink water", "set reminder to walk every hour"
-        val recurringMatch1 = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)\\s+(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)
-        if (recurringMatch1 != null) {
-            val action = recurringMatch1.groupValues[1].trim()
-            val amt = recurringMatch1.groupValues[2].ifBlank { "1" }.toLongOrNull() ?: 1L
-            val unit = recurringMatch1.groupValues[3]
+        // Recurring reminders: any user-chosen action and any interval number (hours or minutes)
+        // e.g. "remind me every 3 hours to take medicine" or "remind me to stretch every 2 hours"
+        val recurringMatchPrefix = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)\\s+(?:a\\s+)?reminder)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)(?:\\s+to)?\\s+(.+)\\b").find(text)
+        if (recurringMatchPrefix != null) {
+            val amt = recurringMatchPrefix.groupValues[1].ifBlank { "1" }.toLongOrNull() ?: 1L
+            val unit = recurringMatchPrefix.groupValues[2]
+            val mins = if (unit.startsWith("h")) amt * 60L else amt
+            var action = recurringMatchPrefix.groupValues[3].trim()
+            if (action.startsWith("to ")) action = action.substring(3).trim()
+            if (action.isNotBlank() && mins > 0) {
+                return ToolCall(
+                    "schedule_reminder",
+                    JSONObject().put("message", action).put("interval_minutes", mins).put("recurring", true)
+                )
+            }
+        }
+
+        val recurringMatchSuffix = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)\\s+(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)
+        if (recurringMatchSuffix != null) {
+            var action = recurringMatchSuffix.groupValues[1].trim()
+            if (action.startsWith("to ")) action = action.substring(3).trim()
+            val amt = recurringMatchSuffix.groupValues[2].ifBlank { "1" }.toLongOrNull() ?: 1L
+            val unit = recurringMatchSuffix.groupValues[3]
             val mins = if (unit.startsWith("h")) amt * 60L else amt
             if (action.isNotBlank() && mins > 0) {
                 return ToolCall(
@@ -103,28 +119,15 @@ object DeviceIntentRouter {
             }
         }
 
-        val recurringMatch2 = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)\\s+(?:a\\s+)?reminder)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)(?:\\s+to)?\\s+(.+)\\b").find(text)
-        if (recurringMatch2 != null) {
-            val amt = recurringMatch2.groupValues[1].ifBlank { "1" }.toLongOrNull() ?: 1L
-            val unit = recurringMatch2.groupValues[2]
+        // One-time reminders: any user-chosen action and any delay number
+        // e.g. "remind me in 15 mins to call mom" or "remind me to call mom in 15 mins"
+        val oneTimeMatchPrefix = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)\\s+(?:a\\s+)?reminder)\\s+in\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)(?:\\s+to)?\\s+(.+)\\b").find(text)
+        if (oneTimeMatchPrefix != null) {
+            val amt = oneTimeMatchPrefix.groupValues[1].ifBlank { "1" }.toLongOrNull() ?: 1L
+            val unit = oneTimeMatchPrefix.groupValues[2]
             val mins = if (unit.startsWith("h")) amt * 60L else amt
-            val action = recurringMatch2.groupValues[3].trim()
-            if (action.isNotBlank() && mins > 0) {
-                return ToolCall(
-                    "schedule_reminder",
-                    JSONObject().put("message", action).put("interval_minutes", mins).put("recurring", true)
-                )
-            }
-        }
-
-        // One-time reminders: any action, any interval
-        // e.g. "remind me to call mom in 15 mins", "remind me in 1 hour to check oven", "set reminder to take pill in 30 mins"
-        val oneTimeMatch1 = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)\\s+(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+in\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)
-        if (oneTimeMatch1 != null) {
-            val action = oneTimeMatch1.groupValues[1].trim()
-            val amt = oneTimeMatch1.groupValues[2].ifBlank { "1" }.toLongOrNull() ?: 1L
-            val unit = oneTimeMatch1.groupValues[3]
-            val mins = if (unit.startsWith("h")) amt * 60L else amt
+            var action = oneTimeMatchPrefix.groupValues[3].trim()
+            if (action.startsWith("to ")) action = action.substring(3).trim()
             if (action.isNotBlank() && mins > 0) {
                 return ToolCall(
                     "schedule_reminder",
@@ -133,12 +136,13 @@ object DeviceIntentRouter {
             }
         }
 
-        val oneTimeMatch2 = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)\\s+(?:a\\s+)?reminder)\\s+in\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)(?:\\s+to)?\\s+(.+)\\b").find(text)
-        if (oneTimeMatch2 != null) {
-            val amt = oneTimeMatch2.groupValues[1].ifBlank { "1" }.toLongOrNull() ?: 1L
-            val unit = oneTimeMatch2.groupValues[2]
+        val oneTimeMatchSuffix = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)\\s+(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+in\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)
+        if (oneTimeMatchSuffix != null) {
+            var action = oneTimeMatchSuffix.groupValues[1].trim()
+            if (action.startsWith("to ")) action = action.substring(3).trim()
+            val amt = oneTimeMatchSuffix.groupValues[2].ifBlank { "1" }.toLongOrNull() ?: 1L
+            val unit = oneTimeMatchSuffix.groupValues[3]
             val mins = if (unit.startsWith("h")) amt * 60L else amt
-            val action = oneTimeMatch2.groupValues[3].trim()
             if (action.isNotBlank() && mins > 0) {
                 return ToolCall(
                     "schedule_reminder",
