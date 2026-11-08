@@ -123,4 +123,40 @@ class DeviceIntentRouterTest {
         assertEquals("check oven", r3?.arguments?.optString("message"))
         assertEquals(45L, r3?.arguments?.optLong("interval_minutes"))
     }
+
+    @Test fun routesClockTimeRemindersAndStandaloneAlarmTimes() {
+        val cr1 = DeviceIntentRouter.route("remind me at 7pm to call mom")
+        assertEquals("schedule_reminder", cr1?.name)
+        assertEquals("call mom", cr1?.arguments?.optString("message"))
+        assertEquals(false, cr1?.arguments?.optBoolean("recurring"))
+
+        val cr2 = DeviceIntentRouter.route("remind me to call mom at 7pm")
+        assertEquals("schedule_reminder", cr2?.name)
+        assertEquals("call mom", cr2?.arguments?.optString("message"))
+
+        val cr3 = DeviceIntentRouter.route("set reminder at 8:30 pm to buy groceries")
+        assertEquals("schedule_reminder", cr3?.name)
+        assertEquals("buy groceries", cr3?.arguments?.optString("message"))
+
+        val cr4 = DeviceIntentRouter.route("reminder in 10 minutes to check oven")
+        assertEquals("schedule_reminder", cr4?.name)
+        assertEquals("check oven", cr4?.arguments?.optString("message"))
+        assertEquals(10L, cr4?.arguments?.optLong("interval_minutes"))
+
+        val a1 = DeviceIntentRouter.route("7am")
+        assertEquals("set_alarm", a1?.name)
+        assertEquals(7, a1?.arguments?.optInt("hour"))
+
+        val a2 = DeviceIntentRouter.route("at 7:00")
+        assertEquals("set_alarm", a2?.name)
+        assertEquals(7, a2?.arguments?.optInt("hour"))
+
+        val a3 = DeviceIntentRouter.route("alarm for tomorrow at 7am")
+        assertEquals("set_alarm", a3?.name)
+        assertEquals(7, a3?.arguments?.optInt("hour"))
+
+        val a4 = DeviceIntentRouter.route("alarm 7")
+        assertEquals("set_alarm", a4?.name)
+        assertEquals(7, a4?.arguments?.optInt("hour"))
+    }
 }
