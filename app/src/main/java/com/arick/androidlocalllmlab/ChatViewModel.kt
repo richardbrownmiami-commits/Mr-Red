@@ -298,19 +298,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value) return
 
-        // Local personality/help answers need neither model tokens nor model availability.
-        AssistantKnowledgeRouter.answer(prompt, _personaCard.value)?.let { localAnswer ->
-            appendLocalAssistantTurn(prompt, localAnswer, "Answered by Mr-Red locally")
-            return
-        }
-
-        // Deterministic device actions and lookups are routed by Kotlin.
+        // Deterministic device actions and lookups are routed by Kotlin FIRST.
         DeviceIntentRouter.route(prompt)?.let { toolCall ->
             if (isResearchTool(toolCall.name) && _uiState.value is ChatUiState.Ready) {
                 executeSearchAugmentedRequest(prompt, toolCall)
                 return
             }
             executeRoutedDeviceRequest(prompt, toolCall)
+            return
+        }
+
+        // Local personality/help answers need neither model tokens nor model availability.
+        AssistantKnowledgeRouter.answer(prompt, _personaCard.value)?.let { localAnswer ->
+            appendLocalAssistantTurn(prompt, localAnswer, "Answered by Mr-Red locally")
             return
         }
         if (_uiState.value !is ChatUiState.Ready) {
