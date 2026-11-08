@@ -1,6 +1,7 @@
 package com.arick.androidlocalllmlab
 
 import org.json.JSONObject
+import java.util.Calendar
 
 /** Conservative local router: device actions, settings, and web research bypass the language model. */
 object DeviceIntentRouter {
@@ -71,7 +72,7 @@ object DeviceIntentRouter {
             }
         }
 
-        // 6. Alarms & Reminders
+        // 6. Alarms & Reminders Controls
         if (Regex("\\b(stop|dismiss|turn off|cancel|silence|kill)\\s+(?:the\\s+)?alarm\\b").containsMatchIn(text) ||
             text in setOf("stop alarm", "dismiss alarm", "cancel alarm", "turn off alarm")) {
             return ToolCall("dismiss_alarm", JSONObject())
@@ -87,16 +88,16 @@ object DeviceIntentRouter {
             return ToolCall("list_scheduled_tasks", JSONObject())
         }
 
-        // Recurring reminders: any user-chosen action and any interval number (hours or minutes)
+        // 6a. Recurring reminders: any user-chosen action and any interval number (hours or minutes)
         // e.g. "remind me every 3 hours to take medicine" or "remind me to stretch every 2 hours"
-        val recurringMatchPrefix = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)\\s+(?:a\\s+)?reminder)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)(?:\\s+to)?\\s+(.+)\\b").find(text)
+        val recurringMatchPrefix = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)?\\s*(?:a\\s+)?reminder)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)(?:(?:\\s+to)?\\s+(.+))?\\b").find(text)
         if (recurringMatchPrefix != null) {
             val amt = recurringMatchPrefix.groupValues[1].ifBlank { "1" }.toLongOrNull() ?: 1L
             val unit = recurringMatchPrefix.groupValues[2]
             val mins = if (unit.startsWith("h")) amt * 60L else amt
-            var action = recurringMatchPrefix.groupValues[3].trim()
-            if (action.startsWith("to ")) action = action.substring(3).trim()
-            if (action.isNotBlank() && mins > 0) {
+            val rawAction = recurringMatchPrefix.groupValues[3].ifBlank { "Reminder" }
+            val action = rawAction.removePrefix("to ").trim().ifBlank { "Reminder" }
+            if (mins > 0) {
                 return ToolCall(
                     "schedule_reminder",
                     JSONObject().put("message", action).put("interval_minutes", mins).put("recurring", true)
@@ -104,14 +105,14 @@ object DeviceIntentRouter {
             }
         }
 
-        val recurringMatchSuffix = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)\\s+(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)
+        val recurringMatchSuffix = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)?\\s*(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+every\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)
         if (recurringMatchSuffix != null) {
-            var action = recurringMatchSuffix.groupValues[1].trim()
-            if (action.startsWith("to ")) action = action.substring(3).trim()
+            val rawAction = recurringMatchSuffix.groupValues[1]
+            val action = rawAction.removePrefix("to ").trim().ifBlank { "Reminder" }
             val amt = recurringMatchSuffix.groupValues[2].ifBlank { "1" }.toLongOrNull() ?: 1L
             val unit = recurringMatchSuffix.groupValues[3]
             val mins = if (unit.startsWith("h")) amt * 60L else amt
-            if (action.isNotBlank() && mins > 0) {
+            if (mins > 0) {
                 return ToolCall(
                     "schedule_reminder",
                     JSONObject().put("message", action).put("interval_minutes", mins).put("recurring", true)
@@ -119,16 +120,16 @@ object DeviceIntentRouter {
             }
         }
 
-        // One-time reminders: any user-chosen action and any delay number
-        // e.g. "remind me in 15 mins to call mom" or "remind me to call mom in 15 mins"
-        val oneTimeMatchPrefix = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)\\s+(?:a\\s+)?reminder)\\s+in\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)(?:\\s+to)?\\s+(.+)\\b").find(text)
+        // 6b. Relative delay reminders (in / after):
+        // e.g. "remind me in 15 mins to call mom", "reminder in 10 minutes", "remind me after 1 hour"
+        val oneTimeMatchPrefix = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)?\\s*(?:a\\s+)?reminder)\\s+(?:in|after)\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)(?:(?:\\s+to)?\\s+(.+))?\\b").find(text)
         if (oneTimeMatchPrefix != null) {
             val amt = oneTimeMatchPrefix.groupValues[1].ifBlank { "1" }.toLongOrNull() ?: 1L
             val unit = oneTimeMatchPrefix.groupValues[2]
             val mins = if (unit.startsWith("h")) amt * 60L else amt
-            var action = oneTimeMatchPrefix.groupValues[3].trim()
-            if (action.startsWith("to ")) action = action.substring(3).trim()
-            if (action.isNotBlank() && mins > 0) {
+            val rawAction = oneTimeMatchPrefix.groupValues[3].ifBlank { "Reminder" }
+            val action = rawAction.removePrefix("to ").trim().ifBlank { "Reminder" }
+            if (mins > 0) {
                 return ToolCall(
                     "schedule_reminder",
                     JSONObject().put("message", action).put("interval_minutes", mins).put("recurring", false)
@@ -136,14 +137,14 @@ object DeviceIntentRouter {
             }
         }
 
-        val oneTimeMatchSuffix = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)\\s+(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+in\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)
+        val oneTimeMatchSuffix = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)?\\s*(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+(?:in|after)\\s+(\\d+)?\\s*(hours?|hrs?|minutes?|mins?)\\b").find(text)
         if (oneTimeMatchSuffix != null) {
-            var action = oneTimeMatchSuffix.groupValues[1].trim()
-            if (action.startsWith("to ")) action = action.substring(3).trim()
+            val rawAction = oneTimeMatchSuffix.groupValues[1]
+            val action = rawAction.removePrefix("to ").trim().ifBlank { "Reminder" }
             val amt = oneTimeMatchSuffix.groupValues[2].ifBlank { "1" }.toLongOrNull() ?: 1L
             val unit = oneTimeMatchSuffix.groupValues[3]
             val mins = if (unit.startsWith("h")) amt * 60L else amt
-            if (action.isNotBlank() && mins > 0) {
+            if (mins > 0) {
                 return ToolCall(
                     "schedule_reminder",
                     JSONObject().put("message", action).put("interval_minutes", mins).put("recurring", false)
@@ -151,16 +152,80 @@ object DeviceIntentRouter {
             }
         }
 
-        // Alarms: flexible matching for ANY hour, minute, am/pm or 24h
-        // e.g. "set alarm 7am", "set alarm for 6:30", "alarm at 8pm", "wake me up at 7am", "wake me 6:15", "7am alarm"
-        val alarmMatch = Regex("\\b(?:(?:set|add|create|start)\\s+(?:an?\\s+)?)?alarm\\s+(?:for\\s+|at\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b").find(text)
-            ?: Regex("\\bwake\\s+me(?:\\s+up)?\\s+(?:at\\s+|for\\s+)?(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b").find(text)
-            ?: Regex("\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\s+alarm\\b").find(text)
+        // 6c. Specific clock-time reminders (at / for [clock time]):
+        // e.g. "remind me at 7pm to call mom", "remind me to call mom at 7pm", "set reminder at 7:30 pm to buy milk"
+        val clockReminderPrefix = Regex("\\b(?:remind(?:\\s+me)?|(?:set|add|create)?\\s*(?:a\\s+)?reminder)\\s+(?:at|for)\\s+(\\d{1,2})(?:[:.](\\d{2}))?\\s*(am|pm)?(?:(?:\\s+to)?\\s+(.+))?\\b").find(text)
+        if (clockReminderPrefix != null) {
+            var hour = clockReminderPrefix.groupValues[1].toIntOrNull()
+            val minute = clockReminderPrefix.groupValues[2].ifBlank { "0" }.toIntOrNull()
+            val meridiem = clockReminderPrefix.groupValues[3]
+            if (hour != null && minute != null && minute in 0..59) {
+                if (meridiem == "pm" && hour in 1..11) hour += 12
+                if (meridiem == "am" && hour == 12) hour = 0
+                if (hour in 0..23 && (meridiem.isBlank() || clockReminderPrefix.groupValues[1].toInt() in 1..12)) {
+                    val rawAction = clockReminderPrefix.groupValues[4].ifBlank { "Reminder" }
+                    val action = rawAction.removePrefix("to ").trim().ifBlank { "Reminder" }
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, hour)
+                        set(Calendar.MINUTE, minute)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                        if (before(Calendar.getInstance())) {
+                            add(Calendar.DAY_OF_YEAR, 1)
+                        }
+                    }
+                    val diffMins = ((cal.timeInMillis - System.currentTimeMillis()) / (1000 * 60)).coerceAtLeast(1)
+                    return ToolCall(
+                        "schedule_reminder",
+                        JSONObject().put("message", action).put("interval_minutes", diffMins).put("recurring", false)
+                    )
+                }
+            }
+        }
+
+        val clockReminderSuffix = Regex("\\b(?:remind(?:\\s+me)?(?:\\s+to)?|(?:set|add|create)?\\s*(?:a\\s+)?reminder(?:\\s+to)?)\\s+(.+?)\\s+(?:at|for)\\s+(\\d{1,2})(?:[:.](\\d{2}))?\\s*(am|pm)?\\b").find(text)
+        if (clockReminderSuffix != null) {
+            val rawAction = clockReminderSuffix.groupValues[1]
+            val action = rawAction.removePrefix("to ").trim().ifBlank { "Reminder" }
+            var hour = clockReminderSuffix.groupValues[2].toIntOrNull()
+            val minute = clockReminderSuffix.groupValues[3].ifBlank { "0" }.toIntOrNull()
+            val meridiem = clockReminderSuffix.groupValues[4]
+            if (hour != null && minute != null && minute in 0..59) {
+                if (meridiem == "pm" && hour in 1..11) hour += 12
+                if (meridiem == "am" && hour == 12) hour = 0
+                if (hour in 0..23 && (meridiem.isBlank() || clockReminderSuffix.groupValues[2].toInt() in 1..12)) {
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, hour)
+                        set(Calendar.MINUTE, minute)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                        if (before(Calendar.getInstance())) {
+                            add(Calendar.DAY_OF_YEAR, 1)
+                        }
+                    }
+                    val diffMins = ((cal.timeInMillis - System.currentTimeMillis()) / (1000 * 60)).coerceAtLeast(1)
+                    return ToolCall(
+                        "schedule_reminder",
+                        JSONObject().put("message", action).put("interval_minutes", diffMins).put("recurring", false)
+                    )
+                }
+            }
+        }
+
+        // 6d. Alarms: flexible matching for ANY hour, minute, am/pm, 24h, tomorrow, or standalone time answers
+        // e.g. "set alarm 7am", "set alarm for 6:30", "alarm at 8pm", "wake me up at 7am", "wake me 6:15", "7am alarm", "alarm for tomorrow at 7am"
+        // Also supports standalone time responses when answering an alarm prompt: "7am", "at 7am", "7:00", "7"
+        val alarmMatch = Regex("\\b(?:(?:set|add|create|start|turn on)\\s+(?:an?\\s+)?)?alarm\\s+(?:(?:for\\s+)?tomorrow\\s+)?(?:for\\s+|at\\s+|to\\s+)?(\\d{1,2})(?:[:.](\\d{2}))?\\s*(am|pm)?\\b").find(text)
+            ?: Regex("\\bwake\\s+(?:me\\s+)?(?:up\\s+)?(?:(?:for\\s+)?tomorrow\\s+)?(?:at\\s+|for\\s+)?(\\d{1,2})(?:[:.](\\d{2}))?\\s*(am|pm)?\\b").find(text)
+            ?: Regex("\\b(\\d{1,2})(?:[:.](\\d{2}))?\\s*(am|pm)?\\s+alarm\\b").find(text)
+            ?: Regex("^(?:(?:set|add)\\s+)?(?:at\\s+|for\\s+)?(\\d{1,2})(?:[:.](\\d{2}))?\\s*(am|pm)$").find(text)
+            ?: Regex("^(?:(?:set|add)\\s+)?(?:at\\s+|for\\s+)?(\\d{1,2})[:.](\\d{2})\\s*(am|pm)?$").find(text)
+            ?: Regex("^(?:at\\s+|for\\s+)?([1-9]|1[0-2])$").find(text)
 
         alarmMatch?.let { match ->
             var hour = match.groupValues[1].toIntOrNull() ?: return null
-            val minute = match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null
-            val meridiem = match.groupValues[3]
+            val minute = if (match.groupValues.size > 2) match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null else 0
+            val meridiem = if (match.groupValues.size > 3) match.groupValues[3] else ""
             if (minute !in 0..59) return null
             if (meridiem == "pm" && hour in 1..11) hour += 12
             if (meridiem == "am" && hour == 12) hour = 0
