@@ -82,22 +82,22 @@ object AssistantKnowledgeRouter {
         if (text in setOf("thanks", "thank you", "thx")) return "You're welcome."
 
         // Interactive guidance when an alarm or reminder is requested without a time
-        if (text.matches(Regex("(?:set|add|create)?\\s*(?:an?\\s+)?alarm$")) || text in setOf("alarm", "wake me up", "wake me")) {
+        if (text.matches(Regex("^(?:set|add|create|start)?\\s*(?:an?\\s+)?alarm$")) || text in setOf("alarm", "wake me up", "wake me")) {
             return "What time should I set the alarm for? (e.g. 'alarm at 7:00 am' or 'wake me up at 6:30 am')"
         }
         if (text.matches(Regex("^(?:set|add|create)?\\s*(?:a\\s+)?reminder$")) || text in setOf("remind me", "reminder")) {
-            return "What should I remind you about and when? (e.g. 'remind me to drink water in 30 minutes' or 'remind me to stretch every 2 hours')"
+            return "What should I remind you about and when? (e.g. 'remind me to drink water in 30 minutes' or 'remind me at 7:00 pm to call mom')"
         }
         Regex("^(?:please\\s+)?remind\\s+(?:me\\s+)?(?:to\\s+)?(.+)$").find(text)?.let { m ->
             val task = m.groupValues[1].trim()
-            if (!task.contains("every") && !task.contains(" in ") && !task.contains("hour") && !task.contains("min")) {
-                return "When should I remind you to $task? You can say 'in 30 minutes' or 'every 2 hours'."
+            if (!task.contains("every") && !task.contains(" in ") && !task.contains("hour") && !task.contains("min") && !task.contains(" at ") && !task.contains(" for ") && !task.contains(" after ") && !task.any { it.isDigit() }) {
+                return "When should I remind you to $task? You can say 'at 7:00 pm', 'in 30 minutes', or 'every 2 hours'."
             }
         }
-        if (text.matches(Regex("(?:who are you|what are you|what is your name|what's your name|your name|who am i talking to)"))) {
+        if (text.matches(Regex("^(?:who are you|what are you|what is your name|what's your name|your name|who am i talking to)$"))) {
             return "I'm ${card.name}, ${card.description.lowercase().removeSuffix(".")}."
         }
-        if (text.matches(Regex("(?:help|what can you do|what can you help me with|what are your skills|what features do you have|your capabilities|what do you know how to do)"))) {
+        if (text.matches(Regex("^(?:help|what can you do|what can you help me with|what are your skills|what features do you have|your capabilities|what do you know how to do)$"))) {
             return "I can check phone status, open apps and settings, set alarms and reminders, read notifications when you grant access, and look up current news, weather, or web results. For open-ended explanations, writing, or questions outside those built-in actions, I use the local model when it’s loaded."
         }
         return null
