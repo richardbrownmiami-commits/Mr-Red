@@ -770,13 +770,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSummaryLines(lines: Int) {
         val safeLines = when (lines) {
+            0 -> 0
             2 -> 2
             7 -> 7
             else -> 4
         }
         _summaryLines.value = safeLines
         selectedModelStore.setSummaryLines(safeLines)
-        val refreshed = if (_messages.value.isNotEmpty()) {
+        val refreshed = if (safeLines == 0) {
+            ""
+        } else if (_messages.value.isNotEmpty()) {
             rebuildSummaryFromHistory(_messages.value, safeLines)
         } else {
             _conversationSummary.value.split("\n")
@@ -792,12 +795,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun recordCompletedTurnInSummary(userPrompt: String, assistantAnswer: String) {
+        val maxLines = _summaryLines.value
+        if (maxLines <= 0) {
+            if (_conversationSummary.value.isNotEmpty()) {
+                _conversationSummary.value = ""
+                viewModelScope.launch(Dispatchers.IO) {
+                    conversationDatabase.saveSummary("")
+                }
+            }
+            return
+        }
+
         val cleanUser = userPrompt.trim().take(80).replace("\n", " ").trim()
         val cleanAssistant = assistantAnswer.trim().take(120).replace("\n", " ").trim()
         if (cleanUser.isBlank() || cleanAssistant.isBlank()) return
 
         val newNote = "User: $cleanUser -> Assistant: $cleanAssistant"
-        val maxLines = _summaryLines.value
         val currentNotes = _conversationSummary.value
             .split("\n")
             .map { it.trim() }
@@ -814,6 +827,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun rebuildSummaryFromHistory(messages: List<ChatMessage>, maxLines: Int): String {
+        if (maxLines <= 0) return ""
         val completedTurns = messages.toCompletedTurns()
         val notes = completedTurns.mapNotNull { turn ->
             val userMsg = turn.firstOrNull { it.role == MessageRole.User }?.content?.trim() ?: return@mapNotNull null
@@ -843,7 +857,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val targetOutputTokens = reservedOutputTokens.coerceIn(minOutputReserve, maxPromptBudget)
         val promptBudget = nCtx - targetOutputTokens
 
-        val rawSummary = _conversationSummary.value.trim()
+        val rawSummary = if (_summaryLines.value > 0) _conversationSummary.value.trim() else ""
         val summaryLinesList = if (rawSummary.isNotBlank()) {
             rawSummary.lines().map { it.trim() }.filter { it.isNotBlank() }
         } else emptyList()
