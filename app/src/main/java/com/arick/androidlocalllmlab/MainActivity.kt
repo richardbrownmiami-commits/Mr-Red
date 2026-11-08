@@ -1149,7 +1149,7 @@ private fun SettingsPage(
             )
             SettingsRow(
                 title = "Conversation Memory Summary",
-                summary = "$summaryLines lines (rolling)",
+                summary = if (summaryLines == 0) "Disabled (Question only, fixed minimal prefill)" else "$summaryLines lines (rolling)",
                 onClick = { showSummaryLinesDialog = true }
             )
             SettingsRow(
@@ -1242,8 +1242,9 @@ private fun SettingsPage(
     // Summary Lines Dialog
     if (showSummaryLinesDialog) {
         val options = listOf(
-            2 to "2 lines (Ultra-fast, lowest prefill)",
-            4 to "4 lines (Default, balanced memory)",
+            0 to "0 lines (Question only - minimal fixed prefill)",
+            2 to "2 lines (Ultra-fast, 2 turns memory)",
+            4 to "4 lines (Balanced memory)",
             7 to "7 lines (Extended recall)"
         )
         var selectedLines by remember { mutableIntStateOf(summaryLines) }
