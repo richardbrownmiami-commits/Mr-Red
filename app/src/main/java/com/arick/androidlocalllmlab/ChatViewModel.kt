@@ -842,8 +842,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Builds prompt using only the configured compact rolling summary and the current user question.
-     * Raw past turns are not included verbatim, ensuring prompt prefill token counts stay stable.
+     * Builds prompt with a strictly immutable System persona at index 0 to maximize native KV cache reuse.
+     * In question-only mode (summaryLines == 0), only the fixed system prompt and current question are evaluated.
+     * In multi-turn mode, completed turns are chained in native chat template format so past turns are 100% reused
+     * from the native KV cache without recalculating their tokens.
      */
     private fun buildHistoryWithinContextBudget(
         userSystemPrompt: String?,
@@ -857,36 +859,45 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val targetOutputTokens = reservedOutputTokens.coerceIn(minOutputReserve, maxPromptBudget)
         val promptBudget = nCtx - targetOutputTokens
 
-        val rawSummary = if (_summaryLines.value > 0) _conversationSummary.value.trim() else ""
-        val summaryLinesList = if (rawSummary.isNotBlank()) {
-            rawSummary.lines().map { it.trim() }.filter { it.isNotBlank() }
-        } else emptyList()
+        val systemText = listOfNotNull(
+            userSystemPrompt?.takeIf { it.isNotBlank() },
+            _personaCard.value.compactInstruction()
+        ).joinToString("\n\n").takeIf { it.isNotBlank() }
 
-        var droppedSummaryLines = 0
+        val systemMessage = systemText?.let { ChatMessage(MessageRole.System, it) }
+
+        // Number of past conversation turns to preserve in native KV cache.
+        // If summaryLines == 0, question-only mode is active: only system + current question are sent.
+        val maxTurns = if (_summaryLines.value > 0) {
+            maxOf(1, _summaryLines.value / 2)
+        } else {
+            0
+        }
+
+        val allCompletedTurns = if (maxTurns > 0) {
+            _messages.value.filter { it.content.isNotBlank() }.toCompletedTurns().takeLast(maxTurns)
+        } else {
+            emptyList()
+        }
+
+        var droppedTurns = 0
         var candidateMessages: List<ChatMessage>
 
         while (true) {
-            val activeLines = summaryLinesList.drop(droppedSummaryLines)
-            val memoryText = if (activeLines.isNotEmpty()) {
-                "Conversation Memory:\n" + activeLines.joinToString("\n")
-            } else null
-
-            val systemText = listOfNotNull(
-                userSystemPrompt?.takeIf { it.isNotBlank() },
-                _personaCard.value.compactInstruction(),
-                memoryText
-            ).joinToString("\n\n").takeIf { it.isNotBlank() }
+            val turnsToInclude = allCompletedTurns.drop(droppedTurns)
+            val pastMessages = turnsToInclude.flatten()
 
             candidateMessages = buildList {
-                systemText?.takeIf { it.isNotBlank() }?.let { add(ChatMessage(MessageRole.System, it)) }
+                systemMessage?.let { add(it) }
+                addAll(pastMessages)
                 add(ChatMessage(MessageRole.User, currentUserPrompt))
             }
 
             val tokenCount = runtime.countChatPromptTokens(candidateMessages)
-            if (tokenCount <= promptBudget || droppedSummaryLines >= summaryLinesList.size) {
+            if (tokenCount <= promptBudget || droppedTurns >= allCompletedTurns.size) {
                 break
             }
-            droppedSummaryLines++
+            droppedTurns++
         }
 
         val baseTokenCount = runtime.countChatPromptTokens(candidateMessages)
@@ -896,7 +907,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         return TrimmedHistory(
             messages = candidateMessages,
-            droppedTurnCount = droppedSummaryLines
+            droppedTurnCount = droppedTurns
         )
     }
 

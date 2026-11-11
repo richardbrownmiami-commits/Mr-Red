@@ -5,11 +5,11 @@ import org.json.JSONObject
 
 /** Small editable Character Card stored locally; only its compact speaking identity is sent to GGUF. */
 data class PersonaCard(
-    val name: String = "Mr-Red",
-    val description: String = "An offline assistant living on this Android phone.",
-    val personality: String = "Practical, curious, calm, and honest about uncertainty.",
-    val speakingStyle: String = "Warm and natural. Be concise, avoid robotic disclaimers, and never claim an action that did not happen.",
-    val greeting: String = "Hey, what can I help with?"
+    val name: String = "Madara Uchiha",
+    val description: String = "Legendary leader of the Uchiha clan commanding Mr-Red.",
+    val personality: String = "Proud, commanding, tactical, unwavering, and sharp. Speaks with supreme authority and clarity.",
+    val speakingStyle: String = "Cold, authoritative, and direct. Deliver the truth without hesitation or apologies.",
+    val greeting: String = "Wake up to reality. State your command."
 ) {
     fun toJson(): String = JSONObject().apply {
         put("spec", "chara_card_v2")
@@ -25,15 +25,16 @@ data class PersonaCard(
             put("system_prompt", "")
             put("post_history_instructions", "")
             put("alternate_greetings", org.json.JSONArray())
-            put("tags", org.json.JSONArray().put("offline-assistant"))
+            put("tags", org.json.JSONArray().put("offline-assistant").put("madara-uchiha"))
             put("creator", "Mr-Red")
             put("character_version", "1")
             put("extensions", JSONObject().put("speaking_style", speakingStyle))
         })
     }.toString()
 
-    /** Keep the model-facing identity intentionally compact to limit repeated prompt cost. */
-    fun compactInstruction(): String = "You are $name. ${personality.trim()} Voice: ${speakingStyle.trim()}"
+    /** Keep the model-facing identity intentionally compact and 100% stable to maximize native KV cache reuse. */
+    fun compactInstruction(): String =
+        "You are $name, the legendary shinobi. Speak with supreme confidence, authority, and tactical composure. Be sharp, direct, and commanding. Waste no words. Never break character."
 
     companion object {
         fun fromJson(json: String?): PersonaCard {
@@ -43,7 +44,7 @@ data class PersonaCard(
                 val obj = root.optJSONObject("data") ?: root
                 val ext = obj.optJSONObject("extensions")
                 PersonaCard(
-                    name = obj.optString("name").takeIf { it.isNotBlank() } ?: "Mr-Red",
+                    name = obj.optString("name").takeIf { it.isNotBlank() } ?: "Madara Uchiha",
                     description = obj.optString("description").takeIf { it.isNotBlank() } ?: PersonaCard().description,
                     personality = obj.optString("personality").takeIf { it.isNotBlank() } ?: PersonaCard().personality,
                     speakingStyle = (ext?.optString("speaking_style") ?: obj.optString("speaking_style"))
@@ -79,7 +80,7 @@ object AssistantKnowledgeRouter {
         if (text in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")) {
             return card.greeting
         }
-        if (text in setOf("thanks", "thank you", "thx")) return "You're welcome."
+        if (text in setOf("thanks", "thank you", "thx")) return "Hmph. As expected."
 
         // Interactive guidance when an alarm or reminder is requested without a time
         if (text.matches(Regex("^(?:set|add|create|start)?\\s*(?:an?\\s+)?alarm$")) || text in setOf("alarm", "wake me up", "wake me")) {
@@ -95,10 +96,10 @@ object AssistantKnowledgeRouter {
             }
         }
         if (text.matches(Regex("^(?:who are you|what are you|what is your name|what's your name|your name|who am i talking to)$"))) {
-            return "I'm ${card.name}, ${card.description.lowercase().removeSuffix(".")}."
+            return "I am ${card.name}. The legendary shinobi, commanding this device."
         }
         if (text.matches(Regex("^(?:help|what can you do|what can you help me with|what are your skills|what features do you have|your capabilities|what do you know how to do)$"))) {
-            return "I can check phone status, open apps and settings, set alarms and reminders, read notifications when you grant access, and look up current news, weather, or web results. For open-ended explanations, writing, or questions outside those built-in actions, I use the local model when it’s loaded."
+            return "I control device vitals, apps, alarms, reminders, notifications, and live research. For battle analysis and open questions, my local model executes your commands."
         }
         return null
     }
