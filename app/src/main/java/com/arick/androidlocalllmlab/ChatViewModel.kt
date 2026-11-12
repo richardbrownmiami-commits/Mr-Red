@@ -824,19 +824,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val cleanFact = fact.trim().take(140).replace("
-", " ").trim()
+        val cleanFact = fact.trim().take(140).replace('\n', ' ').trim()
         if (cleanFact.isBlank()) return
 
         val currentNotes = _conversationSummary.value
-            .split("
-")
+            .split("\n")
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
         val updatedNotes = (currentNotes + cleanFact).takeLast(maxLines)
-        val combined = updatedNotes.joinToString("
-")
+        val combined = updatedNotes.joinToString("\n")
         if (combined != _conversationSummary.value) {
             _conversationSummary.value = combined
             viewModelScope.launch(Dispatchers.IO) {
@@ -853,10 +850,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val fact = when {
             toolAction != null -> "Action: $toolAction"
             else -> {
-                val cleanUser = userPrompt.trim().take(50).replace("
-", " ").trim()
-                val cleanAssistant = assistantAnswer.trim().take(80).replace("
-", " ").trim()
+                val cleanUser = userPrompt.trim().take(50).replace('\n', ' ').trim()
+                val cleanAssistant = assistantAnswer.trim().take(80).replace('\n', ' ').trim()
                 if (cleanUser.isNotBlank() && cleanAssistant.isNotBlank()) {
                     "User: $cleanUser -> $cleanAssistant"
                 } else null
@@ -876,18 +871,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val actionTrace = assistantMsg.agentTrace.firstOrNull {
                 it.text.startsWith("Completed locally: ") || it.text.startsWith("Handled locally: ")
             }
-            val cleanUser = userMsg.take(50).replace("
-", " ").trim()
-            val cleanAssistant = assistantMsg.content.take(80).replace("
-", " ").trim()
+            val cleanUser = userMsg.take(50).replace('\n', ' ').trim()
+            val cleanAssistant = assistantMsg.content.take(80).replace('\n', ' ').trim()
             when {
                 actionTrace != null -> "Action: ${actionTrace.text.substringAfter(": ")} ($cleanUser)"
                 cleanUser.isNotBlank() && cleanAssistant.isNotBlank() -> "User: $cleanUser -> $cleanAssistant"
                 else -> null
             }
         }
-        return notes.takeLast(maxLines).joinToString("
-")
+        return notes.takeLast(maxLines).joinToString("\n")
     }
 
     /**
@@ -910,17 +902,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val systemText = listOfNotNull(
             userSystemPrompt?.takeIf { it.isNotBlank() },
             _personaCard.value.compactInstruction()
-        ).joinToString("
-
-").takeIf { it.isNotBlank() }
+        ).joinToString("\n\n").takeIf { it.isNotBlank() }
 
         val systemMessage = systemText?.let { ChatMessage(MessageRole.System, it) }
 
         val maxMemoryLines = _summaryLines.value
         val memoryFacts = if (maxMemoryLines > 0 && _conversationSummary.value.isNotBlank()) {
             _conversationSummary.value
-                .split("
-")
+                .split("\n")
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .takeLast(maxMemoryLines)
@@ -931,12 +920,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         fun buildUserContent(facts: List<String>): String {
             if (facts.isEmpty()) return currentUserPrompt
             return buildString {
-                append("Context:
-")
-                facts.forEach { append("- ").append(it).append("
-") }
-                append("
-Command: ")
+                append("Context:\n")
+                facts.forEach { append("- ").append(it).append("\n") }
+                append("\nCommand: ")
                 append(currentUserPrompt.trim())
             }
         }
