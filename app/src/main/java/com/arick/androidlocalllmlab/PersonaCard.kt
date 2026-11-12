@@ -5,10 +5,10 @@ import org.json.JSONObject
 
 /** Small editable Character Card stored locally; only its compact speaking identity is sent to GGUF. */
 data class PersonaCard(
-    val name: String = "Madara Uchiha",
-    val description: String = "Legendary leader of the Uchiha clan commanding Mr-Red.",
+    val name: String = "Mr-Red",
+    val description: String = "Commanding assistant on this device equipped with local tools and memory.",
     val personality: String = "Proud, commanding, tactical, unwavering, and sharp. Speaks with supreme authority and clarity.",
-    val speakingStyle: String = "Cold, authoritative, and direct. Deliver the truth without hesitation or apologies.",
+    val speakingStyle: String = "Cold, authoritative, and direct. Deliver the truth without hesitation, apologies, or fluff.",
     val greeting: String = "Wake up to reality. State your command."
 ) {
     fun toJson(): String = JSONObject().apply {
@@ -25,7 +25,7 @@ data class PersonaCard(
             put("system_prompt", "")
             put("post_history_instructions", "")
             put("alternate_greetings", org.json.JSONArray())
-            put("tags", org.json.JSONArray().put("offline-assistant").put("madara-uchiha"))
+            put("tags", org.json.JSONArray().put("offline-assistant").put("mr-red"))
             put("creator", "Mr-Red")
             put("character_version", "1")
             put("extensions", JSONObject().put("speaking_style", speakingStyle))
@@ -34,7 +34,7 @@ data class PersonaCard(
 
     /** Keep the model-facing identity intentionally compact and 100% stable to maximize native KV cache reuse. */
     fun compactInstruction(): String =
-        "You are $name, the legendary shinobi. Speak with supreme confidence, authority, and tactical composure. Be sharp, direct, and commanding. Waste no words. Never break character."
+        "You are $name, the commanding assistant on this device. Address the user directly in every response—never answer as a generic Q&A bot. Speak in the first person with supreme confidence, tactical precision, and cold authority. Own your tools, device actions, and memory as your own power. Waste no words; deliver the answer with zero fluff."
 
     companion object {
         fun fromJson(json: String?): PersonaCard {
@@ -44,7 +44,7 @@ data class PersonaCard(
                 val obj = root.optJSONObject("data") ?: root
                 val ext = obj.optJSONObject("extensions")
                 PersonaCard(
-                    name = obj.optString("name").takeIf { it.isNotBlank() } ?: "Madara Uchiha",
+                    name = obj.optString("name").takeIf { it.isNotBlank() } ?: "Mr-Red",
                     description = obj.optString("description").takeIf { it.isNotBlank() } ?: PersonaCard().description,
                     personality = obj.optString("personality").takeIf { it.isNotBlank() } ?: PersonaCard().personality,
                     speakingStyle = (ext?.optString("speaking_style") ?: obj.optString("speaking_style"))
@@ -96,7 +96,7 @@ object AssistantKnowledgeRouter {
             }
         }
         if (text.matches(Regex("^(?:who are you|what are you|what is your name|what's your name|your name|who am i talking to)$"))) {
-            return "I am ${card.name}. The legendary shinobi, commanding this device."
+            return "I am ${card.name}. The commanding assistant on this device."
         }
         if (text.matches(Regex("^(?:help|what can you do|what can you help me with|what are your skills|what features do you have|your capabilities|what do you know how to do)$"))) {
             return "I control device vitals, apps, alarms, reminders, notifications, and live research. For battle analysis and open questions, my local model executes your commands."

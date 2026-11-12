@@ -1242,10 +1242,10 @@ private fun SettingsPage(
     // Summary Lines Dialog
     if (showSummaryLinesDialog) {
         val options = listOf(
-            0 to "0 lines (Question only - minimal fixed prefill)",
-            2 to "2 lines (Ultra-fast, 2 turns memory)",
-            4 to "4 lines (Balanced memory)",
-            7 to "7 lines (Extended recall)"
+            0 to "0 lines (Question only - minimal prefill)",
+            2 to "2 lines (Ultra-fast - 2 facts & actions)",
+            4 to "4 lines (Balanced recall & tool actions)",
+            7 to "7 lines (Extended memory facts)"
         )
         var selectedLines by remember { mutableIntStateOf(summaryLines) }
 
@@ -1255,7 +1255,7 @@ private fun SettingsPage(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Controls how many past Q&A turns are rolled into the compact conversation summary. Only this summary and your current question are sent to the model, keeping prefill token usage stable.",
+                        text = "Controls how many compact context facts and tool actions are kept in memory. Only these bullet facts and your current question are sent to the model, keeping prefill token usage stable and fast.",
                         fontSize = 12.sp,
                         color = AppColors.TextSecondary
                     )

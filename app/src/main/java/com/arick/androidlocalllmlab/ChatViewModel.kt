@@ -371,7 +371,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         withContext(Dispatchers.IO) {
                             conversationDatabase.saveMessage(finalAssistant)
                         }
-                        recordCompletedTurnInSummary(prompt, finalAssistant.content)
+                        recordCompletedTurnInSummary(prompt, finalAssistant.content, toolAction = "Researched live facts on ${prompt.take(35)}")
                     }
                 }
             } catch (error: Throwable) {
@@ -424,7 +424,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     conversationDatabase.saveMessage(userMessage)
                     conversationDatabase.saveMessage(assistant)
                 }
-                recordCompletedTurnInSummary(prompt, assistant.content)
+                val actionFact = when (call.name) {
+                    "set_alarm" -> "Alarm set for ${call.arguments.optString("time").ifBlank { "scheduled time" }}"
+                    "dismiss_alarm" -> "Alarm dismissed"
+                    "schedule_reminder" -> {
+                        val note = call.arguments.optString("note").ifBlank { call.arguments.optString("task") }
+                        val time = call.arguments.optString("time").ifBlank { call.arguments.optString("delay_minutes") }
+                        "Reminder set: $note $time".trim()
+                    }
+                    "cancel_reminders" -> "Reminders cancelled"
+                    "get_battery_info" -> "Battery checked"
+                    "get_storage_info" -> "Storage checked"
+                    "get_ram_info" -> "RAM checked"
+                    "device_vitals" -> "Device vitals checked"
+                    "read_notifications" -> "Notifications checked"
+                    "open_app" -> "Opened app ${call.arguments.optString("app_name").ifBlank { call.arguments.optString("package_name") }}".trim()
+                    "open_settings" -> "Opened settings ${call.arguments.optString("page")}".trim()
+                    else -> "${call.name} executed"
+                }
+                recordCompletedTurnInSummary(prompt, assistant.content, toolAction = actionFact)
             } catch (error: Throwable) {
                 _generationError.value = error.message ?: "Device request failed"
                 val assistant = ChatMessage(MessageRole.Assistant, error.message ?: "Device request failed")
@@ -794,7 +812,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun recordCompletedTurnInSummary(userPrompt: String, assistantAnswer: String) {
+    private fun recordMemoryFact(fact: String) {
         val maxLines = _summaryLines.value
         if (maxLines <= 0) {
             if (_conversationSummary.value.isNotEmpty()) {
@@ -806,18 +824,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val cleanUser = userPrompt.trim().take(80).replace("\n", " ").trim()
-        val cleanAssistant = assistantAnswer.trim().take(120).replace("\n", " ").trim()
-        if (cleanUser.isBlank() || cleanAssistant.isBlank()) return
+        val cleanFact = fact.trim().take(140).replace("
+", " ").trim()
+        if (cleanFact.isBlank()) return
 
-        val newNote = "User: $cleanUser -> Assistant: $cleanAssistant"
         val currentNotes = _conversationSummary.value
-            .split("\n")
+            .split("
+")
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
-        val updatedNotes = (currentNotes + newNote).takeLast(maxLines)
-        val combined = updatedNotes.joinToString("\n")
+        val updatedNotes = (currentNotes + cleanFact).takeLast(maxLines)
+        val combined = updatedNotes.joinToString("
+")
         if (combined != _conversationSummary.value) {
             _conversationSummary.value = combined
             viewModelScope.launch(Dispatchers.IO) {
@@ -826,26 +845,55 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun recordCompletedTurnInSummary(userPrompt: String, assistantAnswer: String, toolAction: String? = null) {
+        if (_summaryLines.value <= 0) {
+            recordMemoryFact("")
+            return
+        }
+        val fact = when {
+            toolAction != null -> "Action: $toolAction"
+            else -> {
+                val cleanUser = userPrompt.trim().take(50).replace("
+", " ").trim()
+                val cleanAssistant = assistantAnswer.trim().take(80).replace("
+", " ").trim()
+                if (cleanUser.isNotBlank() && cleanAssistant.isNotBlank()) {
+                    "User: $cleanUser -> $cleanAssistant"
+                } else null
+            }
+        }
+        if (fact != null) {
+            recordMemoryFact(fact)
+        }
+    }
+
     private fun rebuildSummaryFromHistory(messages: List<ChatMessage>, maxLines: Int): String {
         if (maxLines <= 0) return ""
         val completedTurns = messages.toCompletedTurns()
         val notes = completedTurns.mapNotNull { turn ->
             val userMsg = turn.firstOrNull { it.role == MessageRole.User }?.content?.trim() ?: return@mapNotNull null
-            val assistantMsg = turn.firstOrNull { it.role == MessageRole.Assistant }?.content?.trim() ?: return@mapNotNull null
-            val cleanUser = userMsg.take(80).replace("\n", " ").trim()
-            val cleanAssistant = assistantMsg.take(120).replace("\n", " ").trim()
-            if (cleanUser.isNotBlank() && cleanAssistant.isNotBlank()) {
-                "User: $cleanUser -> Assistant: $cleanAssistant"
-            } else null
+            val assistantMsg = turn.firstOrNull { it.role == MessageRole.Assistant } ?: return@mapNotNull null
+            val actionTrace = assistantMsg.agentTrace.firstOrNull {
+                it.text.startsWith("Completed locally: ") || it.text.startsWith("Handled locally: ")
+            }
+            val cleanUser = userMsg.take(50).replace("
+", " ").trim()
+            val cleanAssistant = assistantMsg.content.take(80).replace("
+", " ").trim()
+            when {
+                actionTrace != null -> "Action: ${actionTrace.text.substringAfter(": ")} ($cleanUser)"
+                cleanUser.isNotBlank() && cleanAssistant.isNotBlank() -> "User: $cleanUser -> $cleanAssistant"
+                else -> null
+            }
         }
-        return notes.takeLast(maxLines).joinToString("\n")
+        return notes.takeLast(maxLines).joinToString("
+")
     }
 
     /**
      * Builds prompt with a strictly immutable System persona at index 0 to maximize native KV cache reuse.
+     * When memoryLines > 0, compact 1-line context bullets (actions, findings, Q&A) are prepended to the user turn.
      * In question-only mode (summaryLines == 0), only the fixed system prompt and current question are evaluated.
-     * In multi-turn mode, completed turns are chained in native chat template format so past turns are 100% reused
-     * from the native KV cache without recalculating their tokens.
      */
     private fun buildHistoryWithinContextBudget(
         userSystemPrompt: String?,
@@ -862,42 +910,56 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val systemText = listOfNotNull(
             userSystemPrompt?.takeIf { it.isNotBlank() },
             _personaCard.value.compactInstruction()
-        ).joinToString("\n\n").takeIf { it.isNotBlank() }
+        ).joinToString("
+
+").takeIf { it.isNotBlank() }
 
         val systemMessage = systemText?.let { ChatMessage(MessageRole.System, it) }
 
-        // Number of past conversation turns to preserve in native KV cache.
-        // If summaryLines == 0, question-only mode is active: only system + current question are sent.
-        val maxTurns = if (_summaryLines.value > 0) {
-            maxOf(1, _summaryLines.value / 2)
-        } else {
-            0
-        }
-
-        val allCompletedTurns = if (maxTurns > 0) {
-            _messages.value.filter { it.content.isNotBlank() }.toCompletedTurns().takeLast(maxTurns)
+        val maxMemoryLines = _summaryLines.value
+        val memoryFacts = if (maxMemoryLines > 0 && _conversationSummary.value.isNotBlank()) {
+            _conversationSummary.value
+                .split("
+")
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .takeLast(maxMemoryLines)
         } else {
             emptyList()
         }
 
+        fun buildUserContent(facts: List<String>): String {
+            if (facts.isEmpty()) return currentUserPrompt
+            return buildString {
+                append("Context:
+")
+                facts.forEach { append("- ").append(it).append("
+") }
+                append("
+Command: ")
+                append(currentUserPrompt.trim())
+            }
+        }
+
+        var candidateMessages = buildList {
+            systemMessage?.let { add(it) }
+            add(ChatMessage(MessageRole.User, buildUserContent(memoryFacts)))
+        }
+
+        var tokenCount = runtime.countChatPromptTokens(candidateMessages)
         var droppedTurns = 0
-        var candidateMessages: List<ChatMessage>
 
-        while (true) {
-            val turnsToInclude = allCompletedTurns.drop(droppedTurns)
-            val pastMessages = turnsToInclude.flatten()
-
-            candidateMessages = buildList {
-                systemMessage?.let { add(it) }
-                addAll(pastMessages)
-                add(ChatMessage(MessageRole.User, currentUserPrompt))
+        if (tokenCount > promptBudget && memoryFacts.isNotEmpty()) {
+            for (dropCount in 1..memoryFacts.size) {
+                droppedTurns = dropCount
+                val remainingFacts = memoryFacts.drop(dropCount)
+                candidateMessages = buildList {
+                    systemMessage?.let { add(it) }
+                    add(ChatMessage(MessageRole.User, buildUserContent(remainingFacts)))
+                }
+                tokenCount = runtime.countChatPromptTokens(candidateMessages)
+                if (tokenCount <= promptBudget) break
             }
-
-            val tokenCount = runtime.countChatPromptTokens(candidateMessages)
-            if (tokenCount <= promptBudget || droppedTurns >= allCompletedTurns.size) {
-                break
-            }
-            droppedTurns++
         }
 
         val baseTokenCount = runtime.countChatPromptTokens(candidateMessages)

@@ -29,8 +29,9 @@ class ContextBudgetTest {
         val config4096 = SamplingPreset.Balanced.configFor(nCtx4096)
         assertEquals(512, config4096.maxTokens)
     }
+
     @Test
-    fun selectedModelStore_defaultSummaryLinesIsZeroForQuestionOnly() {
-        assertEquals(0, SelectedModelStore.DEFAULT_SUMMARY_LINES)
+    fun selectedModelStore_defaultSummaryLinesIsFourForBalancedMemory() {
+        assertEquals(4, SelectedModelStore.DEFAULT_SUMMARY_LINES)
     }
 }

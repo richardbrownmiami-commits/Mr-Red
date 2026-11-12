@@ -7,7 +7,7 @@ import org.junit.Test
 
 class PersonaCardTest {
     @Test fun characterCardUsesV2EnvelopeAndRoundTrips() {
-        val card = PersonaCard(name = "Madara Uchiha", greeting = "Wake up to reality.", speakingStyle = "Cold, authoritative")
+        val card = PersonaCard(name = "Mr-Red", greeting = "Wake up to reality. State your command.", speakingStyle = "Cold, authoritative")
         val json = card.toJson()
         assertTrue(json.contains("chara_card_v2"))
         assertEquals(card, PersonaCard.fromJson(json))
@@ -25,7 +25,7 @@ class PersonaCardTest {
 
     @Test fun modelInstructionIsCompactNotFullCharacterCardJson() {
         val card = PersonaCard()
-        assertTrue(card.compactInstruction().length < 250)
+        assertTrue(card.compactInstruction().length < 400)
         assertTrue(card.compactInstruction().contains(card.name))
     }
 

@@ -39,7 +39,7 @@ class SelectedModelStore(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_SUMMARY_LINES = 0
+        const val DEFAULT_SUMMARY_LINES = 4
         private const val KEY_SELECTED_MODEL_PATH = "selected_model_path"
         private const val KEY_SUMMARY_LINES = "summary_lines"
     }
