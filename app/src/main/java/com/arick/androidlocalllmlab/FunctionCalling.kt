@@ -453,7 +453,10 @@ class AndroidToolExecutor(private val context: Context) {
                 ToolResult.Success("No active or recent notifications found on your device right now.")
             }
         }
-        return ToolResult.Success("Recent notifications (stored in memory only):\n" + records.joinToString("\n") { "• \${it.app}: \${it.title}\${it.text.takeIf(String::isNotBlank)?.let { text -> \": \$text\" }.orEmpty()}" })
+        return ToolResult.Success("Recent notifications (stored in memory only):\n" + records.joinToString("\n") { r ->
+            val details = if (r.text.isNotBlank()) ": ${r.text}" else ""
+            "• ${r.app}: ${r.title}$details"
+        })
     }
     private fun getNews(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
         val query = arguments.optString("query").trim().take(120)
@@ -898,7 +901,7 @@ object FunctionCalling {
 
     fun parseBracketTag(text: String): ToolCall? {
         // [SEARCH: query]
-        Regex("\[SEARCH:\\s*([^\]]+)\]", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+        Regex("""\[SEARCH:\s*([^\]]+)\]""", RegexOption.IGNORE_CASE).find(text)?.let { m ->
             val query = m.groupValues[1].trim()
             if (query.isNotEmpty()) {
                 return ToolCall("web_search", JSONObject().put("query", query))
@@ -906,17 +909,17 @@ object FunctionCalling {
         }
 
         // [NOTIFICATIONS] or [NOTIFICATION] or [NOTIFICATIONS: ...]
-        if (Regex("\[NOTIFICATIONS?(?::[^\]]*)?\]", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
+        if (Regex("""\[NOTIFICATIONS?(?::[^\]]*)?\]""", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
             return ToolCall("read_notifications", JSONObject())
         }
 
         // [DEVICE: battery] or [DEVICE]
-        if (Regex("\[DEVICE(?::[^\]]*)?\]", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
+        if (Regex("""\[DEVICE(?::[^\]]*)?\]""", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
             return ToolCall("device_vitals", JSONObject())
         }
 
         // [ALARM: 07:30, label] or [ALARM: 7:30]
-        Regex("\[ALARM:\\s*(\\d{1,2}):(\\d{2})(?:\\s*,\\s*([^\]]*))?\]", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+        Regex("""\[ALARM:\s*(\d{1,2}):(\d{2})(?:\s*,\s*([^\]]*))?\]""", RegexOption.IGNORE_CASE).find(text)?.let { m ->
             val hour = m.groupValues[1].toIntOrNull() ?: return@let
             val minute = m.groupValues[2].toIntOrNull() ?: return@let
             val label = m.groupValues[3].trim().ifBlank { "Mr-Red alarm" }
@@ -924,23 +927,23 @@ object FunctionCalling {
         }
 
         // [REMIND: 30 minutes, drink water] or [REMIND: 2 hours, call mom]
-        Regex("\[REMIND:\\s*([^,\]]+)(?:\\s*,\\s*([^\]]*))?\]", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+        Regex("""\[REMIND:\s*([^,\]]+)(?:\s*,\s*([^\]]*))?\]""", RegexOption.IGNORE_CASE).find(text)?.let { m ->
             val timePart = m.groupValues[1].trim().lowercase()
             val note = m.groupValues[2].trim().ifBlank { "Reminder" }
             val minutes = when {
                 timePart.contains("hour") || timePart.endsWith("h") -> {
-                    val h = Regex("(\\d+)").find(timePart)?.groupValues?.get(1)?.toLongOrNull() ?: 1L
+                    val h = Regex("""(\d+)""").find(timePart)?.groupValues?.get(1)?.toLongOrNull() ?: 1L
                     h * 60L
                 }
                 else -> {
-                    Regex("(\\d+)").find(timePart)?.groupValues?.get(1)?.toLongOrNull() ?: 60L
+                    Regex("""(\d+)""").find(timePart)?.groupValues?.get(1)?.toLongOrNull() ?: 60L
                 }
             }
             return ToolCall("schedule_reminder", JSONObject().put("interval_minutes", minutes).put("message", note).put("recurring", false))
         }
 
         // [OPEN: target]
-        Regex("\[OPEN:\\s*([^\]]+)\]", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+        Regex("""\[OPEN:\s*([^\]]+)\]""", RegexOption.IGNORE_CASE).find(text)?.let { m ->
             val target = m.groupValues[1].trim().lowercase()
             return if (target in setOf("settings", "battery", "wifi", "bluetooth", "display")) {
                 ToolCall("open_settings", JSONObject().put("page", target))
