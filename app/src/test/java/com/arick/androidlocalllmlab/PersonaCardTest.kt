@@ -7,7 +7,7 @@ import org.junit.Test
 
 class PersonaCardTest {
     @Test fun characterCardUsesV2EnvelopeAndRoundTrips() {
-        val card = PersonaCard(name = "Mr-Red", greeting = "Wake up to reality. State your command.", speakingStyle = "Cold, authoritative")
+        val card = PersonaCard(name = "Mr-Red", greeting = "Hello! I'm Mr-Red, your companion on this device. How can I help you today?", speakingStyle = "Warm, supportive")
         val json = card.toJson()
         assertTrue(json.contains("chara_card_v2"))
         assertEquals(card, PersonaCard.fromJson(json))
@@ -18,15 +18,15 @@ class PersonaCardTest {
         assertTrue(AssistantKnowledgeRouter.answer("Who are you?", card)!!.contains(card.name))
         assertTrue(AssistantKnowledgeRouter.answer("what can you do", card)!!.contains("alarms"))
         assertEquals(card.greeting, AssistantKnowledgeRouter.answer("hello", card))
-        assertEquals("Hmph. As expected.", AssistantKnowledgeRouter.answer("thanks", card))
+        assertEquals("You're very welcome! Always happy to help.", AssistantKnowledgeRouter.answer("thanks", card))
         assertNull(AssistantKnowledgeRouter.answer("Who is Obama?", card))
         assertNull(AssistantKnowledgeRouter.answer("What did he do?", card))
     }
 
     @Test fun modelInstructionIsCompactNotFullCharacterCardJson() {
         val card = PersonaCard()
-        assertTrue(card.compactInstruction().length < 400)
-        assertTrue(card.compactInstruction().contains(card.name))
+        assertTrue(card.compactInstruction().length < 1500)
+        assertTrue(card.compactInstruction().contains("caring, truthful, and proactive intelligence"))
     }
 
     @Test fun guidesIncompleteAlarmAndReminderQueries() {

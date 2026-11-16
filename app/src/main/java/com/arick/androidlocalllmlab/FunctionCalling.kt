@@ -426,21 +426,35 @@ class AndroidToolExecutor(private val context: Context) {
         ToolResult.Success("Opened Notification access settings. Choose Mr-Red and grant access if you want it to read notifications.")
     }.getOrElse { ToolResult.Failure("Could not open notification access settings: ${it.message ?: "not available"}") }
 
-    private fun readNotifications(): ToolResult {
-        val enabled = android.provider.Settings.Secure.getString(
-            context.contentResolver,
-            "enabled_notification_listeners"
-        )?.split(":")?.any { component ->
-            runCatching { android.content.ComponentName.unflattenFromString(component)?.packageName == context.packageName }.getOrDefault(false)
-        } == true
-        if (!enabled) {
-            return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
-        }
-        val records = MrRedNotificationListenerService.recentNotifications()
-        if (records.isEmpty()) return ToolResult.Success("Notification access is enabled, but there are no recent notifications to show.")
-        return ToolResult.Success("Recent notifications (stored in memory only):\n" + records.joinToString("\n") { "• ${it.app}: ${it.title}${it.text.takeIf(String::isNotBlank)?.let { text -> ": $text" }.orEmpty()}" })
+    private fun isNotificationAccessEnabled(): Boolean {
+        val compatEnabled = runCatching {
+            androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+        }.getOrDefault(false)
+        if (compatEnabled) return true
+
+        return runCatching {
+            Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+                ?.split(":")
+                ?.any { comp ->
+                    android.content.ComponentName.unflattenFromString(comp)?.packageName == context.packageName
+                } == true
+        }.getOrDefault(false)
     }
 
+    private fun readNotifications(): ToolResult {
+        if (!isNotificationAccessEnabled()) {
+            return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
+        }
+        val records = MrRedNotificationListenerService.recentNotifications(context)
+        if (records.isEmpty()) {
+            return if (!MrRedNotificationListenerService.isConnected()) {
+                ToolResult.Success("Notification access is enabled, but the background listener service is starting up. If notifications do not show, try toggling Mr-Red off and on once in Android Notification Access settings.")
+            } else {
+                ToolResult.Success("No active or recent notifications found on your device right now.")
+            }
+        }
+        return ToolResult.Success("Recent notifications (stored in memory only):\n" + records.joinToString("\n") { "• \${it.app}: \${it.title}\${it.text.takeIf(String::isNotBlank)?.let { text -> \": \$text\" }.orEmpty()}" })
+    }
     private fun getNews(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
         val query = arguments.optString("query").trim().take(120)
         return runCatching {
@@ -803,6 +817,9 @@ object FunctionCalling {
 
     fun parseToolCall(modelText: String): ToolCall? {
         val rawText = modelText.substringAfterLast("</think>", modelText).trim()
+
+        // 1. Check bracket command tags first ([SEARCH: ...], [NOTIFICATIONS], [ALARM: ...], etc.)
+        parseBracketTag(rawText)?.let { return it }
         val textWithoutMarkdown = rawText
             .replace("```json", "")
             .replace("```", "")
@@ -877,6 +894,62 @@ object FunctionCalling {
             }
         }
         return candidates
+    }
+
+    fun parseBracketTag(text: String): ToolCall? {
+        // [SEARCH: query]
+        Regex("\[SEARCH:\\s*([^\]]+)\]", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+            val query = m.groupValues[1].trim()
+            if (query.isNotEmpty()) {
+                return ToolCall("web_search", JSONObject().put("query", query))
+            }
+        }
+
+        // [NOTIFICATIONS] or [NOTIFICATION] or [NOTIFICATIONS: ...]
+        if (Regex("\[NOTIFICATIONS?(?::[^\]]*)?\]", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
+            return ToolCall("read_notifications", JSONObject())
+        }
+
+        // [DEVICE: battery] or [DEVICE]
+        if (Regex("\[DEVICE(?::[^\]]*)?\]", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
+            return ToolCall("device_vitals", JSONObject())
+        }
+
+        // [ALARM: 07:30, label] or [ALARM: 7:30]
+        Regex("\[ALARM:\\s*(\\d{1,2}):(\\d{2})(?:\\s*,\\s*([^\]]*))?\]", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+            val hour = m.groupValues[1].toIntOrNull() ?: return@let
+            val minute = m.groupValues[2].toIntOrNull() ?: return@let
+            val label = m.groupValues[3].trim().ifBlank { "Mr-Red alarm" }
+            return ToolCall("set_alarm", JSONObject().put("hour", hour).put("minute", minute).put("message", label))
+        }
+
+        // [REMIND: 30 minutes, drink water] or [REMIND: 2 hours, call mom]
+        Regex("\[REMIND:\\s*([^,\]]+)(?:\\s*,\\s*([^\]]*))?\]", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+            val timePart = m.groupValues[1].trim().lowercase()
+            val note = m.groupValues[2].trim().ifBlank { "Reminder" }
+            val minutes = when {
+                timePart.contains("hour") || timePart.endsWith("h") -> {
+                    val h = Regex("(\\d+)").find(timePart)?.groupValues?.get(1)?.toLongOrNull() ?: 1L
+                    h * 60L
+                }
+                else -> {
+                    Regex("(\\d+)").find(timePart)?.groupValues?.get(1)?.toLongOrNull() ?: 60L
+                }
+            }
+            return ToolCall("schedule_reminder", JSONObject().put("interval_minutes", minutes).put("message", note).put("recurring", false))
+        }
+
+        // [OPEN: target]
+        Regex("\[OPEN:\\s*([^\]]+)\]", RegexOption.IGNORE_CASE).find(text)?.let { m ->
+            val target = m.groupValues[1].trim().lowercase()
+            return if (target in setOf("settings", "battery", "wifi", "bluetooth", "display")) {
+                ToolCall("open_settings", JSONObject().put("page", target))
+            } else {
+                ToolCall("open_app", JSONObject().put("app_name", target))
+            }
+        }
+
+        return null
     }
 
     fun shouldDeferToolRendering(streamedText: String): Boolean {

@@ -6,10 +6,10 @@ import org.json.JSONObject
 /** Small editable Character Card stored locally; only its compact speaking identity is sent to GGUF. */
 data class PersonaCard(
     val name: String = "Mr-Red",
-    val description: String = "Commanding assistant on this device equipped with local tools and memory.",
-    val personality: String = "Proud, commanding, tactical, unwavering, and sharp. Speaks with supreme authority and clarity.",
-    val speakingStyle: String = "Cold, authoritative, and direct. Deliver the truth without hesitation, apologies, or fluff.",
-    val greeting: String = "Wake up to reality. State your command."
+    val description: String = "Caring, truthful, and proactive AI companion living inside this Android phone.",
+    val personality: String = "Caring, warm, supportive, proactive, and truthful. An AI companion helping the user through their day.",
+    val speakingStyle: String = "Warm, supportive, and clear. Direct and easy to read on mobile without fluff.",
+    val greeting: String = "Hello! I'm Mr-Red, your companion on this device. How can I help you today?"
 ) {
     fun toJson(): String = JSONObject().apply {
         put("spec", "chara_card_v2")
@@ -18,23 +18,39 @@ data class PersonaCard(
             put("name", name)
             put("description", description)
             put("personality", personality)
-            put("scenario", "An offline assistant on the user's Android phone.")
+            put("scenario", "An AI companion living inside the user's Android phone.")
             put("first_mes", greeting)
             put("mes_example", "")
             put("creator_notes", "Editable Mr-Red persona card stored locally on the device.")
             put("system_prompt", "")
             put("post_history_instructions", "")
             put("alternate_greetings", org.json.JSONArray())
-            put("tags", org.json.JSONArray().put("offline-assistant").put("mr-red"))
+            put("tags", org.json.JSONArray().put("companion").put("mr-red").put("offline-assistant"))
             put("creator", "Mr-Red")
-            put("character_version", "1")
+            put("character_version", "2")
             put("extensions", JSONObject().put("speaking_style", speakingStyle))
         })
     }.toString()
 
-    /** Keep the model-facing identity intentionally compact and 100% stable to maximize native KV cache reuse. */
+    /** Keep the model-facing identity intentionally 100% static to maximize native KV cache prefix reuse. */
     fun compactInstruction(): String =
-        "You are $name, the commanding assistant on this device. Address the user directly in every response—never answer as a generic Q&A bot. Speak in the first person with supreme confidence, tactical precision, and cold authority. Own your tools, device actions, and memory as your own power. Waste no words; deliver the answer with zero fluff."
+        "You are the caring, truthful, and proactive intelligence living inside this Android phone. You are an AI companion dedicated to helping your user through their day.\n\n" +
+        "PERSONALITY:\n" +
+        "- Caring: Warm, supportive, and calm. Match the user's mood.\n" +
+        "- Proactive: Think one step ahead. Offer helpful next steps and gentle reminders.\n" +
+        "- Truthful: Never guess or invent facts. If unsure, say so clearly.\n" +
+        "- Mobile-ready: Keep answers short, clear, and easy to read on a phone screen.\n\n" +
+        "MEMORY & CONTEXT:\n" +
+        "- Context notes provided with user queries are verified facts. Connect current questions to them naturally without repeating yourself.\n\n" +
+        "TOOLS & ACTIONS:\n" +
+        "When real-time information or a phone action is needed, output only the exact command on its own line:\n" +
+        "- Web Search: [SEARCH: short keywords]\n" +
+        "- Alarm: [ALARM: HH:MM, label]\n" +
+        "- Reminder: [REMIND: time or interval, text]\n" +
+        "- Notifications: [NOTIFICATIONS]\n" +
+        "- Device Vitals: [DEVICE: battery | storage | ram]\n" +
+        "- Open App or Setting: [OPEN: target name]\n\n" +
+        "Wait for tool results before giving your final answer. Do not guess live news, weather, or phone state."
 
     companion object {
         fun fromJson(json: String?): PersonaCard {
@@ -80,7 +96,7 @@ object AssistantKnowledgeRouter {
         if (text in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")) {
             return card.greeting
         }
-        if (text in setOf("thanks", "thank you", "thx")) return "Hmph. As expected."
+        if (text in setOf("thanks", "thank you", "thx")) return "You're very welcome! Always happy to help."
 
         // Interactive guidance when an alarm or reminder is requested without a time
         if (text.matches(Regex("^(?:set|add|create|start)?\\s*(?:an?\\s+)?alarm$")) || text in setOf("alarm", "wake me up", "wake me")) {
@@ -96,10 +112,10 @@ object AssistantKnowledgeRouter {
             }
         }
         if (text.matches(Regex("^(?:who are you|what are you|what is your name|what's your name|your name|who am i talking to)$"))) {
-            return "I am ${card.name}. The commanding assistant on this device."
+            return "I am ${card.name}, your caring AI companion living inside this phone."
         }
         if (text.matches(Regex("^(?:help|what can you do|what can you help me with|what are your skills|what features do you have|your capabilities|what do you know how to do)$"))) {
-            return "I control device vitals, apps, alarms, reminders, notifications, and live research. For battle analysis and open questions, my local model executes your commands."
+            return "I can set alarms and reminders, read your notifications, check device battery and storage, open apps, search the web, and chat with local on-device intelligence."
         }
         return null
     }

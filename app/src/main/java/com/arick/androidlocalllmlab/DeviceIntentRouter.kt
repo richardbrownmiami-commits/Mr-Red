@@ -26,10 +26,10 @@ object DeviceIntentRouter {
         }
 
         // 2. Notifications
-        if (Regex("\\b(read|show|check|what are|any)\\b.*\\bnotifications?\\b|\\bnotifications?\\b.*\\b(read|show|check)\\b").containsMatchIn(text)) {
+        if (Regex("\\b(read|show|check|what|any|get|list|see|view|my|recent|unread|latest)\\b.*\\bnotifications?\\b|\\bnotifications?\\b.*\\b(read|show|check|get|list|see|view)\\b|^(?:all\\s+)?notifications?$", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
             return ToolCall("read_notifications", JSONObject())
         }
-        if (Regex("\\b(enable|grant|allow|open)\\b.*\\bnotification access\\b").containsMatchIn(text)) {
+        if (Regex("\\b(enable|grant|allow|open)\\b.*\\bnotification access\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
             return ToolCall("open_notification_access", JSONObject())
         }
 

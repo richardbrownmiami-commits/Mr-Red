@@ -74,6 +74,10 @@ class DeviceIntentRouterTest {
 
     @Test fun routesNotificationRequestsButNotUnrelatedChat() {
         assertEquals("read_notifications", DeviceIntentRouter.route("read my notifications")?.name)
+        assertEquals("read_notifications", DeviceIntentRouter.route("notifications")?.name)
+        assertEquals("read_notifications", DeviceIntentRouter.route("check notifications")?.name)
+        assertEquals("read_notifications", DeviceIntentRouter.route("what notifications do i have")?.name)
+        assertEquals("read_notifications", DeviceIntentRouter.route("recent notifications")?.name)
         assertEquals("open_notification_access", DeviceIntentRouter.route("open notification access")?.name)
         assertNull(DeviceIntentRouter.route("Explain how Android notifications work"))
         assertNull(DeviceIntentRouter.route("Tell me a story about the weather"))

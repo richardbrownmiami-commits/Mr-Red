@@ -229,4 +229,43 @@ class FunctionCallingTest {
         assertEquals("https://news.google.com/articles/1", items[0].link)
         assertEquals("Android 16 & New Features", items[1].title)
     }
+
+    @Test
+    fun parseToolCall_bracketCommandTags() {
+        val search = FunctionCalling.parseToolCall("[SEARCH: weather in Miami]")
+        assertNotNull(search)
+        assertEquals("web_search", search?.name)
+        assertEquals("weather in Miami", search?.arguments?.optString("query"))
+
+        val notifs = FunctionCalling.parseToolCall("[NOTIFICATIONS]")
+        assertNotNull(notifs)
+        assertEquals("read_notifications", notifs?.name)
+
+        val vitals = FunctionCalling.parseToolCall("[DEVICE: battery]")
+        assertNotNull(vitals)
+        assertEquals("device_vitals", vitals?.name)
+
+        val alarm = FunctionCalling.parseToolCall("[ALARM: 07:30, morning wake up]")
+        assertNotNull(alarm)
+        assertEquals("set_alarm", alarm?.name)
+        assertEquals(7, alarm?.arguments?.optInt("hour"))
+        assertEquals(30, alarm?.arguments?.optInt("minute"))
+        assertEquals("morning wake up", alarm?.arguments?.optString("message"))
+
+        val remind = FunctionCalling.parseToolCall("[REMIND: 30 minutes, drink water]")
+        assertNotNull(remind)
+        assertEquals("schedule_reminder", remind?.name)
+        assertEquals("drink water", remind?.arguments?.optString("message"))
+        assertEquals(30L, remind?.arguments?.optLong("interval_minutes"))
+
+        val openApp = FunctionCalling.parseToolCall("[OPEN: whatsapp]")
+        assertNotNull(openApp)
+        assertEquals("open_app", openApp?.name)
+        assertEquals("whatsapp", openApp?.arguments?.optString("app_name"))
+
+        val openSettings = FunctionCalling.parseToolCall("[OPEN: battery]")
+        assertNotNull(openSettings)
+        assertEquals("open_settings", openSettings?.name)
+        assertEquals("battery", openSettings?.arguments?.optString("page"))
+    }
 }
