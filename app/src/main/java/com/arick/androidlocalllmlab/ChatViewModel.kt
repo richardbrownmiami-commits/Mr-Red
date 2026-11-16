@@ -88,6 +88,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
     private val conversationDatabase = ConversationDatabase(application)
+    private val persistentMemoryStore = PersistentMemoryStore(application)
     private val personaCardStore = PersonaCardStore(application)
     private val _personaCard = MutableStateFlow(personaCardStore.load())
     val personaCard: StateFlow<PersonaCard> = _personaCard.asStateFlow()
@@ -298,6 +299,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value) return
 
+        // Explicit user-directed memory commands are handled locally and persisted on-device.
+        val rememberMatch = Regex("""^\\s*remember\\s+(?:that\\s+)?(.+)$""", RegexOption.IGNORE_CASE).find(prompt)
+        if (rememberMatch != null) {
+            val fact = rememberMatch.groupValues[1].trim().take(240)
+            if (fact.isNotBlank()) {
+                viewModelScope.launch(Dispatchers.IO) { persistentMemoryStore.remember(fact) }
+                appendLocalAssistantTurn(prompt, "I'll remember that: $fact", "Saved to on-device memory")
+            }
+            return
+        }
+        if (Regex("""^\\s*forget\\s+(?:everything|all|what)\\b""", RegexOption.IGNORE_CASE).containsMatchIn(prompt)) {
+            viewModelScope.launch(Dispatchers.IO) { persistentMemoryStore.clear() }
+            appendLocalAssistantTurn(prompt, "I've cleared the saved personal memory on this device.", "Cleared on-device memory")
+            return
+        }
+
         // Deterministic device actions and lookups are routed by Kotlin FIRST.
         DeviceIntentRouter.route(prompt)?.let { toolCall ->
             if (isResearchTool(toolCall.name) && _uiState.value is ChatUiState.Ready) {
@@ -349,10 +366,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
+                val savedFacts = withContext(Dispatchers.IO) {
+                    persistentMemoryStore.findRelevant(prompt, limit = 5)
+                }
+                val promptWithMemory = if (savedFacts.isEmpty()) nativeUserPrompt else {
+                    "Relevant saved memory (user-approved):\\n" +
+                        savedFacts.joinToString("\\n") { "- $it" } +
+                        "\\n\\nCurrent request: $nativeUserPrompt"
+                }
                 val answer = withContext(Dispatchers.Default) {
                     val trimmedHistory = buildHistoryWithinContextBudget(
                         userSystemPrompt = _systemPrompt.value.trim().takeIf { it.isNotEmpty() },
-                        currentUserPrompt = nativeUserPrompt,
+                        currentUserPrompt = promptWithMemory,
                         nCtx = actualNctx,
                         reservedOutputTokens = inferenceConfig.maxTokens
                     )
