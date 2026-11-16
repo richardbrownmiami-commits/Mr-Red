@@ -300,7 +300,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (prompt.isBlank() || _isGenerating.value) return
 
         // Explicit user-directed memory commands are handled locally and persisted on-device.
-        val rememberMatch = Regex("""^\\s*remember\\s+(?:that\\s+)?(.+)$""", RegexOption.IGNORE_CASE).find(prompt)
+        val rememberMatch = Regex("""^\s*remember\s+(?:that\s+)?(.+)$""", RegexOption.IGNORE_CASE).find(prompt)
         if (rememberMatch != null) {
             val fact = rememberMatch.groupValues[1].trim().take(240)
             if (fact.isNotBlank()) {
@@ -370,9 +370,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     persistentMemoryStore.findRelevant(prompt, limit = 5)
                 }
                 val promptWithMemory = if (savedFacts.isEmpty()) nativeUserPrompt else {
-                    "Relevant saved memory (user-approved):\\n" +
-                        savedFacts.joinToString("\\n") { "- $it" } +
-                        "\\n\\nCurrent request: $nativeUserPrompt"
+                    "Relevant saved memory (user-approved):\n" +
+                        savedFacts.joinToString("\n") { "- $it" } +
+                        "\n\nCurrent request: $nativeUserPrompt"
                 }
                 val answer = withContext(Dispatchers.Default) {
                     val trimmedHistory = buildHistoryWithinContextBudget(
