@@ -292,14 +292,6 @@ namespace {
             };
         }
 
-        int countChatPromptTokens(const std::vector<ChatMessage> &history) const {
-            const std::string prompt = formatChatPrompt(history);
-            if (prompt.empty()) {
-                return 0;
-            }
-            return static_cast<int>(tokenize(prompt, true).size());
-        }
-
         int prefill(const std::vector<llama_token> &tokens, size_t startIndex) {
             if (context_ == nullptr || tokens.empty()) {
                 return 0;
@@ -674,60 +666,6 @@ NativeRuntime *toRuntime(jlong handle) {
     return reinterpret_cast<NativeRuntime *>(handle);
 }
 
-// Kotlin 的 List<ChatMessage> 会以两个并行 String 数组传进 JNI。两个入口（计数、
-// 生成）共用此转换，确保它们看到的是同一组 role/content。
-bool readChatHistory(
-        JNIEnv *env,
-        jobjectArray roles,
-        jobjectArray contents,
-        std::vector<ChatMessage> *history) {
-    if (roles == nullptr || contents == nullptr || history == nullptr) {
-        return false;
-    }
-
-    const jsize messageCount = env->GetArrayLength(roles);
-    if (messageCount == 0 || messageCount != env->GetArrayLength(contents)) {
-        return false;
-    }
-
-    history->clear();
-    history->reserve(static_cast<size_t>(messageCount));
-    for (jsize index = 0; index < messageCount; ++index) {
-        auto *role = static_cast<jstring>(env->GetObjectArrayElement(roles, index));
-        auto *content = static_cast<jstring>(env->GetObjectArrayElement(contents, index));
-        if (role == nullptr || content == nullptr) {
-            if (role != nullptr) {
-                env->DeleteLocalRef(role);
-            }
-            if (content != nullptr) {
-                env->DeleteLocalRef(content);
-            }
-            return false;
-        }
-
-        const char *roleChars = env->GetStringUTFChars(role, nullptr);
-        const char *contentChars = env->GetStringUTFChars(content, nullptr);
-        if (roleChars == nullptr || contentChars == nullptr) {
-            if (roleChars != nullptr) {
-                env->ReleaseStringUTFChars(role, roleChars);
-            }
-            if (contentChars != nullptr) {
-                env->ReleaseStringUTFChars(content, contentChars);
-            }
-            env->DeleteLocalRef(role);
-            env->DeleteLocalRef(content);
-            return false;
-        }
-
-        history->push_back({roleChars, contentChars});
-        env->ReleaseStringUTFChars(role, roleChars);
-        env->ReleaseStringUTFChars(content, contentChars);
-        env->DeleteLocalRef(role);
-        env->DeleteLocalRef(content);
-    }
-    return true;
-}
-
 extern "C"
 JNIEXPORT jlong JNICALL
 Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeCreateRuntime(
@@ -940,23 +878,6 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeTokenize(
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeCountChatPromptTokens(
-        JNIEnv *env,
-        jobject /* thiz */,
-        jlong handle,
-        jobjectArray roles,
-        jobjectArray contents) {
-    auto *runtime = toRuntime(handle);
-    std::vector<ChatMessage> history;
-    if (runtime == nullptr || !readChatHistory(env, roles, contents, &history)) {
-        return 0;
-    }
-
-    return runtime->countChatPromptTokens(history);
-}
-
-extern "C"
-JNIEXPORT jint JNICALL
 Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativePrefill(
         JNIEnv *env,
         jobject /* thiz */,
@@ -1029,8 +950,7 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeGenerate(
         JNIEnv *env,
         jobject /* thiz */,
         jlong handle,
-        jobjectArray roles,
-        jobjectArray contents,
+        jstring prompt,
         jint maxTokens,
         jfloat temperature,
         jint topK,
@@ -1044,10 +964,16 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeGenerate(
         return env->NewStringUTF("");
     }
 
-    std::vector<ChatMessage> history;
-    if (!readChatHistory(env, roles, contents, &history)) {
+    if (prompt == nullptr) {
         return env->NewStringUTF("");
     }
+    const char *promptChars = env->GetStringUTFChars(prompt, nullptr);
+    if (promptChars == nullptr) {
+        return env->NewStringUTF("");
+    }
+    // The native interface accepts one current user question only; no role arrays or prior turns.
+    std::vector<ChatMessage> history{{"user", promptChars}};
+    env->ReleaseStringUTFChars(prompt, promptChars);
 
     jclass callbackClass = env->GetObjectClass(generationCallback);
     jmethodID onPromptMethod = callbackClass == nullptr
