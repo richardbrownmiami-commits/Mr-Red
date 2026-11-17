@@ -1,29 +1,39 @@
-# Mr-Red — Offline AI & Device Automation Agent for Android (ARMv7 32-bit)
+# Mr-Red — Minimal GGUF Runtime & Android Device Utilities
 
-Mr-Red is an offline Android LLM lab and device automation agent specifically ported and optimized for **32-bit ARMv7 (`armeabi-v7a`)** devices running **Android 11 (API 30+)** such as the Redmi 9.
+Mr-Red is an offline Android application for loading local GGUF models and running inference on 32-bit ARMv7 (`armeabi-v7a`) devices running Android 11 (API 30+).
 
-## Architecture
+## GGUF inference path
 
-- **In-App LLM Runtime**: Direct JNI bridge (`native_llm`) to pinned `llama.cpp` with ARMv7 NEON hardware acceleration (`-mfpu=neon-vfpv4 -mfloat-abi=softfp`).
-- **32-Bit Address Space Hardening**:
-  - Conservative KV cache: default `n_ctx = 512` (options 256, 512, 1024, 2048).
-  - Scratch memory caps: `n_batch = 64`, `n_ubatch = 32`, `no_perf = true`.
-  - Memory-mapped GGUF loading (`use_mmap = true`, `use_mlock = false`).
-- **Tool Calling & Device Automation**:
-  - `open_settings`: Quick access to WiFi, Bluetooth, Battery, Display, and System settings.
-  - `open_app`: Fuzzy launcher for installed packages (WhatsApp, YouTube, Chrome, Maps, Camera, etc.).
-  - `send_message`: WhatsApp direct link draft & SMS composer.
-  - `make_call`: Phone dialer launcher.
-  - `set_timer`: Countdown timer launcher.
-  - `device_vitals`: Real-time battery %, available storage, and free/total RAM.
-  - `get_weather`: Open-Meteo weather forecasts.
-  - `web_search`: Tavily API search with DuckDuckGo fallback.
+The chat inference path is deliberately single-turn:
 
-## Build Requirements
+1. Import or restore one GGUF model.
+2. Load the model and allocate its llama.cpp context.
+3. Send only the current user question through the model's native GGUF chat template.
+4. Stream the model's current answer back to the chat UI.
 
-- JDK 17
-- Android SDK (API 35, minSdk 30)
-- Android NDK 26.3.11579264
-- CMake 3.22.1
+The GGUF request does not include prior chat turns, persisted conversation history, rolling summaries, saved personal memory, a character/persona card, app-authored system prompts, model-generated tool calls, or reconstructed context. Chat display is limited to the active turn and is not persisted. The model's own GGUF chat template remains enabled because it is part of the model's inference format.
 
-Run `./gradlew assembleRelease` to generate `app/build/outputs/apk/release/Mr-Red-release-armeabi-v7a.apk`.
+Sampling configuration, context size, CPU thread settings, tokenization, native model loading, inference, cancellation, and runtime diagnostics remain configurable.
+
+## Independent Android utilities
+
+Phone actions are handled locally by Kotlin and are separate from GGUF inference. Existing device utilities include alarms, reminders, notifications, app/settings launch, calls, timers, device vitals, weather, and web search. These local utilities do not append instructions or tool results to a model prompt.
+
+## Native runtime
+
+- Direct JNI bridge (`native_llm`) to pinned `llama.cpp`.
+- ARMv7 NEON hardware acceleration (`-mfpu=neon-vfpv4 -mfloat-abi=softfp`).
+- Memory-mapped GGUF loading (`use_mmap = true`, `use_mlock = false`).
+- Conservative context and batch settings for 32-bit address-space constraints.
+- Release APK packaging restricted to `armeabi-v7a`.
+
+## Build
+
+The repository's GitHub Actions workflow installs JDK 17, Android SDK/NDK, and CMake, runs unit tests, builds the release APK, and verifies that only ARMv7 native libraries are packaged.
+
+Locally, run:
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleRelease
+```
