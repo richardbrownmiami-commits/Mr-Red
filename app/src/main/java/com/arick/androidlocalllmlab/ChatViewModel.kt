@@ -213,10 +213,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val modelName = withContext(Dispatchers.Default) {
             runtime.modelMetadata("general.name")
         }
-        // Default thinking mode based on model capability.
-        if ("$modelName $modelDescription".contains("instruct-2507", ignoreCase = true)) {
-            _thinkingEnabled.value = false
-        }
         // Every GGUF request starts from the current user message; no saved chat is restored.
         _promptTokenCount.value = 0
         _generationProgress.value = null
@@ -252,9 +248,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val userMessage = ChatMessage(MessageRole.User, prompt)
         _messages.value = listOf(userMessage, ChatMessage(MessageRole.Assistant, ""))
         _generationError.value = null
-        _finalPrompt.value = ""
         _promptTokenCount.value = 0
-        _trimmedHistoryTurnCount.value = 0
         _generationProgress.value = "Preparing current question…"
         _generationMetrics.value = null
         runtime.resetStopRequest()
@@ -269,7 +263,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     runtime.generate(
                         messages = listOf(userMessage),
                         inferenceConfig = inferenceConfig,
-                        onPrompt = { _, tokenCount ->
+                        onPrompt = { formattedPrompt, tokenCount ->
                             _promptTokenCount.value = tokenCount
                             _generationProgress.value = "Prefilling $tokenCount tokens…"
                             templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
@@ -345,32 +339,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     sourceLinks = sources
                 )
                 _messages.value = _messages.value.dropLast(1) + assistant
-                withContext(Dispatchers.IO) {
-                }
-                val actionFact = when (call.name) {
-                    "set_alarm" -> "Alarm set for ${call.arguments.optString("time").ifBlank { "scheduled time" }}"
-                    "dismiss_alarm" -> "Alarm dismissed"
-                    "schedule_reminder" -> {
-                        val note = call.arguments.optString("note").ifBlank { call.arguments.optString("task") }
-                        val time = call.arguments.optString("time").ifBlank { call.arguments.optString("delay_minutes") }
-                        "Reminder set: $note $time".trim()
-                    }
-                    "cancel_reminders" -> "Reminders cancelled"
-                    "get_battery_info" -> "Battery checked"
-                    "get_storage_info" -> "Storage checked"
-                    "get_ram_info" -> "RAM checked"
-                    "device_vitals" -> "Device vitals checked"
-                    "read_notifications" -> "Notifications checked"
-                    "open_app" -> "Opened app ${call.arguments.optString("app_name").ifBlank { call.arguments.optString("package_name") }}".trim()
-                    "open_settings" -> "Opened settings ${call.arguments.optString("page")}".trim()
-                    else -> "${call.name} executed"
-                }
             } catch (error: Throwable) {
                 _generationError.value = error.message ?: "Device request failed"
                 val assistant = ChatMessage(MessageRole.Assistant, error.message ?: "Device request failed")
                 _messages.value = _messages.value.dropLast(1) + assistant
-                withContext(Dispatchers.IO) {
-                }
             } finally {
                 _generationProgress.value = null
                 _isGenerating.value = false
