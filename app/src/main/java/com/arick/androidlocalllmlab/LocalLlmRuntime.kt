@@ -156,27 +156,6 @@ class LocalLlmRuntime : AutoCloseable {
         )
     }
 
-    /**
-     * Applies GGUF Chat Template first, then computes actual prompt token count.
-     * Token count used for context history trimming.
-     */
-    fun countChatPromptTokens(messages: List<ChatMessage>): Int {
-        check(nativeHandle != 0L) { "Runtime has not been created" }
-        check(messages.isNotEmpty()) { "messages must not be empty" }
-
-        return NativeLlmBridge.nativeCountChatPromptTokens(
-            handle = nativeHandle,
-            roles = messages.map { message ->
-                when (message.role) {
-                    MessageRole.System -> "system"
-                    MessageRole.User -> "user"
-                    MessageRole.Assistant -> "assistant"
-                }
-            }.toTypedArray(),
-            contents = messages.map(ChatMessage::toNativeContent).toTypedArray()
-        )
-    }
-
     fun prefill(tokenIds: IntArray): Int {
         check(nativeHandle != 0L) { "Runtime has not been created" }
 
@@ -197,26 +176,18 @@ class LocalLlmRuntime : AutoCloseable {
     }
 
     fun generate(
-        messages: List<ChatMessage>,
+        prompt: String,
         inferenceConfig: InferenceConfig,
         onPrompt: (String, Int) -> Unit,
         onToken: (String) -> Unit,
         onMetrics: (GenerationMetrics) -> Unit
     ): String {
         check(nativeHandle != 0L) { "Runtime has not been created" }
-        check(messages.isNotEmpty()) { "messages must not be empty" }
         check(inferenceConfig.maxTokens > 0) { "maxTokens must be positive" }
 
         return NativeLlmBridge.nativeGenerate(
             handle = nativeHandle,
-            roles = messages.map { message ->
-                when (message.role) {
-                    MessageRole.System -> "system"
-                    MessageRole.User -> "user"
-                    MessageRole.Assistant -> "assistant"
-                }
-            }.toTypedArray(),
-            contents = messages.map(ChatMessage::toNativeContent).toTypedArray(),
+            prompt = prompt,
             maxTokens = inferenceConfig.maxTokens,
             temperature = inferenceConfig.temperature,
             topK = inferenceConfig.topK,
