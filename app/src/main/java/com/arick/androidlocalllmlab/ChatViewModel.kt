@@ -247,6 +247,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value) return
 
+        // Record the user's actual question so the on-device summary can show what was asked.
+        // Generated answer content is deliberately not logged.
+        ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
+
         // Keep phone actions local; they are not injected into GGUF inference.
         DeviceIntentRouter.route(prompt)?.let { call ->
             executeRoutedDeviceRequest(prompt, call)
