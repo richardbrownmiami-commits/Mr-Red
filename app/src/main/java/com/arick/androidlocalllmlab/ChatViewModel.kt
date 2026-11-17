@@ -106,7 +106,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val promptTokenCount: StateFlow<Int> = _promptTokenCount.asStateFlow()
 
     // Default context window sizing.
-    private val _requestedNctx = MutableStateFlow(512)
+    private val _requestedNctx = MutableStateFlow(1048)
     val requestedNctx: StateFlow<Int> = _requestedNctx.asStateFlow()
 
     // CPU threads bounded by available processor cores.
@@ -338,7 +338,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val historySnapshot = synchronized(conversationHistory) { conversationHistory.toList() }
                     // Use the logger's underlying recent exchanges, not text parsed from the
                     // lossy, human-readable Settings summary.
-                    val memorySummary = ActivityLogger.promptMemory(getApplication())
+                    val rawMemorySummary = ActivityLogger.promptMemory(getApplication())
+                    // Hard cap logger context at 240 actual model tokens, not characters.
+                    // This keeps memory compact and prevents it crowding out the current turn.
+                    val memorySummary = trimMemoryToTokenBudget(rawMemorySummary, 240)
                     val promptMessages = buildPromptMessages(
                         currentQuestion = prompt,
                         history = historySnapshot,
@@ -406,6 +409,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * Builds role-separated GGUF messages. Logger memory is prioritized; recent verbatim
      * turns are added when they fit. The current question is always retained.
      */
+    private fun trimMemoryToTokenBudget(memory: String, maxTokens: Int): String {
+        if (memory.isBlank() || maxTokens <= 0) return ""
+        val words = memory.trim().split(Regex("\\s+"))
+        var low = 0
+        var high = words.size
+        var best = ""
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            val candidate = words.take(mid).joinToString(" ")
+            val tokenCount = if (candidate.isBlank()) 0 else runtime.tokenize(candidate).size
+            if (tokenCount <= maxTokens) {
+                best = candidate
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return best
+    }
+
     private fun buildPromptMessages(
         currentQuestion: String,
         history: List<Pair<String, String>>,
@@ -422,7 +445,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         """.trimIndent()
 
         var retainedHistory = history.takeLast(8)
-        var retainedMemory = memorySummary.trim().take(1000)
+        var retainedMemory = memorySummary.trim()
         while (true) {
             val systemContent = if (retainedMemory.isBlank()) {
                 systemInstructions
