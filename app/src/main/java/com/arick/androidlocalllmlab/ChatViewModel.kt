@@ -318,6 +318,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 ActivityLogger.record(getApplication(), "INFERENCE", "request_completed", "Model generation completed")
             } catch (error: Throwable) {
                 ActivityLogger.record(getApplication(), "ERROR", "inference_failed", error.javaClass.simpleName)
+                ActivityLogger.record(getApplication(), "ANSWER", "generated", error.message ?: "Mr-Red could not complete the response.")
                 _generationError.value = error.message ?: "Generation failed"
             } finally {
                 _generationProgress.value = null
@@ -483,6 +484,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 check(actualNctx > 0) { "Context allocation failed" }
 
                 _requestedNctx.value = requestedNctx
+                ActivityLogger.record(getApplication(), "SETTINGS", "context_window_changed", "Context window set to $actualNctx tokens")
                 // Adjust output reservation when n_ctx shrinks.
                 val safeMaxTokens = defaultMaxTokensFor(actualNctx)
                 _inferenceConfig.value = _inferenceConfig.value.copy(
@@ -508,6 +510,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _cpuThreads.value = threads
+        ActivityLogger.record(getApplication(), "SETTINGS", "cpu_threads_changed", "CPU threads set to $threads")
         if (_uiState.value is ChatUiState.Ready) {
             viewModelScope.launch {
                 withContext(Dispatchers.Default) {
@@ -534,6 +537,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             config.maxTokens
         }
         _inferenceConfig.value = config.copy(maxTokens = safeMaxTokens)
+        ActivityLogger.record(getApplication(), "SETTINGS", "inference_config_changed", "Sampling and generation settings updated")
     }
 
     private fun splitAssistantResponse(
@@ -597,6 +601,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _isStopRequested.value = true
+        ActivityLogger.record(getApplication(), "INFERENCE", "stop_requested", "User requested generation stop")
         // Set native atomic cancellation flag so native loop safely exits.
         // Native generation terminates at next safe token boundary.
         runtime.requestStop()
@@ -611,6 +616,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _messages.value = emptyList()
         clearLastPromptState()
         _generationError.value = null
+        ActivityLogger.record(getApplication(), "UI", "conversation_cleared", "Current chat view cleared")
     }
 
     /**
@@ -625,6 +631,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Default) {
                 runtime.resetContext()
             }
+            ActivityLogger.record(getApplication(), "INFERENCE", "context_reset", "Native inference context reset")
             clearLastPromptState()
             _generationError.value = null
         }
@@ -641,6 +648,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 // Native cleanup order: Context -> Model -> llama backend.
                 runtime.close()
             }
+            ActivityLogger.record(getApplication(), "MODEL", "model_released", "Native model and context released")
             _memorySnapshots.value = _memorySnapshots.value.copy(
                 afterModelReleased = takeMemorySnapshot()
             )
