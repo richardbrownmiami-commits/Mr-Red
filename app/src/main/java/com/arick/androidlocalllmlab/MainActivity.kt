@@ -1077,7 +1077,6 @@ private fun SettingsPage(
     val requestedNctx by viewModel.requestedNctx.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
     val inferenceConfig by viewModel.inferenceConfig.collectAsState()
-    val thinkingEnabled by viewModel.thinkingEnabled.collectAsState()
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val modelPreparationMetrics by viewModel.modelPreparationMetrics.collectAsState()
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
@@ -1137,12 +1136,6 @@ private fun SettingsPage(
                 title = "CPU Threads",
                 summary = "$cpuThreads threads",
                 onClick = { showCpuThreadsDialog = true }
-            )
-            SettingsSwitchRow(
-                title = "Qwen3 Thinking Mode",
-                subtitle = "Generate reasoning before final response",
-                checked = thinkingEnabled,
-                onCheckedChange = viewModel::updateThinkingEnabled
             )
             SettingsRow(
                 title = "Sampling Parameters",
