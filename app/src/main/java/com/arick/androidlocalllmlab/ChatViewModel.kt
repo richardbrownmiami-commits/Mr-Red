@@ -307,7 +307,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun executeRoutedDeviceRequest(prompt: String, call: ToolCall) {
         val userMessage = ChatMessage(MessageRole.User, prompt)
         val startedAt = System.nanoTime()
-        _messages.value = _messages.value.filter { it.content.isNotBlank() } + listOf(
+        _messages.value = listOf(
             userMessage,
             ChatMessage(MessageRole.Assistant, "", agentTrace = listOf(AgentTraceItem("Handled locally: ${call.name}")))
         )
