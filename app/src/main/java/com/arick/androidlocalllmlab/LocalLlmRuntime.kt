@@ -178,6 +178,7 @@ class LocalLlmRuntime : AutoCloseable {
     fun generate(
         prompt: String,
         inferenceConfig: InferenceConfig,
+        contextWindowTokens: Int,
         onPrompt: (String, Int) -> Unit,
         onToken: (String) -> Unit,
         onMetrics: (GenerationMetrics) -> Unit
@@ -185,6 +186,7 @@ class LocalLlmRuntime : AutoCloseable {
         check(nativeHandle != 0L) { "Runtime has not been created" }
         check(inferenceConfig.maxTokens > 0) { "maxTokens must be positive" }
 
+        var actualPromptTokenCount = 0
         return NativeLlmBridge.nativeGenerate(
             handle = nativeHandle,
             prompt = prompt,
@@ -196,8 +198,10 @@ class LocalLlmRuntime : AutoCloseable {
             repeatPenalty = inferenceConfig.repeatPenalty,
             seed = inferenceConfig.seed,
             generationCallback = object : NativeGenerationCallback {
-                override fun onPrompt(prompt: String, tokenCount: Int) =
+                override fun onPrompt(prompt: String, tokenCount: Int) {
+                    actualPromptTokenCount = tokenCount
                     onPrompt(prompt, tokenCount)
+                }
 
                 override fun onToken(piece: String) = onToken(piece)
 
@@ -211,6 +215,8 @@ class LocalLlmRuntime : AutoCloseable {
                 ) = onMetrics(
                     GenerationMetrics(
                         generatedTokenCount = generatedTokenCount,
+                        promptTokenCount = actualPromptTokenCount,
+                        contextWindowTokens = contextWindowTokens,
                         reusedPromptTokenCount = reusedPromptTokenCount,
                         prefillMillis = prefillMillis,
                         firstTokenMillis = firstTokenMillis,
@@ -244,6 +250,10 @@ data class InferenceConfig(
 /** Native inference duration in milliseconds. */
 data class GenerationMetrics(
     val generatedTokenCount: Int,
+    /** Full tokenized prompt, including the model chat template. */
+    val promptTokenCount: Int,
+    /** Allocated llama.cpp context capacity for this inference. */
+    val contextWindowTokens: Int,
     /** Number of tokens already cached in native KV cache. */
     val reusedPromptTokenCount: Int,
     val prefillMillis: Long,
@@ -251,6 +261,12 @@ data class GenerationMetrics(
     val decodeMillis: Long,
     val totalMillis: Long
 ) {
+    /** Prompt tokens already present in the KV cache and retained for this request. */
+    val cachedPromptTokens: Int get() = reusedPromptTokenCount.coerceIn(0, promptTokenCount)
+    /** Prompt tokens that llama.cpp had to prefill for this request. */
+    val newlyProcessedPromptTokens: Int get() = (promptTokenCount - cachedPromptTokens).coerceAtLeast(0)
+    val contextFillPercent: Double get() = if (contextWindowTokens <= 0) 0.0 else promptTokenCount * 100.0 / contextWindowTokens
+    val prefillTokensPerSecond: Double get() = if (prefillMillis <= 0L || newlyProcessedPromptTokens == 0) 0.0 else newlyProcessedPromptTokens * 1_000.0 / prefillMillis
     val decodeTokensPerSecond: Double
         get() = if (decodeMillis <= 0L) 0.0 else generatedTokenCount * 1_000.0 / decodeMillis
 }
