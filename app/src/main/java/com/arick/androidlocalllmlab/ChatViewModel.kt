@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
 
 // Compose renders state only; does not directly manage native runtime or file I/O.
 sealed interface ChatUiState {
@@ -91,6 +93,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // Completed turns are retained in memory for the current chat session.
     // Native llama.cpp reuses the longest common prompt prefix in its KV cache.
     private val conversationHistory = mutableListOf<Pair<String, String>>()
+    private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
+    private val maxStoredTurns = 40
 
     private val _uiState = MutableStateFlow<ChatUiState>(ChatUiState.Idle)
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -143,6 +147,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         application.getSharedPreferences("local_llm_preferences", android.content.Context.MODE_PRIVATE)
             .edit().remove("summary_lines").apply()
 
+        // Restore completed turns separately from model/KV-cache lifecycle.
+        restoreConversationHistory()
         // Only the selected GGUF model is restored across app restarts.
         restoreLastModel()
     }
@@ -230,7 +236,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val modelName = withContext(Dispatchers.Default) {
             runtime.modelMetadata("general.name")
         }
-        // Every GGUF request starts from the current user message; no saved chat is restored.
+        // The conversation transcript is restored from app-private storage; native KV state is not.
         _promptTokenCount.value = 0
         _generationProgress.value = null
         _generationMetrics.value = null
@@ -246,6 +252,41 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             modelName
         )
         ActivityLogger.record(getApplication(), "MODEL", "runtime_ready", "Native model and context are ready")
+    }
+
+    private fun restoreConversationHistory() {
+        runCatching {
+            val saved = JSONArray(historyPreferences.getString("turns", "[]"))
+            val restored = mutableListOf<Pair<String, String>>()
+            for (index in 0 until saved.length()) {
+                val item = saved.optJSONObject(index) ?: continue
+                val question = item.optString("question").trim()
+                val answer = item.optString("answer").trim()
+                if (question.isNotBlank() && answer.isNotBlank()) restored += question to answer
+            }
+            synchronized(conversationHistory) {
+                conversationHistory.clear()
+                conversationHistory.addAll(restored.takeLast(maxStoredTurns))
+                _messages.value = conversationHistory.flatMap { (question, answer) ->
+                    listOf(ChatMessage(MessageRole.User, question), ChatMessage(MessageRole.Assistant, answer))
+                }
+            }
+        }.onFailure {
+            ActivityLogger.record(getApplication(), "ERROR", "chat_history_restore_failed", it.javaClass.simpleName)
+        }
+    }
+
+    // Caller must hold the conversationHistory monitor.
+    private fun persistConversationHistoryLocked() {
+        runCatching {
+            val saved = JSONArray()
+            conversationHistory.takeLast(maxStoredTurns).forEach { (question, answer) ->
+                saved.put(JSONObject().put("question", question).put("answer", answer))
+            }
+            historyPreferences.edit().putString("turns", saved.toString()).apply()
+        }.onFailure {
+            ActivityLogger.record(getApplication(), "ERROR", "chat_history_save_failed", it.javaClass.simpleName)
+        }
     }
 
     fun send(prompt: String) {
@@ -268,7 +309,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         ActivityLogger.record(getApplication(), "INFERENCE", "request_started", "Question submitted; message content omitted")
         val inferenceConfig = _inferenceConfig.value
         val userMessage = ChatMessage(MessageRole.User, prompt)
-        _messages.value = listOf(userMessage, ChatMessage(MessageRole.Assistant, ""))
+        _messages.value = _messages.value + userMessage + ChatMessage(MessageRole.Assistant, "")
         _generationError.value = null
         _promptTokenCount.value = 0
         _generationProgress.value = "Preparing current question…"
@@ -291,7 +332,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val augmentedPrompt = buildPromptWithActivitySummary(
                         currentQuestion = prompt,
                         history = historySnapshot,
-                        summary = ActivityLogger.summary(getApplication()),
                         maxPromptTokens = promptBudget
                     )
                     runtime.generate(
@@ -331,7 +371,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val finalAnswer = splitAssistantResponse(answer, templateStartsThinking).answer
                 ActivityLogger.record(getApplication(), "ANSWER", "generated", finalAnswer)
-                synchronized(conversationHistory) { conversationHistory += prompt to finalAnswer }
+                synchronized(conversationHistory) {
+                    conversationHistory += prompt to finalAnswer
+                    while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
+                    persistConversationHistoryLocked()
+                }
                 ActivityLogger.record(getApplication(), "INFERENCE", "request_completed", "Model generation completed")
             } catch (error: Throwable) {
                 ActivityLogger.record(getApplication(), "ERROR", "inference_failed", error.javaClass.simpleName)
@@ -352,7 +396,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun buildPromptWithActivitySummary(
         currentQuestion: String,
         history: List<Pair<String, String>>,
-        summary: String,
         maxPromptTokens: Int
     ): String {
         val styleInstructions = """
@@ -363,12 +406,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             they genuinely help. Do not force advice into every answer. Be honest about
             uncertainty and never invent personal experiences.
 
-            Conversation history below is background. Use it to understand references,
-            preferences and follow-up questions. The latest question is the main task.
+            Use the conversation history below to resolve references and follow-ups.
+            If a detail is absent from the history, say you do not have it. The latest
+            question is the main task.
         """.trimIndent()
 
-        var retainedHistory = history
-        var retainedSummary = summary.trim()
+        var retainedHistory = history.takeLast(8)
         while (true) {
             val transcript = retainedHistory.joinToString("\n\n") { (question, answer) ->
                 "User: $question\nMr-Red: $answer"
@@ -378,11 +421,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (transcript.isNotBlank()) {
                     append("\n\nCONVERSATION HISTORY:\n")
                     append(transcript)
-                }
-                if (retainedSummary.isNotBlank()) {
-                    append("\n\nPLATFORM ACTIVITY SUMMARY (optional background):\n")
-                    append(retainedSummary)
-                    append("\nUse this summary only when relevant; ignore it otherwise.")
                 }
                 append("\n\nCURRENT USER QUESTION:\n")
                 append(currentQuestion)
@@ -394,8 +432,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             // before shortening the summary. The user's current question is never truncated.
             if (retainedHistory.isNotEmpty()) {
                 retainedHistory = retainedHistory.drop(1)
-            } else if (retainedSummary.isNotEmpty()) {
-                retainedSummary = retainedSummary.takeLast((retainedSummary.length * 3 / 4).coerceAtLeast(0))
             } else {
                 return currentQuestion
             }
@@ -406,10 +442,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val userMessage = ChatMessage(MessageRole.User, prompt)
         val startedAt = System.nanoTime()
         ActivityLogger.record(getApplication(), "DEVICE", "action_started", "Local Android action: ${call.name}")
-        _messages.value = listOf(
-            userMessage,
+        _messages.value = _messages.value + userMessage +
             ChatMessage(MessageRole.Assistant, "", agentTrace = listOf(AgentTraceItem("Handled locally: ${call.name}")))
-        )
         _generationError.value = null
         _generationProgress.value = when (call.name) {
             "get_news", "get_weather", "web_search" -> "Checking the internet…"
@@ -439,7 +473,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 _messages.value = _messages.value.dropLast(1) + assistant
                 ActivityLogger.record(getApplication(), "ANSWER", "generated", content)
-                synchronized(conversationHistory) { conversationHistory += prompt to content }
+                synchronized(conversationHistory) {
+                    conversationHistory += prompt to content
+                    while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
+                    persistConversationHistoryLocked()
+                }
                 ActivityLogger.record(getApplication(), "DEVICE", "action_completed", "Local Android action finished: ${call.name}")
             } catch (error: Throwable) {
                 ActivityLogger.record(getApplication(), "ERROR", "device_action_failed", "${call.name}: ${error.javaClass.simpleName}")
@@ -689,7 +727,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _messages.value = emptyList()
-        synchronized(conversationHistory) { conversationHistory.clear() }
+        synchronized(conversationHistory) { conversationHistory.clear(); persistConversationHistoryLocked() }
         runtime.resetContext()
         clearLastPromptState()
         _generationError.value = null
