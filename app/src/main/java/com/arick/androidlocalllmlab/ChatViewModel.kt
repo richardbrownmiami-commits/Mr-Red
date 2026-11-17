@@ -130,6 +130,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val generationError: StateFlow<String?> = _generationError.asStateFlow()
 
     init {
+        ActivityLogger.record(application, "APP", "view_model_created", "Chat runtime initialized")
         // Retire legacy chat, personal-memory, persona and summary stores from older installs.
         application.deleteDatabase("mr_red_conversation.db")
         application.deleteDatabase("mr_red_memory.db")
@@ -147,6 +148,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        ActivityLogger.record(getApplication(), "MODEL", "import_started", "User selected a GGUF model")
         viewModelScope.launch {
             var importedFile: File? = null
             try {
@@ -158,7 +160,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 prepareModel(modelFile)
                 selectedModelStore.save(modelFile)
                 modelFileImporter.cleanOrphanModels(exceptFile = modelFile)
+                ActivityLogger.record(getApplication(), "MODEL", "import_completed", "Model loaded and selected")
             } catch (error: Throwable) {
+                ActivityLogger.record(getApplication(), "ERROR", "model_import_failed", error.javaClass.simpleName)
                 importedFile?.delete()
                 _uiState.value = ChatUiState.Error(
                     error.message ?: "Failed to load model"
@@ -195,6 +199,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun prepareModel(modelFile: File) {
+        ActivityLogger.record(getApplication(), "MODEL", "runtime_prepare_started", "Preparing native model and context")
         _uiState.value = ChatUiState.Preparing("Loading model and creating context…")
         val beforeLoad = takeMemorySnapshot()
         var afterModelLoaded: MemorySnapshot? = null
@@ -236,6 +241,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             modelDescription,
             modelName
         )
+        ActivityLogger.record(getApplication(), "MODEL", "runtime_ready", "Native model and context are ready")
     }
 
     fun send(prompt: String) {
@@ -252,6 +258,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        ActivityLogger.record(getApplication(), "INFERENCE", "request_started", "Question submitted; message content omitted")
         val inferenceConfig = _inferenceConfig.value
         val userMessage = ChatMessage(MessageRole.User, prompt)
         _messages.value = listOf(userMessage, ChatMessage(MessageRole.Assistant, ""))
@@ -304,7 +311,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         null
                     )
                 }
+                ActivityLogger.record(getApplication(), "INFERENCE", "request_completed", "Model generation completed")
             } catch (error: Throwable) {
+                ActivityLogger.record(getApplication(), "ERROR", "inference_failed", error.javaClass.simpleName)
                 _generationError.value = error.message ?: "Generation failed"
             } finally {
                 _generationProgress.value = null
@@ -317,6 +326,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun executeRoutedDeviceRequest(prompt: String, call: ToolCall) {
         val userMessage = ChatMessage(MessageRole.User, prompt)
         val startedAt = System.nanoTime()
+        ActivityLogger.record(getApplication(), "DEVICE", "action_started", "Local Android action: ${call.name}")
         _messages.value = listOf(
             userMessage,
             ChatMessage(MessageRole.Assistant, "", agentTrace = listOf(AgentTraceItem("Handled locally: ${call.name}")))
@@ -349,7 +359,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     sourceLinks = sources
                 )
                 _messages.value = _messages.value.dropLast(1) + assistant
+                ActivityLogger.record(getApplication(), "DEVICE", "action_completed", "Local Android action finished: ${call.name}")
             } catch (error: Throwable) {
+                ActivityLogger.record(getApplication(), "ERROR", "device_action_failed", "${call.name}: ${error.javaClass.simpleName}")
                 _generationError.value = error.message ?: "Device request failed"
                 val assistant = ChatMessage(MessageRole.Assistant, error.message ?: "Device request failed")
                 _messages.value = _messages.value.dropLast(1) + assistant
