@@ -401,17 +401,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         runtime.requestStop()
     }
 
-    /** Clears the current, in-memory question and answer; retains the loaded model. */
-    fun clearConversation() {
-        if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
-            return
-        }
-
-        _messages.value = emptyList()
-        clearLastPromptState()
-        _generationError.value = null
-    }
-
     /**
      * Clears the native KV cache while keeping the loaded model.
      */
