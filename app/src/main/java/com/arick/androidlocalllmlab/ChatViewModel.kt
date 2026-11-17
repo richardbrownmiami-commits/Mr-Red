@@ -297,6 +297,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     runtime.generate(
                         prompt = augmentedPrompt,
                         inferenceConfig = inferenceConfig,
+                        contextWindowTokens = readyState?.nCtx ?: 0,
                         onPrompt = { formattedPrompt, tokenCount ->
                             _promptTokenCount.value = tokenCount
                             _generationProgress.value = "Prefilling $tokenCount tokens…"
