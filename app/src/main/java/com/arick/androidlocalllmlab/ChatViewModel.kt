@@ -278,10 +278,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var templateStartsThinking = false
             try {
                 val answer = withContext(Dispatchers.Default) {
-                    // Start every request with an empty KV cache; no cross-turn context is reused.
+                    // Start every request with an empty KV cache; only the compact platform
+                    // activity summary is carried forward, not prior prompt/KV state.
                     runtime.resetContext()
+                    val readyState = _uiState.value as? ChatUiState.Ready
+                    val promptBudget = ((readyState?.nCtx ?: 512) - inferenceConfig.maxTokens - 8)
+                        .coerceAtLeast(1)
+                    val augmentedPrompt = buildPromptWithActivitySummary(
+                        currentQuestion = prompt,
+                        summary = ActivityLogger.summary(getApplication()),
+                        maxPromptTokens = promptBudget
+                    )
                     runtime.generate(
-                        prompt = prompt,
+                        prompt = augmentedPrompt,
                         inferenceConfig = inferenceConfig,
                         onPrompt = { formattedPrompt, tokenCount ->
                             _promptTokenCount.value = tokenCount
@@ -325,6 +334,43 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _isGenerating.value = false
                 _isStopRequested.value = false
             }
+        }
+    }
+
+    /**
+     * Adds a bounded, refreshed platform summary as optional background context.
+     * Token-aware trimming protects the model's configured context/output budget.
+     */
+    private fun buildPromptWithActivitySummary(
+        currentQuestion: String,
+        summary: String,
+        maxPromptTokens: Int
+    ): String {
+        val instructions = """
+            PLATFORM ACTIVITY SUMMARY (optional background; may be irrelevant):
+            %s
+
+            INSTRUCTIONS:
+            Use the activity summary only when it is relevant to the current question.
+            The current question takes priority. Do not repeat the summary or assume facts
+            that it does not establish. If the summary is irrelevant, ignore it.
+
+            CURRENT USER QUESTION:
+            %s
+        """.trimIndent()
+        var context = summary.trim()
+        while (context.isNotEmpty()) {
+            val candidate = instructions.format(context, currentQuestion)
+            if (runtime.tokenize(candidate).size <= maxPromptTokens) return candidate
+            // Keep the newest portion of the summary as the available prompt budget shrinks.
+            context = context.takeLast((context.length * 3 / 4).coerceAtLeast(0))
+        }
+        val questionOnly = instructions.format("No relevant prior activity summary available.", currentQuestion)
+        return if (runtime.tokenize(questionOnly).size <= maxPromptTokens) {
+            questionOnly
+        } else {
+            // Preserve the user's complete question rather than silently truncating it.
+            currentQuestion
         }
     }
 
