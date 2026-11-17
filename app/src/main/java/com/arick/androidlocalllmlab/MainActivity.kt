@@ -988,19 +988,36 @@ private fun DashboardPage(
                 DashboardMetricRow("Context Window", nCtxText)
                 DashboardMetricRow("CPU Threads", "$cpuThreads threads")
 
+                val promptFillText = generationMetrics?.let {
+                    "${it.promptTokenCount} / ${it.contextWindowTokens} tokens (${String.format(Locale.US, "%.1f", it.contextFillPercent)}%)"
+                } ?: "No runs yet"
+                DashboardMetricRow("Prompt / Context Fill", promptFillText)
+
+                val cacheReuseText = generationMetrics?.let {
+                    "${it.cachedPromptTokens} reused · ${it.newlyProcessedPromptTokens} newly processed"
+                } ?: "No runs yet"
+                DashboardMetricRow("KV Cache Reuse", cacheReuseText)
+
+                val prefillSpeed = generationMetrics?.let {
+                    if (it.newlyProcessedPromptTokens == 0) "No new prefill needed (full prefix reuse)"
+                    else "${formatTokensPerSecond(it.prefillTokensPerSecond)} · ${it.prefillMillis} ms"
+                } ?: "No runs yet"
+                DashboardMetricRow("Prefill Speed / Time", prefillSpeed)
+
+                val firstToken = generationMetrics?.firstTokenMillis?.let { "$it ms" } ?: "No runs yet"
+                DashboardMetricRow("Time to First Token", firstToken)
+
                 val speedText = generationMetrics?.decodeTokensPerSecond?.let { formatTokensPerSecond(it) } ?: "No runs yet"
                 DashboardMetricRow("Generation Speed", speedText)
 
-                val prefillDuration = generationMetrics?.prefillMillis?.let { "$it ms" } ?: "No runs yet"
-                DashboardMetricRow("Prefill Latency", prefillDuration)
+                val responseTime = generationMetrics?.totalMillis?.let { "$it ms" } ?: "No runs yet"
+                DashboardMetricRow("Total Response Time", responseTime)
+
+                val outputTokens = generationMetrics?.generatedTokenCount?.let { "$it tokens" } ?: "No runs yet"
+                DashboardMetricRow("Generated Answer Tokens", outputTokens)
 
                 val nativeAlloc = memorySnapshots.current?.nativeAllocatedBytes?.let(::formatBytes) ?: "None"
                 DashboardMetricRow("Native Memory", nativeAlloc)
-
-                val cacheReuseText = generationMetrics?.reusedPromptTokenCount?.let {
-                    if (it > 0) "$it tokens reused from KV cache" else "0 tokens (fresh prefill)"
-                } ?: "No runs yet"
-                DashboardMetricRow("KV Cache Reuse", cacheReuseText)
 
             }
         }
