@@ -1184,7 +1184,7 @@ private fun SettingsPage(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "The logger records app navigation, model/runtime events, inference status, local device actions, and errors. It does not store message text or generated answers, and nothing is sent to a server.",
+                text = "The on-device activity log stores questions and generated answers to create conversation summaries, along with app navigation, model/runtime events, device actions, settings changes, and errors. The chat transcript is also retained privately on this device (up to 40 completed turns). Nothing is sent to a Mr-Red server.",
                 fontSize = 11.sp,
                 color = AppColors.TextSecondary,
                 lineHeight = 16.sp
