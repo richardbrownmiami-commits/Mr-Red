@@ -556,7 +556,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 val answer = withContext(Dispatchers.Default) {
                     val trimmedHistory = buildHistoryWithinContextBudget(
-                        userSystemPrompt = _systemPrompt.value.trim().takeIf { it.isNotEmpty() },
                         recentHistory = visibleHistory.toCompletedTurns().takeLast(3).flatten(),
                         currentUserPrompt = nativeUserPrompt,
                         nCtx = actualNctx,
@@ -901,9 +900,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Builds prompt with a strictly immutable System persona at index 0 to maximize native KV cache reuse.
-     * When memoryLines > 0, compact 1-line context bullets (actions, findings, Q&A) are prepended to the user turn.
-     * In question-only mode (summaryLines == 0), only the fixed system prompt and current question are evaluated.
+     * Replaces raw recent chat turns with one compact factual prefill message.
+     * The summary includes user requests, assistant results/errors, and tool trace events.
+     * It is capped at 100 prompt tokens; the current user question is sent separately.
      */
     private fun buildHistoryWithinContextBudget(
         recentHistory: List<ChatMessage>,
@@ -916,29 +915,78 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val targetOutputTokens = reservedOutputTokens.coerceIn(minOutputReserve, maxPromptBudget)
         val promptBudget = nCtx - targetOutputTokens
 
-        // GGUF receives only recent conversation messages and the current user message.
-        // No app-defined system prompt, persona, rolling summary, or saved-memory injection.
-        var retainedHistory = recentHistory
-        var candidateMessages = retainedHistory + ChatMessage(MessageRole.User, currentUserPrompt)
-        var tokenCount = runtime.countChatPromptTokens(candidateMessages)
-        var droppedTurns = 0
-
-        while (tokenCount > promptBudget && retainedHistory.size >= 2) {
-            retainedHistory = retainedHistory.drop(2)
-            droppedTurns++
-            candidateMessages = retainedHistory + ChatMessage(MessageRole.User, currentUserPrompt)
-            tokenCount = runtime.countChatPromptTokens(candidateMessages)
+        val summaryText = buildCompactContextSummary(recentHistory)
+        val summaryMessage = summaryText.takeIf { it.isNotBlank() }?.let {
+            ChatMessage(
+                MessageRole.System,
+                "Recent conversation summary (user requests, assistant results, tool outcomes and errors): $it"
+            )
         }
+        val candidateMessages = listOfNotNull(summaryMessage) +
+            ChatMessage(MessageRole.User, currentUserPrompt)
+        val tokenCount = runtime.countChatPromptTokens(candidateMessages)
 
-        val baseTokenCount = runtime.countChatPromptTokens(candidateMessages)
-        check(baseTokenCount <= maxPromptBudget) {
-            "Prompt is too long ($baseTokenCount tokens). Context window of $nCtx requires at least $minOutputReserve tokens for output."
+        check(tokenCount <= promptBudget && tokenCount <= maxPromptBudget) {
+            "Current question and 100-token summary need $tokenCount tokens, but only $promptBudget prompt tokens are available in the $nCtx-token context window. Shorten the question or increase the model context size."
         }
 
         return TrimmedHistory(
             messages = candidateMessages,
-            droppedTurnCount = droppedTurns
+            // Raw turns were compressed into the summary rather than passed verbatim.
+            droppedTurnCount = recentHistory.toCompletedTurns().size
         )
+    }
+
+    private fun buildCompactContextSummary(history: List<ChatMessage>): String {
+        val turnNotes = history.toCompletedTurns().takeLast(3).mapNotNull { turn ->
+            val user = turn.firstOrNull { it.role == MessageRole.User }?.content
+                ?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
+            val assistant = turn.firstOrNull { it.role == MessageRole.Assistant } ?: return@mapNotNull null
+            val answerOrError = assistant.content.replace(Regex("\\s+"), " ").trim()
+            val toolEvents = assistant.agentTrace
+                .map { it.text.replace(Regex("\\s+"), " ").trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .joinToString("; ")
+            buildString {
+                if (user.isNotBlank()) append("User: ").append(user)
+                if (answerOrError.isNotBlank()) {
+                    if (isNotEmpty()) append(" | ")
+                    append("Assistant result/error: ").append(answerOrError)
+                }
+                if (toolEvents.isNotBlank()) {
+                    if (isNotEmpty()) append(" | ")
+                    append("Tools/status: ").append(toolEvents)
+                }
+                if (assistant.sourceLinks.isNotEmpty()) {
+                    if (isNotEmpty()) append(" | ")
+                    append("Sources: ").append(assistant.sourceLinks.size)
+                }
+            }.takeIf { it.isNotBlank() }
+        }
+        if (turnNotes.isEmpty()) return ""
+
+        val rawSummary = turnNotes.joinToString(" || ")
+        // Keep the newest information if the summary needs character-level reduction.
+        var low = 0
+        var high = rawSummary.length
+        var best = ""
+        while (low <= high) {
+            val length = (low + high) / 2
+            val candidate = rawSummary.takeLast(length)
+            val message = ChatMessage(
+                MessageRole.System,
+                "Recent conversation summary (user requests, assistant results, tool outcomes and errors): $candidate"
+            )
+            val tokens = runtime.countChatPromptTokens(listOf(message))
+            if (tokens <= 100) {
+                best = candidate
+                low = length + 1
+            } else {
+                high = length - 1
+            }
+        }
+        return best.trim()
     }
     private fun List<ChatMessage>.toCompletedTurns(): List<List<ChatMessage>> {
         val completedTurns = mutableListOf<List<ChatMessage>>()
