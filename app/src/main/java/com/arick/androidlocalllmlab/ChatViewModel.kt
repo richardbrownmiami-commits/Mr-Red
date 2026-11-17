@@ -94,19 +94,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
-    // System prompt is session configuration, not rendered as a chat bubble.
-    private val _systemPrompt = MutableStateFlow("")
-    val systemPrompt: StateFlow<String> = _systemPrompt.asStateFlow()
-
-    // Callback after applying native chat template, showing actual formatted prompt.
-    private val _finalPrompt = MutableStateFlow("")
-    val finalPrompt: StateFlow<String> = _finalPrompt.asStateFlow()
-
     private val _promptTokenCount = MutableStateFlow(0)
     val promptTokenCount: StateFlow<Int> = _promptTokenCount.asStateFlow()
-
-    private val _trimmedHistoryTurnCount = MutableStateFlow(0)
-    val trimmedHistoryTurnCount: StateFlow<Int> = _trimmedHistoryTurnCount.asStateFlow()
 
     // Default context window sizing.
     private val _requestedNctx = MutableStateFlow(512)
@@ -118,9 +107,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _inferenceConfig = MutableStateFlow(InferenceConfig(maxTokens = 256))
     val inferenceConfig: StateFlow<InferenceConfig> = _inferenceConfig.asStateFlow()
-
-    private val _thinkingEnabled = MutableStateFlow(true)
-    val thinkingEnabled: StateFlow<Boolean> = _thinkingEnabled.asStateFlow()
 
     private val _generationProgress = MutableStateFlow<String?>(null)
     val generationProgress: StateFlow<String?> = _generationProgress.asStateFlow()
@@ -232,9 +218,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _thinkingEnabled.value = false
         }
         // Every GGUF request starts from the current user message; no saved chat is restored.
-        _finalPrompt.value = ""
         _promptTokenCount.value = 0
-        _trimmedHistoryTurnCount.value = 0
         _generationProgress.value = null
         _generationMetrics.value = null
         _generationError.value = null
@@ -285,8 +269,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     runtime.generate(
                         messages = listOf(userMessage),
                         inferenceConfig = inferenceConfig,
-                        onPrompt = { formattedPrompt, tokenCount ->
-                            _finalPrompt.value = formattedPrompt
+                        onPrompt = { _, tokenCount ->
                             _promptTokenCount.value = tokenCount
                             _generationProgress.value = "Prefilling $tokenCount tokens…"
                             templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
@@ -551,28 +534,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             config.maxTokens
         }
         _inferenceConfig.value = config.copy(maxTokens = safeMaxTokens)
-    }
-
-    fun updateThinkingEnabled(enabled: Boolean) {
-        if (!_isGenerating.value) {
-            _thinkingEnabled.value = enabled
-        }
-    }
-
-    /** Qwen3 thinking prompt instruction toggle. */
-    private fun String.withQwen3ThinkingInstruction(): String {
-        val readyState = _uiState.value as? ChatUiState.Ready
-            ?: return this
-        if (!readyState.supportsQwen3ThinkingSwitch()) {
-            return this
-        }
-        return "$this\n${if (_thinkingEnabled.value) "/think" else "/no_think"}"
-    }
-
-    private fun ChatUiState.Ready.supportsQwen3ThinkingSwitch(): Boolean {
-        val identity = "$modelName $modelDescription"
-        return identity.contains("qwen3", ignoreCase = true) &&
-                !identity.contains("instruct-2507", ignoreCase = true)
     }
 
     private fun splitAssistantResponse(
