@@ -2,6 +2,8 @@ package com.arick.androidlocalllmlab
 
 import android.os.SystemClock
 
+data class PromptMessage(val role: String, val content: String)
+
 data class ModelPreparationMetrics(
     val modelLoadMillis: Long,
     val contextCreateMillis: Long,
@@ -176,7 +178,7 @@ class LocalLlmRuntime : AutoCloseable {
     }
 
     fun generate(
-        prompt: String,
+        messages: List<PromptMessage>,
         inferenceConfig: InferenceConfig,
         contextWindowTokens: Int,
         onPrompt: (String, Int) -> Unit,
@@ -189,7 +191,8 @@ class LocalLlmRuntime : AutoCloseable {
         var actualPromptTokenCount = 0
         return NativeLlmBridge.nativeGenerate(
             handle = nativeHandle,
-            prompt = prompt,
+            roles = messages.map { it.role }.toTypedArray(),
+            contents = messages.map { it.content }.toTypedArray(),
             maxTokens = inferenceConfig.maxTokens,
             temperature = inferenceConfig.temperature,
             topK = inferenceConfig.topK,
