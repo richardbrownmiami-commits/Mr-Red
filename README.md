@@ -8,10 +8,11 @@ The chat inference path is deliberately single-turn:
 
 1. Import or restore one GGUF model.
 2. Load the model and allocate its llama.cpp context.
-3. Send only the current user question through the model's native GGUF chat template.
-4. Stream the model's current answer back to the chat UI.
+3. Reset the native KV cache for a fresh inference context.
+4. Send only the current user question through the model's native GGUF chat template.
+5. Stream the model's current answer back to the chat UI.
 
-The GGUF request does not include prior chat turns, persisted conversation history, rolling summaries, saved personal memory, a character/persona card, app-authored system prompts, model-generated tool calls, or reconstructed context. Chat display is limited to the active turn and is not persisted. The model's own GGUF chat template remains enabled because it is part of the model's inference format.
+The GGUF request does not include prior chat turns, persisted conversation history, rolling summaries, saved personal memory, a character/persona card, app-authored system prompts, model-generated tool calls, reconstructed context, or KV state from previous requests. Chat display is limited to the active turn and is not persisted. The model's own GGUF chat template remains enabled because it is part of the model's inference format.
 
 Sampling configuration, context size, CPU thread settings, tokenization, native model loading, inference, cancellation, and runtime diagnostics remain configurable.
 
