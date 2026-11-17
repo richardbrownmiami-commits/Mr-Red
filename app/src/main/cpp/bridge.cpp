@@ -950,7 +950,8 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeGenerate(
         JNIEnv *env,
         jobject /* thiz */,
         jlong handle,
-        jstring prompt,
+        jobjectArray roles,
+        jobjectArray contents,
         jint maxTokens,
         jfloat temperature,
         jint topK,
@@ -964,16 +965,42 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeGenerate(
         return env->NewStringUTF("");
     }
 
-    if (prompt == nullptr) {
+    if (roles == nullptr || contents == nullptr) {
         return env->NewStringUTF("");
     }
-    const char *promptChars = env->GetStringUTFChars(prompt, nullptr);
-    if (promptChars == nullptr) {
+    const jsize roleCount = env->GetArrayLength(roles);
+    const jsize contentCount = env->GetArrayLength(contents);
+    if (roleCount <= 0 || roleCount != contentCount) {
         return env->NewStringUTF("");
     }
-    // The native interface accepts one current user question only; no role arrays or prior turns.
-    std::vector<ChatMessage> history{{"user", promptChars}};
-    env->ReleaseStringUTFChars(prompt, promptChars);
+
+    std::vector<ChatMessage> history;
+    history.reserve(static_cast<size_t>(roleCount));
+    for (jsize index = 0; index < roleCount; ++index) {
+        auto role = static_cast<jstring>(env->GetObjectArrayElement(roles, index));
+        auto content = static_cast<jstring>(env->GetObjectArrayElement(contents, index));
+        if (role == nullptr || content == nullptr) {
+            if (role != nullptr) env->DeleteLocalRef(role);
+            if (content != nullptr) env->DeleteLocalRef(content);
+            return env->NewStringUTF("");
+        }
+
+        const char *roleChars = env->GetStringUTFChars(role, nullptr);
+        const char *contentChars = env->GetStringUTFChars(content, nullptr);
+        if (roleChars == nullptr || contentChars == nullptr) {
+            if (roleChars != nullptr) env->ReleaseStringUTFChars(role, roleChars);
+            if (contentChars != nullptr) env->ReleaseStringUTFChars(content, contentChars);
+            env->DeleteLocalRef(role);
+            env->DeleteLocalRef(content);
+            return env->NewStringUTF("");
+        }
+
+        history.push_back({roleChars, contentChars});
+        env->ReleaseStringUTFChars(role, roleChars);
+        env->ReleaseStringUTFChars(content, contentChars);
+        env->DeleteLocalRef(role);
+        env->DeleteLocalRef(content);
+    }
 
     jclass callbackClass = env->GetObjectClass(generationCallback);
     jmethodID onPromptMethod = callbackClass == nullptr
