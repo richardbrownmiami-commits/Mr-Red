@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-build-${{ github.ref }}
@@ -85,3 +85,12 @@ jobs:
           name: Mr-Red-release-armeabi-v7a
           path: app/build/outputs/apk/release/Mr-Red.apk
           if-no-files-found: error
+
+      - name: Publish APK to GitHub Releases
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Mr-Red APK build ${{ github.run_number }}
+          files: app/build/outputs/apk/release/Mr-Red.apk
+          make_latest: true
