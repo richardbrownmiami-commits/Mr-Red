@@ -329,9 +329,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val promptBudget = ((readyState?.nCtx ?: 512) - inferenceConfig.maxTokens - 32)
                         .coerceAtLeast(1)
                     val historySnapshot = synchronized(conversationHistory) { conversationHistory.toList() }
+                    // Reuse the same on-device logger summary shown in Settings as persistent
+                    // semantic context; do not leave it as a display-only feature.
+                    val activitySummary = ActivityLogger.summary(getApplication())
+                    val memorySummary = activitySummary
+                        .substringAfter("Conversation summary:", "")
+                        .substringBefore("Other activity in time order:")
+                        .trim()
                     val promptMessages = buildPromptMessages(
                         currentQuestion = prompt,
                         history = historySnapshot,
+                        memorySummary = memorySummary,
                         maxPromptTokens = promptBudget
                     )
                     runtime.generate(
@@ -395,44 +403,64 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * Builds real role-separated messages for the GGUF chat template. Oldest turns are
      * removed first to fit the context budget; the current question is always retained.
      */
+    /**
+     * Builds role-separated messages and always gives the logger's conversation summary
+     * first claim on the prompt budget. Recent verbatim turns are added when they fit.
+     */
     private fun buildPromptMessages(
         currentQuestion: String,
         history: List<Pair<String, String>>,
+        memorySummary: String,
         maxPromptTokens: Int
     ): List<PromptMessage> {
         val systemInstructions = """
-            You are Mr-Red. Be natural, clear, considerate and conversational. Be caring
-            without overdoing it; offer practical suggestions when useful. Be honest about
-            uncertainty and never invent personal experiences or claim to be human.
-            Treat the supplied conversation turns as real prior context. Use them to resolve
-            follow-ups and references; do not claim you have no memory when the detail is present.
-            Answer the latest user message directly.
+            You are Mr-Red, a natural, clear and considerate local assistant. Be caring without
+            overdoing it; give practical suggestions when useful. Never claim to be human.
+            Do not volunteer that you are an LLM/AI or that you have no memory. If asked what
+            you are, answer honestly. Use the stored conversation memory below as prior context:
+            recall relevant topics and details, resolve follow-ups, and never deny a detail that
+            is present in that memory. Answer the latest user message directly.
         """.trimIndent()
 
         var retainedHistory = history.takeLast(8)
+        var retainedMemory = memorySummary.trim().take(1600)
         while (true) {
+            val systemContent = if (retainedMemory.isBlank()) {
+                systemInstructions
+            } else {
+                "$systemInstructions\n\nStored conversation memory from Mr-Red's on-device activity log:\n$retainedMemory"
+            }
             val messages = buildList {
-                add(PromptMessage("system", systemInstructions))
+                add(PromptMessage("system", systemContent))
                 retainedHistory.forEach { (question, answer) ->
                     add(PromptMessage("user", question))
                     add(PromptMessage("assistant", answer))
                 }
                 add(PromptMessage("user", currentQuestion))
             }
-            // Include role labels in the estimate and leave room for the GGUF chat template.
+            // Count role labels and leave room for the model-specific chat template.
             val estimate = messages.joinToString("\n") { "${it.role}\n${it.content}" }
             if (runtime.tokenize(estimate).size + 32 <= maxPromptTokens) return messages
 
+            // Preserve logger memory before spending tokens on verbatim transcript.
             if (retainedHistory.isNotEmpty()) {
                 retainedHistory = retainedHistory.drop(1)
+                continue
+            }
+            if (retainedMemory.length > 120) {
+                retainedMemory = retainedMemory.take(retainedMemory.length * 3 / 4).trimEnd()
+                continue
+            }
+            if (retainedMemory.isNotBlank()) {
+                retainedMemory = ""
+                continue
+            }
+
+            // Keep the complete current question even on a very small context window.
+            return if (runtime.tokenize(currentQuestion).size + 8 <= maxPromptTokens) {
+                listOf(PromptMessage("system", systemInstructions), PromptMessage("user", currentQuestion))
             } else {
-                // If even the system instruction plus current question cannot fit, prioritize
-                // the user's complete question rather than silently truncating it.
-                return if (runtime.tokenize(currentQuestion).size + 8 <= maxPromptTokens) {
-                    listOf(PromptMessage("system", systemInstructions), PromptMessage("user", currentQuestion))
-                } else {
-                    listOf(PromptMessage("user", currentQuestion))
-                }
+                listOf(PromptMessage("user", currentQuestion))
             }
         }
     }
