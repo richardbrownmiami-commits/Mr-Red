@@ -59,12 +59,6 @@ object NativeLlmBridge {
         text: String
     ): IntArray
 
-    external fun nativeCountChatPromptTokens(
-        handle: Long,
-        roles: Array<String>,
-        contents: Array<String>
-    ): Int
-
     external fun nativePrefill(
         handle: Long,
         tokenIds: IntArray
@@ -79,8 +73,7 @@ object NativeLlmBridge {
 
     external fun nativeGenerate(
         handle: Long,
-        roles: Array<String>,
-        contents: Array<String>,
+        prompt: String,
         maxTokens: Int,
         temperature: Float,
         topK: Int,
