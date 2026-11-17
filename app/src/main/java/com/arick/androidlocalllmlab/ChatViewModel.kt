@@ -346,9 +346,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         summary: String,
         maxPromptTokens: Int
     ): String {
-        val instructions = """
+        fun compose(activitySummary: String): String = """
             PLATFORM ACTIVITY SUMMARY (optional background; may be irrelevant):
-            %s
+            $activitySummary
 
             INSTRUCTIONS:
             Use the activity summary only when it is relevant to the current question.
@@ -356,16 +356,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             that it does not establish. If the summary is irrelevant, ignore it.
 
             CURRENT USER QUESTION:
-            %s
+            $currentQuestion
         """.trimIndent()
         var context = summary.trim()
         while (context.isNotEmpty()) {
-            val candidate = instructions.format(context, currentQuestion)
+            val candidate = compose(context)
             if (runtime.tokenize(candidate).size <= maxPromptTokens) return candidate
             // Keep the newest portion of the summary as the available prompt budget shrinks.
             context = context.takeLast((context.length * 3 / 4).coerceAtLeast(0))
         }
-        val questionOnly = instructions.format("No relevant prior activity summary available.", currentQuestion)
+        val questionOnly = compose("No relevant prior activity summary available.")
         return if (runtime.tokenize(questionOnly).size <= maxPromptTokens) {
             questionOnly
         } else {
