@@ -268,6 +268,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var templateStartsThinking = false
             try {
                 val answer = withContext(Dispatchers.Default) {
+                    // Start every request with an empty KV cache; no cross-turn context is reused.
+                    runtime.resetContext()
                     runtime.generate(
                         prompt = prompt,
                         inferenceConfig = inferenceConfig,
