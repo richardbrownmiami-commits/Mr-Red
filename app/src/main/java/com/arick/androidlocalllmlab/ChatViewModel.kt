@@ -130,7 +130,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val generationError: StateFlow<String?> = _generationError.asStateFlow()
 
     init {
-        // Models in filesDir persist across app restarts.
+        // Retire legacy chat, personal-memory, persona and summary stores from older installs.
+        application.deleteDatabase("mr_red_conversation.db")
+        application.deleteDatabase("mr_red_memory.db")
+        application.getSharedPreferences("mr_red_persona", android.content.Context.MODE_PRIVATE)
+            .edit().clear().apply()
+        application.getSharedPreferences("local_llm_preferences", android.content.Context.MODE_PRIVATE)
+            .edit().remove("summary_lines").apply()
+
+        // Only the selected GGUF model is restored across app restarts.
         restoreLastModel()
     }
 
