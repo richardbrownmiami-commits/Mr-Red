@@ -309,13 +309,6 @@ private fun ChatPage(
             }
         }
 
-        // Quick Action Chips Row
-        if (uiState is ChatUiState.Ready && !isGenerating) {
-            QuickActionChipsRow(
-                onActionSelected = { prompt -> viewModel.send(prompt) }
-            )
-        }
-
         ChatComposer(
             enabled = uiState !is ChatUiState.Preparing,
             isGenerating = isGenerating,
@@ -391,36 +384,6 @@ private fun ChatHeader(
                     tint = AppColors.TextSecondary
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun QuickActionChipsRow(onActionSelected: (String) -> Unit) {
-    val quickActions = listOf(
-        "⚡ Battery & RAM" to "Check my phone battery, RAM and storage vitals",
-        "💬 Draft message" to "Draft a message saying Hello from Mr-Red",
-        "📞 Open Dialer" to "Open phone dialer",
-        "⏰ Set 5m Timer" to "Set a countdown timer for 5 minutes",
-        "⚙️ Battery Settings" to "Open device battery settings",
-        "🌐 Web Search" to "Search the web for latest AI news"
-    )
-
-    LazyRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(quickActions) { (label, prompt) ->
-            AssistChip(
-                onClick = { onActionSelected(prompt) },
-                label = { Text(label, fontSize = 12.sp, color = AppColors.TextPrimary) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = AppColors.CardBackground
-                ),
-                shape = RoundedCornerShape(16.dp)
-            )
         }
     }
 }
