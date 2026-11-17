@@ -88,7 +88,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
     private val conversationDatabase = ConversationDatabase(application)
-    private val persistentMemoryStore = PersistentMemoryStore(application)
     private val personaCardStore = PersonaCardStore(application)
     private val _personaCard = MutableStateFlow(personaCardStore.load())
     val personaCard: StateFlow<PersonaCard> = _personaCard.asStateFlow()
@@ -157,28 +156,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Models in filesDir persist across app restarts.
         restoreLastModel()
-        restorePersistedConversation()
-    }
-
-    private fun restorePersistedConversation() {
-        viewModelScope.launch {
-            val savedMessages = withContext(Dispatchers.IO) {
-                conversationDatabase.loadAllMessages()
-            }
-            val savedSummary = withContext(Dispatchers.IO) {
-                conversationDatabase.getSummary()
-            }
-            if (savedMessages.isNotEmpty()) {
-                _messages.value = savedMessages
-            }
-            _conversationSummary.value = if (savedSummary.isNotBlank()) {
-                savedSummary
-            } else if (savedMessages.isNotEmpty()) {
-                rebuildSummaryFromHistory(savedMessages, _summaryLines.value)
-            } else {
-                ""
-            }
-        }
     }
 
     fun loadModel(uri: Uri) {
@@ -264,20 +241,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if ("$modelName $modelDescription".contains("instruct-2507", ignoreCase = true)) {
             _thinkingEnabled.value = false
         }
-        val savedMessages = withContext(Dispatchers.IO) {
-            conversationDatabase.loadAllMessages()
-        }
-        val savedSummary = withContext(Dispatchers.IO) {
-            conversationDatabase.getSummary()
-        }
-        _messages.value = savedMessages
-        _conversationSummary.value = if (savedSummary.isNotBlank()) {
-            savedSummary
-        } else if (savedMessages.isNotEmpty()) {
-            rebuildSummaryFromHistory(savedMessages, _summaryLines.value)
-        } else {
-            ""
-        }
+        // Every GGUF request starts from the current user message; no saved chat is restored.
         _finalPrompt.value = ""
         _promptTokenCount.value = 0
         _trimmedHistoryTurnCount.value = 0
@@ -1155,9 +1119,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         _messages.value = emptyList()
         _conversationSummary.value = ""
-        viewModelScope.launch(Dispatchers.IO) {
-            conversationDatabase.clearAll()
-        }
+        viewModelScope.launch(Dispatchers.IO) { conversationDatabase.clearAll() }
         clearLastPromptState()
         _generationError.value = null
     }
