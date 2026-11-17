@@ -103,6 +103,38 @@ object ActivityLogger {
         return "$subject: ${action.replace('_', ' ')}" + if (detail.isBlank()) "" else " (${detail.take(100)})"
     }
 
+    /**
+     * Returns actual recent Q&A text for inference. The Settings summary is intentionally
+     * human-readable and lossy; the model needs the underlying exchanges, not a parsed
+     * paraphrase of that display string.
+     */
+    fun promptMemory(context: Context, maxExchanges: Int = 3): String {
+        val lines = runCatching {
+            File(context.applicationContext.filesDir, FILE_NAME)
+                .takeIf { it.isFile }?.readLines()?.takeLast(240).orEmpty()
+        }.getOrDefault(emptyList())
+        data class Exchange(val question: String, val answer: String)
+        val exchanges = mutableListOf<Exchange>()
+        var pendingQuestion: String? = null
+        lines.forEach { line ->
+            val parts = line.split(" | ", limit = 4)
+            if (parts.size < 4) return@forEach
+            when {
+                parts[1] == "QUESTION" && parts[2] == "asked" -> pendingQuestion = parts[3]
+                parts[1] == "ANSWER" && parts[2] == "generated" -> {
+                    val question = pendingQuestion
+                    if (!question.isNullOrBlank() && parts[3].isNotBlank()) {
+                        exchanges += Exchange(question.take(140), parts[3].take(220))
+                    }
+                    pendingQuestion = null
+                }
+            }
+        }
+        return exchanges.takeLast(maxExchanges).joinToString("\\n") { exchange ->
+            "Earlier user: ${exchange.question}\\nEarlier Mr-Red: ${exchange.answer}"
+        }.take(1000)
+    }
+
     fun recentText(context: Context): String = runCatching {
         File(context.applicationContext.filesDir, FILE_NAME).takeIf { it.isFile }?.readText()?.takeLast(24000)
             ?: "No activity recorded yet."
