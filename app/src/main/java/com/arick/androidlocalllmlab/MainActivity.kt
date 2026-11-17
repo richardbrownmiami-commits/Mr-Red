@@ -144,6 +144,7 @@ enum class AppPage(val title: String, val icon: ImageVector) {
 
 @Composable
 private fun MainAppScreen(viewModel: ChatViewModel) {
+    val activityContext = LocalContext.current
     var selectedPage by remember { mutableStateOf(AppPage.Chat) }
     val modelLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -160,7 +161,10 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                 AppPage.values().forEach { page ->
                     NavigationBarItem(
                         selected = selectedPage == page,
-                        onClick = { selectedPage = page },
+                        onClick = {
+                            ActivityLogger.record(activityContext, "UI", "navigation", "Opened ${page.title} screen")
+                            selectedPage = page
+                        },
                         icon = { Icon(page.icon, contentDescription = page.title) },
                         label = { Text(page.title, fontSize = 12.sp, fontWeight = if (selectedPage == page) FontWeight.Bold else FontWeight.Normal) },
                         colors = NavigationBarItemDefaults.colors(
@@ -1080,6 +1084,7 @@ private fun SettingsPage(
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val modelPreparationMetrics by viewModel.modelPreparationMetrics.collectAsState()
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
+    val activitySummary = ActivityLogger.summary(LocalContext.current)
 
     var showContextWindowDialog by remember { mutableStateOf(false) }
     var showCpuThreadsDialog by remember { mutableStateOf(false) }
@@ -1150,6 +1155,22 @@ private fun SettingsPage(
                 title = "Reset KV Cache / Context",
                 summary = "Clear cached tokens",
                 onClick = { showResetConfirm = true }
+            )
+        }
+
+        SettingsSection(title = "Activity Logger · On this device") {
+            Text(
+                text = activitySummary,
+                fontSize = 13.sp,
+                color = AppColors.TextSecondary,
+                lineHeight = 19.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "The logger records app navigation, model/runtime events, inference status, local device actions, and errors. It does not store message text or generated answers, and nothing is sent to a server.",
+                fontSize = 11.sp,
+                color = AppColors.TextSecondary,
+                lineHeight = 16.sp
             )
         }
 
