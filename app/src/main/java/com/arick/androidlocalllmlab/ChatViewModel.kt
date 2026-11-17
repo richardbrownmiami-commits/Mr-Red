@@ -566,6 +566,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val answer = withContext(Dispatchers.Default) {
                     val trimmedHistory = buildHistoryWithinContextBudget(
                         userSystemPrompt = _systemPrompt.value.trim().takeIf { it.isNotEmpty() },
+                        recentHistory = visibleHistory.toCompletedTurns().takeLast(3).flatten(),
                         currentUserPrompt = nativeUserPrompt,
                         nCtx = actualNctx,
                         reservedOutputTokens = inferenceConfig.maxTokens
