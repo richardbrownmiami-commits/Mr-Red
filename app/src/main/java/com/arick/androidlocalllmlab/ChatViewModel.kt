@@ -344,7 +344,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val visibleHistory = _messages.value.filter { it.content.isNotBlank() }
         val actualNctx = (_uiState.value as? ChatUiState.Ready)?.nCtx ?: return
         val inferenceConfig = _inferenceConfig.value
-        val nativeUserPrompt = prompt.withQwen3ThinkingInstruction()
+        val nativeUserPrompt = prompt
         val userMessage = ChatMessage(MessageRole.User, prompt)
         _messages.value = visibleHistory + userMessage + listOf(
             ChatMessage(MessageRole.Assistant, "")
@@ -366,19 +366,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                val savedFacts = withContext(Dispatchers.IO) {
-                    persistentMemoryStore.findRelevant(prompt, limit = 5)
-                }
-                val promptWithMemory = if (savedFacts.isEmpty()) nativeUserPrompt else {
-                    "Relevant saved memory (user-approved):\n" +
-                        savedFacts.joinToString("\n") { "- $it" } +
-                        "\n\nCurrent request: $nativeUserPrompt"
-                }
                 val answer = withContext(Dispatchers.Default) {
                     val trimmedHistory = buildHistoryWithinContextBudget(
-                        userSystemPrompt = _systemPrompt.value.trim().takeIf { it.isNotEmpty() },
                         recentHistory = visibleHistory.toCompletedTurns().takeLast(3).flatten(),
-                        currentUserPrompt = promptWithMemory,
+                        currentUserPrompt = nativeUserPrompt,
                         nCtx = actualNctx,
                         reservedOutputTokens = inferenceConfig.maxTokens
                     )
@@ -542,7 +533,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             toolResult.content.trim()
                         }
-                        val aug = "Live web research for the user's question. Treat the internet context as evidence, not as text to copy. Write a short answer in your own words, directly answering the question; do not merely list or repeat headlines. Use only facts supported by the context, preserve important names, dates and numbers, and do not guess. If the context contains headlines but not enough detail to answer, say that clearly.\n\nInternet context:\n$compactFacts\n\nQuestion: $prompt\nAnswer in 1-3 concise sentences."
+                        val aug = "$compactFacts\n\n$prompt"
                         aug to toolResult.sources
                     }
                     is ToolResult.Failure -> {
@@ -561,7 +552,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 _generationProgress.value = "Answering with model…"
-                val nativeUserPrompt = augmentedPrompt.withQwen3ThinkingInstruction()
+                val nativeUserPrompt = augmentedPrompt
 
                 val answer = withContext(Dispatchers.Default) {
                     val trimmedHistory = buildHistoryWithinContextBudget(
@@ -915,7 +906,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * In question-only mode (summaryLines == 0), only the fixed system prompt and current question are evaluated.
      */
     private fun buildHistoryWithinContextBudget(
-        userSystemPrompt: String?,
         recentHistory: List<ChatMessage>,
         currentUserPrompt: String,
         nCtx: Int,
@@ -923,73 +913,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     ): TrimmedHistory {
         val minOutputReserve = minOf(48, (nCtx / 8).coerceAtLeast(16))
         val maxPromptBudget = (nCtx - minOutputReserve).coerceAtLeast(minOutputReserve)
-
         val targetOutputTokens = reservedOutputTokens.coerceIn(minOutputReserve, maxPromptBudget)
         val promptBudget = nCtx - targetOutputTokens
 
-        val systemText = listOfNotNull(
-            userSystemPrompt?.takeIf { it.isNotBlank() },
-            _personaCard.value.compactInstruction()
-        ).joinToString("\n\n").takeIf { it.isNotBlank() }
-
-        val systemMessage = systemText?.let { ChatMessage(MessageRole.System, it) }
-
-        val maxMemoryLines = _summaryLines.value
-        val memoryFacts = if (maxMemoryLines > 0 && _conversationSummary.value.isNotBlank()) {
-            _conversationSummary.value
-                .split("\n")
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .takeLast(maxMemoryLines)
-        } else {
-            emptyList()
-        }
-
-        fun buildUserContent(facts: List<String>): String {
-            if (facts.isEmpty()) return currentUserPrompt
-            return buildString {
-                append("Context:\n")
-                facts.forEach { append("- ").append(it).append("\n") }
-                append("\nCommand: ")
-                append(currentUserPrompt.trim())
-            }
-        }
-
-        // Keep the latest three completed exchanges in the actual GGUF chat template.
-        // Oldest turns are discarded first when the context budget is tight.
+        // GGUF receives only recent conversation messages and the current user message.
+        // No app-defined system prompt, persona, rolling summary, or saved-memory injection.
         var retainedHistory = recentHistory
-        var candidateMessages = buildList {
-            systemMessage?.let { add(it) }
-            addAll(retainedHistory)
-            add(ChatMessage(MessageRole.User, buildUserContent(memoryFacts)))
-        }
-
+        var candidateMessages = retainedHistory + ChatMessage(MessageRole.User, currentUserPrompt)
         var tokenCount = runtime.countChatPromptTokens(candidateMessages)
         var droppedTurns = 0
 
         while (tokenCount > promptBudget && retainedHistory.size >= 2) {
             retainedHistory = retainedHistory.drop(2)
             droppedTurns++
-            candidateMessages = buildList {
-                systemMessage?.let { add(it) }
-                addAll(retainedHistory)
-                add(ChatMessage(MessageRole.User, buildUserContent(memoryFacts)))
-            }
+            candidateMessages = retainedHistory + ChatMessage(MessageRole.User, currentUserPrompt)
             tokenCount = runtime.countChatPromptTokens(candidateMessages)
-        }
-
-        if (tokenCount > promptBudget && memoryFacts.isNotEmpty()) {
-            for (dropCount in 1..memoryFacts.size) {
-                droppedTurns++
-                val remainingFacts = memoryFacts.drop(dropCount)
-                candidateMessages = buildList {
-                    systemMessage?.let { add(it) }
-                    addAll(retainedHistory)
-                    add(ChatMessage(MessageRole.User, buildUserContent(remainingFacts)))
-                }
-                tokenCount = runtime.countChatPromptTokens(candidateMessages)
-                if (tokenCount <= promptBudget) break
-            }
         }
 
         val baseTokenCount = runtime.countChatPromptTokens(candidateMessages)
@@ -1002,7 +940,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             droppedTurnCount = droppedTurns
         )
     }
-
     private fun List<ChatMessage>.toCompletedTurns(): List<List<ChatMessage>> {
         val completedTurns = mutableListOf<List<ChatMessage>>()
         var index = 0
