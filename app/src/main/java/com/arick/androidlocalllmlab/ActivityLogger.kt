@@ -7,8 +7,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Private, on-device diagnostic log. It deliberately records event metadata only:
- * never prompts, generated answers, notification contents, credentials, or file paths.
+ * Private, on-device activity log. User questions are recorded for the activity summary;
+ * generated answers, notification contents, credentials, and file paths are never recorded.
  */
 object ActivityLogger {
     private const val FILE_NAME = "mr_red_activity.log"
@@ -20,7 +20,7 @@ object ActivityLogger {
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
             val safeLayer = clean(layer, 32)
             val safeAction = clean(action, 64)
-            val safeDetail = clean(detail, 180)
+            val safeDetail = clean(detail, if (safeLayer == "QUESTION") 500 else 180)
             val file = File(context.applicationContext.filesDir, FILE_NAME)
             file.appendText("$timestamp | $safeLayer | $safeAction | $safeDetail\n")
             val lines = file.readLines()
@@ -39,8 +39,10 @@ object ActivityLogger {
             return "No activity has been recorded yet. App navigation, model operations, device actions, and inference events will appear here as they occur."
         }
 
-        val recent = lines.takeLast(24)
-        val events = recent.map { it.substringAfter(" | ", "").substringAfter(" | ", "").substringBefore(" | ") }
+        val recent = lines.takeLast(80)
+        val questions = recent.filter { it.contains("| QUESTION | asked |") }
+            .takeLast(8)
+            .map { it.substringAfter("| QUESTION | asked |").trim() }
         val hasUi = recent.any { it.contains("| UI |") }
         val hasModel = recent.any { it.contains("| MODEL |") }
         val hasInference = recent.any { it.contains("| INFERENCE |") }
@@ -61,7 +63,14 @@ object ActivityLogger {
             } else {
                 "No recent event is marked as a failure. This is an activity overview, not a health guarantee."
             })
-            append(" The log stays on this device and does not include message text or generated answers.")
+            if (questions.isNotEmpty()) {
+                append(" Recent questions: ")
+                append(questions.joinToString("; ") { "\"$it\"" })
+                append(".")
+            } else {
+                append(" No question text has been logged yet.")
+            }
+            append(" Question text is stored locally on this device; generated answers are not stored in this log.")
         }
     }
 
