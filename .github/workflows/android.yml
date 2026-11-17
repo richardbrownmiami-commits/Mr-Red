@@ -2,7 +2,7 @@ name: Build Mr-Red Android APK
 
 on:
   push:
-    branches: [ main, 'integration/opendroid-armv7-api30', 'integration/opendroid-agent-loop' ]
+    branches: [ main, 'integration/opendroid-armv7-api30', 'integration/opendroid-agent-loop', 'gguf-minimal-baseline' ]
   workflow_dispatch:
 
 permissions:
