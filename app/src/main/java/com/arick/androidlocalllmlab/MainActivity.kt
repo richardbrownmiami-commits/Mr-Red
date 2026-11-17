@@ -248,7 +248,7 @@ private fun ChatPage(
                     if (messages.isEmpty()) {
                         EmptyState(
                             title = "Select a GGUF model to start",
-                            subtitle = "Device status, Android actions, weather, news, and web search work without a model. Load a model for general answers.",
+                            subtitle = "Load a local GGUF model. Each question is sent independently; chat history and memory are not retained.",
                             actionText = "Select Model",
                             onAction = onOpenModelPicker
                         )
@@ -410,7 +410,7 @@ private fun ChatEmptyGreeting(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Model: $modelName · Context: $nCtx tokens\nLiving phone agent ready for offline dialogue and device tools.",
+            text = "Model: $modelName · Context: $nCtx tokens\nReady for direct, single-question GGUF inference.",
             fontSize = 13.sp,
             color = AppColors.TextSecondary,
             lineHeight = 18.sp
