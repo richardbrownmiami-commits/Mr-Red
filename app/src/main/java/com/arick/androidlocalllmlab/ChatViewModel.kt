@@ -247,8 +247,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value) return
 
-        // Record the user's actual question so the on-device summary can show what was asked.
-        // Generated answer content is deliberately not logged.
+        // Retain both sides privately so the summary can describe the exchange without quoting it.
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
 
         // Keep phone actions local; they are not injected into GGUF inference.
@@ -315,6 +314,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         null
                     )
                 }
+                ActivityLogger.record(getApplication(), "ANSWER", "generated", splitAssistantResponse(answer, templateStartsThinking).answer)
                 ActivityLogger.record(getApplication(), "INFERENCE", "request_completed", "Model generation completed")
             } catch (error: Throwable) {
                 ActivityLogger.record(getApplication(), "ERROR", "inference_failed", error.javaClass.simpleName)
@@ -363,9 +363,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     sourceLinks = sources
                 )
                 _messages.value = _messages.value.dropLast(1) + assistant
+                ActivityLogger.record(getApplication(), "ANSWER", "generated", content)
                 ActivityLogger.record(getApplication(), "DEVICE", "action_completed", "Local Android action finished: ${call.name}")
             } catch (error: Throwable) {
                 ActivityLogger.record(getApplication(), "ERROR", "device_action_failed", "${call.name}: ${error.javaClass.simpleName}")
+                ActivityLogger.record(getApplication(), "ANSWER", "generated", error.message ?: "The device action failed.")
                 _generationError.value = error.message ?: "Device request failed"
                 val assistant = ChatMessage(MessageRole.Assistant, error.message ?: "Device request failed")
                 _messages.value = _messages.value.dropLast(1) + assistant
