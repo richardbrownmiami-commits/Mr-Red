@@ -377,6 +377,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val answer = withContext(Dispatchers.Default) {
                     val trimmedHistory = buildHistoryWithinContextBudget(
                         userSystemPrompt = _systemPrompt.value.trim().takeIf { it.isNotEmpty() },
+                        recentHistory = visibleHistory.toCompletedTurns().takeLast(3).flatten(),
                         currentUserPrompt = promptWithMemory,
                         nCtx = actualNctx,
                         reservedOutputTokens = inferenceConfig.maxTokens
@@ -914,6 +915,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun buildHistoryWithinContextBudget(
         userSystemPrompt: String?,
+        recentHistory: List<ChatMessage>,
         currentUserPrompt: String,
         nCtx: Int,
         reservedOutputTokens: Int
@@ -952,20 +954,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Keep the latest three completed exchanges in the actual GGUF chat template.
+        // Oldest turns are discarded first when the context budget is tight.
+        var retainedHistory = recentHistory
         var candidateMessages = buildList {
             systemMessage?.let { add(it) }
+            addAll(retainedHistory)
             add(ChatMessage(MessageRole.User, buildUserContent(memoryFacts)))
         }
 
         var tokenCount = runtime.countChatPromptTokens(candidateMessages)
         var droppedTurns = 0
 
+        while (tokenCount > promptBudget && retainedHistory.size >= 2) {
+            retainedHistory = retainedHistory.drop(2)
+            droppedTurns++
+            candidateMessages = buildList {
+                systemMessage?.let { add(it) }
+                addAll(retainedHistory)
+                add(ChatMessage(MessageRole.User, buildUserContent(memoryFacts)))
+            }
+            tokenCount = runtime.countChatPromptTokens(candidateMessages)
+        }
+
         if (tokenCount > promptBudget && memoryFacts.isNotEmpty()) {
             for (dropCount in 1..memoryFacts.size) {
-                droppedTurns = dropCount
+                droppedTurns++
                 val remainingFacts = memoryFacts.drop(dropCount)
                 candidateMessages = buildList {
                     systemMessage?.let { add(it) }
+                    addAll(retainedHistory)
                     add(ChatMessage(MessageRole.User, buildUserContent(remainingFacts)))
                 }
                 tokenCount = runtime.countChatPromptTokens(candidateMessages)
