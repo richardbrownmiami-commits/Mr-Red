@@ -212,10 +212,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val modelName = withContext(Dispatchers.Default) {
             runtime.modelMetadata("general.name")
         }
-        // Default thinking mode based on model capability.
-        if ("$modelName $modelDescription".contains("instruct-2507", ignoreCase = true)) {
-            _thinkingEnabled.value = false
-        }
         _generationProgress.value = null
         _generationMetrics.value = null
         _generationError.value = null
@@ -246,9 +242,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val userMessage = ChatMessage(MessageRole.User, prompt)
         _messages.value = listOf(userMessage, ChatMessage(MessageRole.Assistant, ""))
         _generationError.value = null
-        _finalPrompt.value = ""
-        _promptTokenCount.value = 0
-        _trimmedHistoryTurnCount.value = 0
         _generationProgress.value = "Running GGUF inference…"
         _generationMetrics.value = null
         runtime.resetStopRequest()
@@ -264,7 +257,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     runtime.generate(
                         messages = listOf(userMessage),
                         inferenceConfig = config,
-                        onPrompt = { formattedPrompt, tokenCount ->
+                        onPrompt = { _, tokenCount ->
                             _generationProgress.value = "Prefilling $tokenCount tokens…"
                         },
                         onToken = { piece ->
@@ -411,22 +404,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         runtime.requestStop()
     }
 
-    /** Clears chat history in UI and SQLite; retains loaded model and native context. */
+    /** Clears the current, in-memory question and answer; retains the loaded model. */
     fun clearConversation() {
         if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
             return
         }
 
         _messages.value = emptyList()
-        _conversationSummary.value = ""
         clearLastPromptState()
         _generationError.value = null
     }
 
     /**
-     * Clears native KV cache while keeping Kotlin chat history and model.
-     * Resets inference state.
-     * KV cache state management.
+     * Clears the native KV cache while keeping the loaded model.
      */
     fun resetContext() {
         if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
@@ -465,9 +455,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun clearLastPromptState() {
-        _finalPrompt.value = ""
-        _promptTokenCount.value = 0
-        _trimmedHistoryTurnCount.value = 0
         _generationProgress.value = null
         _generationMetrics.value = null
     }
