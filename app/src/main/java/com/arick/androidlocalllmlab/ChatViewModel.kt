@@ -326,16 +326,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     // Keep the native KV cache between turns. Supply recent transcript plus
                     // the logger's durable summary so llama.cpp can reuse a stable prompt prefix.
                     val readyState = _uiState.value as? ChatUiState.Ready
-                    val promptBudget = ((readyState?.nCtx ?: 512) - inferenceConfig.maxTokens - 32)
-                        .coerceAtLeast(1)
+                    val contextCapacity = (readyState?.nCtx ?: 512).coerceAtLeast(128)
+                    // Small context windows must reserve room for memory as well as output.
+                    // The previous full output reservation left only ~224 prompt tokens at
+                    // nCtx=512, causing the memory builder to shrink its summary to nothing.
+                    val effectiveMaxTokens = inferenceConfig.maxTokens.coerceAtMost(
+                        (contextCapacity / 3).coerceAtLeast(64)
+                    )
+                    val generationConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens)
+                    val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
                     val historySnapshot = synchronized(conversationHistory) { conversationHistory.toList() }
-                    // Reuse the same on-device logger summary shown in Settings as persistent
-                    // semantic context; do not leave it as a display-only feature.
-                    val activitySummary = ActivityLogger.summary(getApplication())
-                    val memorySummary = activitySummary
-                        .substringAfter("Conversation summary:", "")
-                        .substringBefore("Other activity in time order:")
-                        .trim()
+                    // Use the logger's underlying recent exchanges, not text parsed from the
+                    // lossy, human-readable Settings summary.
+                    val memorySummary = ActivityLogger.promptMemory(getApplication())
                     val promptMessages = buildPromptMessages(
                         currentQuestion = prompt,
                         history = historySnapshot,
@@ -344,7 +347,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     runtime.generate(
                         messages = promptMessages,
-                        inferenceConfig = inferenceConfig,
+                        inferenceConfig = generationConfig,
                         contextWindowTokens = readyState?.nCtx ?: 0,
                         onPrompt = { formattedPrompt, tokenCount ->
                             _promptTokenCount.value = tokenCount
@@ -419,7 +422,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         """.trimIndent()
 
         var retainedHistory = history.takeLast(8)
-        var retainedMemory = memorySummary.trim().take(1600)
+        var retainedMemory = memorySummary.trim().take(1000)
         while (true) {
             val systemContent = if (retainedMemory.isBlank()) {
                 systemInstructions
