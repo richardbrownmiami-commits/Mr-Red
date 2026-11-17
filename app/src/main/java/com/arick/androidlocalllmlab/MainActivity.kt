@@ -221,7 +221,6 @@ private fun ChatPage(
     val generationError by viewModel.generationError.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
 
-    var showClearConfirm by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
 
     Column(
@@ -325,19 +324,6 @@ private fun ChatPage(
             onSend = viewModel::send,
             onStop = viewModel::stopGenerating,
             onOpenModelPicker = onOpenModelPicker
-        )
-    }
-
-    if (showClearConfirm) {
-        ConfirmActionDialog(
-            title = "Clear chat history?",
-            message = "This will delete all messages from this session. The loaded model and context remain in memory.",
-            confirmText = "Clear",
-            onConfirm = {
-                viewModel.clearConversation()
-                showClearConfirm = false
-            },
-            onDismiss = { showClearConfirm = false }
         )
     }
 
