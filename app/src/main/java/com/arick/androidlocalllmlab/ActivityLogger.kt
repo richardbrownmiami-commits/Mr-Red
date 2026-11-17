@@ -130,8 +130,8 @@ object ActivityLogger {
                 }
             }
         }
-        return exchanges.takeLast(maxExchanges).joinToString("\\n") { exchange ->
-            "Earlier user: ${exchange.question}\\nEarlier Mr-Red: ${exchange.answer}"
+        return exchanges.takeLast(maxExchanges).joinToString("\n") { exchange ->
+            "Earlier user: ${exchange.question}\nEarlier Mr-Red: ${exchange.answer}"
         }.take(1000)
     }
 
