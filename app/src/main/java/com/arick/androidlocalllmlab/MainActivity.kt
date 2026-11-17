@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -154,7 +156,7 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
 
     Scaffold(
         bottomBar = {
-            NavigationBar(
+            if (selectedPage != AppPage.Chat || !WindowInsets.isImeVisible) NavigationBar(
                 containerColor = AppColors.PageBackground,
                 contentColor = AppColors.PrimaryAction
             ) {
@@ -754,7 +756,7 @@ private fun ChatComposer(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -762,7 +764,7 @@ private fun ChatComposer(
                     .weight(1f)
                     .background(AppColors.CardBackground, RoundedCornerShape(24.dp))
                     .border(1.dp, AppColors.CardBorder, RoundedCornerShape(24.dp))
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 if (text.isEmpty()) {
                     val placeholder = if (enabled) "Type a message or command…" else "Select a model to begin…"
@@ -1230,7 +1232,7 @@ private fun SettingsPage(
 
     // Context Window Selector Dialog
     if (showContextWindowDialog) {
-        val options = listOf(512, 1024, 2048, 4096)
+        val options = listOf(512, 1048, 2048, 4096)
         var selectedNctx by remember { mutableIntStateOf(requestedNctx) }
 
         AlertDialog(
