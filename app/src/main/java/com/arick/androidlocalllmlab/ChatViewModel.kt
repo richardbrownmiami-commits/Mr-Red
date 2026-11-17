@@ -627,9 +627,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun clearLastPromptState() {
-        _finalPrompt.value = ""
         _promptTokenCount.value = 0
-        _trimmedHistoryTurnCount.value = 0
         _generationProgress.value = null
         _generationMetrics.value = null
     }
