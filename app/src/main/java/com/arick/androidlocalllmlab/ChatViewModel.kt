@@ -378,9 +378,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 ActivityLogger.record(getApplication(), "INFERENCE", "request_completed", "Model generation completed")
             } catch (error: Throwable) {
+                val failureMessage = error.message ?: "Mr-Red could not complete the response."
                 ActivityLogger.record(getApplication(), "ERROR", "inference_failed", error.javaClass.simpleName)
-                ActivityLogger.record(getApplication(), "ANSWER", "generated", error.message ?: "Mr-Red could not complete the response.")
-                _generationError.value = error.message ?: "Generation failed"
+                ActivityLogger.record(getApplication(), "ANSWER", "generated", failureMessage)
+                _generationError.value = failureMessage
+                replaceLatestAssistantMessage(AssistantResponseParts("", failureMessage), null)
             } finally {
                 _generationProgress.value = null
                 _isGenerating.value = false
@@ -390,8 +392,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Adds a bounded, refreshed platform summary as optional background context.
-     * Token-aware trimming protects the model's configured context/output budget.
+     * Adds recent completed turns as background context. Oldest turns are removed first
+     * until the prompt fits the model's actual context/output budget.
      */
     private fun buildPromptWithActivitySummary(
         currentQuestion: String,
@@ -428,8 +430,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (runtime.tokenize(candidate).size <= maxPromptTokens) return candidate
 
-            // Preserve the latest turns first; discard the oldest transcript material
-            // before shortening the summary. The user's current question is never truncated.
+            // Preserve the latest turns first. The current question is never truncated.
             if (retainedHistory.isNotEmpty()) {
                 retainedHistory = retainedHistory.drop(1)
             } else {
@@ -746,7 +747,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Default) {
                 runtime.resetContext()
             }
-            synchronized(conversationHistory) { conversationHistory.clear() }
+            synchronized(conversationHistory) {
+                conversationHistory.clear()
+                persistConversationHistoryLocked()
+            }
+            _messages.value = emptyList()
             ActivityLogger.record(getApplication(), "INFERENCE", "context_reset", "Native inference context reset")
             clearLastPromptState()
             _generationError.value = null
@@ -769,8 +774,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 afterModelReleased = takeMemorySnapshot()
             )
             selectedModelStore.clear()
-            _messages.value = emptyList()
-            synchronized(conversationHistory) { conversationHistory.clear() }
+            // Unloading model weights must not erase the user's saved conversation.
             clearLastPromptState()
             _generationError.value = null
             _uiState.value = ChatUiState.Idle
