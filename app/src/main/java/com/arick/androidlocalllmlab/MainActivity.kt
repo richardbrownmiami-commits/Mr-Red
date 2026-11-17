@@ -232,7 +232,6 @@ private fun ChatPage(
         ChatHeader(
             uiState = uiState,
             cpuThreads = cpuThreads,
-            onClearChat = { showClearConfirm = true },
             onResetContext = { showResetConfirm = true },
             onOpenSettings = onNavigateToSettings
         )
@@ -345,7 +344,6 @@ private fun ChatPage(
 private fun ChatHeader(
     uiState: ChatUiState,
     cpuThreads: Int,
-    onClearChat: () -> Unit,
     onResetContext: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -383,13 +381,6 @@ private fun ChatHeader(
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Reset Context",
-                    tint = AppColors.TextSecondary
-                )
-            }
-            IconButton(onClick = onClearChat, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Clear Chat",
                     tint = AppColors.TextSecondary
                 )
             }
@@ -465,15 +456,15 @@ private fun ChatEmptyGreeting(
         Spacer(modifier = Modifier.height(24.dp))
 
         val prompts = listOf(
-            "What are my device vitals right now?",
-            "Draft a WhatsApp message to Mom: I will be home soon",
-            "Set a countdown timer for 3 minutes",
-            "Open phone battery settings",
-            "Who created Linux?"
+            "Explain how a transformer language model works.",
+            "Compare Kotlin coroutines and Java threads.",
+            "Write a concise project proposal for a mobile app.",
+            "What are the main causes of the French Revolution?",
+            "How does quantization reduce GGUF model size?"
         )
 
         Text(
-            text = "Suggested actions:",
+            text = "Example questions:",
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             color = AppColors.TextSecondary,
@@ -1069,7 +1060,6 @@ private fun SettingsPage(
     var showContextWindowDialog by remember { mutableStateOf(false) }
     var showCpuThreadsDialog by remember { mutableStateOf(false) }
     var showSamplingDialog by remember { mutableStateOf(false) }
-    var showClearConfirm by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var showReleaseConfirm by remember { mutableStateOf(false) }
 
@@ -1344,19 +1334,6 @@ private fun SettingsPage(
                     Text("Cancel")
                 }
             }
-        )
-    }
-
-    if (showClearConfirm) {
-        ConfirmActionDialog(
-            title = "Clear chat history?",
-            message = "This clears all chat messages from memory. The loaded model and context remain available.",
-            confirmText = "Clear",
-            onConfirm = {
-                viewModel.clearConversation()
-                showClearConfirm = false
-            },
-            onDismiss = { showClearConfirm = false }
         )
     }
 
