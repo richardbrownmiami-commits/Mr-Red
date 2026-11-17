@@ -88,6 +88,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
 
+    // Completed turns are retained in memory for the current chat session.
+    // Native llama.cpp reuses the longest common prompt prefix in its KV cache.
+    private val conversationHistory = mutableListOf<Pair<String, String>>()
+
     private val _uiState = MutableStateFlow<ChatUiState>(ChatUiState.Idle)
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
@@ -278,14 +282,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var templateStartsThinking = false
             try {
                 val answer = withContext(Dispatchers.Default) {
-                    // Start every request with an empty KV cache; only the compact platform
-                    // activity summary is carried forward, not prior prompt/KV state.
-                    runtime.resetContext()
+                    // Keep the native KV cache between turns. Send the full in-session
+                    // transcript so llama.cpp can reuse its longest common token prefix.
                     val readyState = _uiState.value as? ChatUiState.Ready
                     val promptBudget = ((readyState?.nCtx ?: 512) - inferenceConfig.maxTokens - 8)
                         .coerceAtLeast(1)
+                    val historySnapshot = synchronized(conversationHistory) { conversationHistory.toList() }
                     val augmentedPrompt = buildPromptWithActivitySummary(
                         currentQuestion = prompt,
+                        history = historySnapshot,
                         summary = ActivityLogger.summary(getApplication()),
                         maxPromptTokens = promptBudget
                     )
@@ -323,7 +328,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         null
                     )
                 }
-                ActivityLogger.record(getApplication(), "ANSWER", "generated", splitAssistantResponse(answer, templateStartsThinking).answer)
+                val finalAnswer = splitAssistantResponse(answer, templateStartsThinking).answer
+                ActivityLogger.record(getApplication(), "ANSWER", "generated", finalAnswer)
+                synchronized(conversationHistory) { conversationHistory += prompt to finalAnswer }
                 ActivityLogger.record(getApplication(), "INFERENCE", "request_completed", "Model generation completed")
             } catch (error: Throwable) {
                 ActivityLogger.record(getApplication(), "ERROR", "inference_failed", error.javaClass.simpleName)
@@ -343,34 +350,54 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun buildPromptWithActivitySummary(
         currentQuestion: String,
+        history: List<Pair<String, String>>,
         summary: String,
         maxPromptTokens: Int
     ): String {
-        fun compose(activitySummary: String): String = """
-            PLATFORM ACTIVITY SUMMARY (optional background; may be irrelevant):
-            $activitySummary
+        val styleInstructions = """
+            You are Mr-Red, an AI assistant. Speak naturally and conversationally, with the
+            relaxed, clear, considerate tone of a typical 20-year-old adult. Do not claim to
+            be human or claim an actual age. Be caring without being overfamiliar. Notice
+            emotional context, respond respectfully, and offer practical suggestions when
+            they genuinely help. Do not force advice into every answer. Be honest about
+            uncertainty and never invent personal experiences.
 
-            INSTRUCTIONS:
-            Use the activity summary only when it is relevant to the current question.
-            The current question takes priority. Do not repeat the summary or assume facts
-            that it does not establish. If the summary is irrelevant, ignore it.
-
-            CURRENT USER QUESTION:
-            $currentQuestion
+            Conversation history below is background. Use it to understand references,
+            preferences and follow-up questions. The latest question is the main task.
         """.trimIndent()
-        var context = summary.trim()
-        while (context.isNotEmpty()) {
-            val candidate = compose(context)
+
+        var retainedHistory = history
+        var retainedSummary = summary.trim()
+        while (true) {
+            val transcript = retainedHistory.joinToString("\n\n") { (question, answer) ->
+                "User: $question\nMr-Red: $answer"
+            }
+            val candidate = buildString {
+                append(styleInstructions)
+                if (transcript.isNotBlank()) {
+                    append("\n\nCONVERSATION HISTORY:\n")
+                    append(transcript)
+                }
+                if (retainedSummary.isNotBlank()) {
+                    append("\n\nPLATFORM ACTIVITY SUMMARY (optional background):\n")
+                    append(retainedSummary)
+                    append("\nUse this summary only when relevant; ignore it otherwise.")
+                }
+                append("\n\nCURRENT USER QUESTION:\n")
+                append(currentQuestion)
+                append("\n\nRespond directly to the current question.")
+            }
             if (runtime.tokenize(candidate).size <= maxPromptTokens) return candidate
-            // Keep the newest portion of the summary as the available prompt budget shrinks.
-            context = context.takeLast((context.length * 3 / 4).coerceAtLeast(0))
-        }
-        val questionOnly = compose("No relevant prior activity summary available.")
-        return if (runtime.tokenize(questionOnly).size <= maxPromptTokens) {
-            questionOnly
-        } else {
-            // Preserve the user's complete question rather than silently truncating it.
-            currentQuestion
+
+            // Preserve the latest turns first; discard the oldest transcript material
+            // before shortening the summary. The user's current question is never truncated.
+            if (retainedHistory.isNotEmpty()) {
+                retainedHistory = retainedHistory.drop(1)
+            } else if (retainedSummary.isNotEmpty()) {
+                retainedSummary = retainedSummary.takeLast((retainedSummary.length * 3 / 4).coerceAtLeast(0))
+            } else {
+                return currentQuestion
+            }
         }
     }
 
@@ -411,6 +438,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 _messages.value = _messages.value.dropLast(1) + assistant
                 ActivityLogger.record(getApplication(), "ANSWER", "generated", content)
+                synchronized(conversationHistory) { conversationHistory += prompt to content }
                 ActivityLogger.record(getApplication(), "DEVICE", "action_completed", "Local Android action finished: ${call.name}")
             } catch (error: Throwable) {
                 ActivityLogger.record(getApplication(), "ERROR", "device_action_failed", "${call.name}: ${error.javaClass.simpleName}")
@@ -660,6 +688,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         _messages.value = emptyList()
+        synchronized(conversationHistory) { conversationHistory.clear() }
+        runtime.resetContext()
         clearLastPromptState()
         _generationError.value = null
         ActivityLogger.record(getApplication(), "UI", "conversation_cleared", "Current chat view cleared")
@@ -677,6 +707,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Default) {
                 runtime.resetContext()
             }
+            synchronized(conversationHistory) { conversationHistory.clear() }
             ActivityLogger.record(getApplication(), "INFERENCE", "context_reset", "Native inference context reset")
             clearLastPromptState()
             _generationError.value = null
@@ -700,6 +731,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
             selectedModelStore.clear()
             _messages.value = emptyList()
+            synchronized(conversationHistory) { conversationHistory.clear() }
             clearLastPromptState()
             _generationError.value = null
             _uiState.value = ChatUiState.Idle
