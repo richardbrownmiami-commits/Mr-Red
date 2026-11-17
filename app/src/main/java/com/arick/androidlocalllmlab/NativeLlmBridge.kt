@@ -73,7 +73,8 @@ object NativeLlmBridge {
 
     external fun nativeGenerate(
         handle: Long,
-        prompt: String,
+        roles: Array<String>,
+        contents: Array<String>,
         maxTokens: Int,
         temperature: Float,
         topK: Int,
