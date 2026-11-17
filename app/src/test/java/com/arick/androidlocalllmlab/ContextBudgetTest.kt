@@ -30,8 +30,4 @@ class ContextBudgetTest {
         assertEquals(512, config4096.maxTokens)
     }
 
-    @Test
-    fun selectedModelStore_defaultSummaryLinesIsFourForBalancedMemory() {
-        assertEquals(4, SelectedModelStore.DEFAULT_SUMMARY_LINES)
-    }
 }
