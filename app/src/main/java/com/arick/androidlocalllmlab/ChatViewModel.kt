@@ -326,16 +326,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     // Keep the native KV cache between turns. Send the full in-session
                     // transcript so llama.cpp can reuse its longest common token prefix.
                     val readyState = _uiState.value as? ChatUiState.Ready
-                    val promptBudget = ((readyState?.nCtx ?: 512) - inferenceConfig.maxTokens - 8)
+                    val promptBudget = ((readyState?.nCtx ?: 512) - inferenceConfig.maxTokens - 32)
                         .coerceAtLeast(1)
                     val historySnapshot = synchronized(conversationHistory) { conversationHistory.toList() }
-                    val augmentedPrompt = buildPromptWithActivitySummary(
+                    val promptMessages = buildPromptMessages(
                         currentQuestion = prompt,
                         history = historySnapshot,
                         maxPromptTokens = promptBudget
                     )
                     runtime.generate(
-                        prompt = augmentedPrompt,
+                        messages = promptMessages,
                         inferenceConfig = inferenceConfig,
                         contextWindowTokens = readyState?.nCtx ?: 0,
                         onPrompt = { formattedPrompt, tokenCount ->
@@ -392,45 +392,47 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Adds recent completed turns as background context. Oldest turns are removed first
-     * until the prompt fits the model's actual context/output budget.
+     * Builds real role-separated messages for the GGUF chat template. Oldest turns are
+     * removed first to fit the context budget; the current question is always retained.
      */
-    private fun buildPromptWithActivitySummary(
+    private fun buildPromptMessages(
         currentQuestion: String,
         history: List<Pair<String, String>>,
         maxPromptTokens: Int
-    ): String {
-        val styleInstructions = """
-            You are Mr-Red, an AI assistant. Be natural, conversational, clear and considerate.
-            Be caring without overdoing it; offer practical suggestions when useful. Be honest
-            about uncertainty and never invent personal experiences or claim to be human.
-            The conversation history below is real prior context. Use it for follow-ups and
-            references; do not claim you have no memory when the relevant detail is present.
-            Answer the latest question directly.
+    ): List<PromptMessage> {
+        val systemInstructions = """
+            You are Mr-Red. Be natural, clear, considerate and conversational. Be caring
+            without overdoing it; offer practical suggestions when useful. Be honest about
+            uncertainty and never invent personal experiences or claim to be human.
+            Treat the supplied conversation turns as real prior context. Use them to resolve
+            follow-ups and references; do not claim you have no memory when the detail is present.
+            Answer the latest user message directly.
         """.trimIndent()
 
         var retainedHistory = history.takeLast(8)
         while (true) {
-            val transcript = retainedHistory.joinToString("\n\n") { (question, answer) ->
-                "User: $question\nMr-Red: $answer"
-            }
-            val candidate = buildString {
-                append(styleInstructions)
-                if (transcript.isNotBlank()) {
-                    append("\n\nCONVERSATION HISTORY:\n")
-                    append(transcript)
+            val messages = buildList {
+                add(PromptMessage("system", systemInstructions))
+                retainedHistory.forEach { (question, answer) ->
+                    add(PromptMessage("user", question))
+                    add(PromptMessage("assistant", answer))
                 }
-                append("\n\nCURRENT USER QUESTION:\n")
-                append(currentQuestion)
-                append("\n\nRespond directly to the current question.")
+                add(PromptMessage("user", currentQuestion))
             }
-            if (runtime.tokenize(candidate).size <= maxPromptTokens) return candidate
+            // Include role labels in the estimate and leave room for the GGUF chat template.
+            val estimate = messages.joinToString("\n") { "${it.role}\n${it.content}" }
+            if (runtime.tokenize(estimate).size + 32 <= maxPromptTokens) return messages
 
-            // Preserve the latest turns first. The current question is never truncated.
             if (retainedHistory.isNotEmpty()) {
                 retainedHistory = retainedHistory.drop(1)
             } else {
-                return currentQuestion
+                // If even the system instruction plus current question cannot fit, prioritize
+                // the user's complete question rather than silently truncating it.
+                return if (runtime.tokenize(currentQuestion).size + 8 <= maxPromptTokens) {
+                    listOf(PromptMessage("system", systemInstructions), PromptMessage("user", currentQuestion))
+                } else {
+                    listOf(PromptMessage("user", currentQuestion))
+                }
             }
         }
     }
