@@ -157,28 +157,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Models in filesDir persist across app restarts.
         restoreLastModel()
-        restorePersistedConversation()
-    }
-
-    private fun restorePersistedConversation() {
-        viewModelScope.launch {
-            val savedMessages = withContext(Dispatchers.IO) {
-                conversationDatabase.loadAllMessages()
-            }
-            val savedSummary = withContext(Dispatchers.IO) {
-                conversationDatabase.getSummary()
-            }
-            if (savedMessages.isNotEmpty()) {
-                _messages.value = savedMessages
-            }
-            _conversationSummary.value = if (savedSummary.isNotBlank()) {
-                savedSummary
-            } else if (savedMessages.isNotEmpty()) {
-                rebuildSummaryFromHistory(savedMessages, _summaryLines.value)
-            } else {
-                ""
-            }
-        }
     }
 
     fun loadModel(uri: Uri) {
@@ -264,20 +242,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if ("$modelName $modelDescription".contains("instruct-2507", ignoreCase = true)) {
             _thinkingEnabled.value = false
         }
-        val savedMessages = withContext(Dispatchers.IO) {
-            conversationDatabase.loadAllMessages()
-        }
-        val savedSummary = withContext(Dispatchers.IO) {
-            conversationDatabase.getSummary()
-        }
-        _messages.value = savedMessages
-        _conversationSummary.value = if (savedSummary.isNotBlank()) {
-            savedSummary
-        } else if (savedMessages.isNotEmpty()) {
-            rebuildSummaryFromHistory(savedMessages, _summaryLines.value)
-        } else {
-            ""
-        }
         _finalPrompt.value = ""
         _promptTokenCount.value = 0
         _trimmedHistoryTurnCount.value = 0
@@ -296,105 +260,67 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    /**
+     * Minimal GGUF path: the current user question is the only message sent to
+     * llama.cpp. No persona/system prompt, prior turns, summary, memory, or
+     * app-side tool orchestration is added to the model input.
+     */
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value) return
-
-        // Explicit user-directed memory commands are handled locally and persisted on-device.
-        val rememberMatch = Regex("""^\s*remember\s+(?:that\s+)?(.+)$""", RegexOption.IGNORE_CASE).find(prompt)
-        if (rememberMatch != null) {
-            val fact = rememberMatch.groupValues[1].trim().take(240)
-            if (fact.isNotBlank()) {
-                viewModelScope.launch(Dispatchers.IO) { persistentMemoryStore.remember(fact) }
-                appendLocalAssistantTurn(prompt, "I'll remember that: $fact", "Saved to on-device memory")
-            }
-            return
-        }
-        if (Regex("""^\\s*forget\\s+(?:everything|all|what)\\b""", RegexOption.IGNORE_CASE).containsMatchIn(prompt)) {
-            viewModelScope.launch(Dispatchers.IO) { persistentMemoryStore.clear() }
-            appendLocalAssistantTurn(prompt, "I've cleared the saved personal memory on this device.", "Cleared on-device memory")
+        val ready = _uiState.value as? ChatUiState.Ready ?: run {
+            _generationError.value = "Load a GGUF model before sending a question."
             return
         }
 
-        // Deterministic device actions and lookups are routed by Kotlin FIRST.
-        DeviceIntentRouter.route(prompt)?.let { toolCall ->
-            if (isResearchTool(toolCall.name) && _uiState.value is ChatUiState.Ready) {
-                executeSearchAugmentedRequest(prompt, toolCall)
-                return
-            }
-            executeRoutedDeviceRequest(prompt, toolCall)
-            return
-        }
-
-        // Local personality/help answers need neither model tokens nor model availability.
-        AssistantKnowledgeRouter.answer(prompt, _personaCard.value)?.let { localAnswer ->
-            appendLocalAssistantTurn(prompt, localAnswer, "Answered by Mr-Red locally")
-            return
-        }
-        if (_uiState.value !is ChatUiState.Ready) {
-            appendLocalAssistantTurn(
-                prompt,
-                "I can handle phone actions, device status, alarms, reminders, and online lookups without a model. For general questions, explanations, or writing, load a local GGUF model and I can help with that.",
-                "Explained local-model requirement"
-            )
-            return
-        }
-
-        // Empty assistant message used as target for streaming tokens.
-        // Not passed to native prompt until completed.
-        val visibleHistory = _messages.value.filter { it.content.isNotBlank() }
-        val actualNctx = (_uiState.value as? ChatUiState.Ready)?.nCtx ?: return
-        val inferenceConfig = _inferenceConfig.value
-        val nativeUserPrompt = prompt
         val userMessage = ChatMessage(MessageRole.User, prompt)
-        _messages.value = visibleHistory + userMessage + listOf(
-            ChatMessage(MessageRole.Assistant, "")
-        )
-        viewModelScope.launch(Dispatchers.IO) {
-            conversationDatabase.saveMessage(userMessage)
-        }
+        _messages.value = listOf(userMessage, ChatMessage(MessageRole.Assistant, ""))
         _generationError.value = null
         _finalPrompt.value = ""
         _promptTokenCount.value = 0
         _trimmedHistoryTurnCount.value = 0
-        _generationProgress.value = "Preparing prompt…"
+        _generationProgress.value = "Running GGUF inference…"
         _generationMetrics.value = null
-        // Clear previous stop flag before starting new generation.
         runtime.resetStopRequest()
         _isStopRequested.value = false
         _isGenerating.value = true
-        val generationStartedAtNanos = System.nanoTime()
 
+        val config = _inferenceConfig.value.copy(
+            maxTokens = _inferenceConfig.value.maxTokens.coerceAtMost((ready.nCtx - 1).coerceAtLeast(1))
+        )
         viewModelScope.launch {
             try {
-                val answer = withContext(Dispatchers.Default) {
-                    val trimmedHistory = buildHistoryWithinContextBudget(
-                        recentHistory = visibleHistory.toCompletedTurns().takeLast(3).flatten(),
-                        currentUserPrompt = nativeUserPrompt,
-                        nCtx = actualNctx,
-                        reservedOutputTokens = inferenceConfig.maxTokens
-                    )
-                    _trimmedHistoryTurnCount.value = trimmedHistory.droppedTurnCount
-                    runFunctionCallingLoop(
-                        initialMessages = trimmedHistory.messages,
-                        inferenceConfig = inferenceConfig,
-                        nCtx = actualNctx
+                withContext(Dispatchers.Default) {
+                    runtime.generate(
+                        messages = listOf(userMessage),
+                        inferenceConfig = config,
+                        onPrompt = { formattedPrompt, tokenCount ->
+                            _finalPrompt.value = formattedPrompt
+                            _promptTokenCount.value = tokenCount
+                            _generationProgress.value = "Prefilling $tokenCount tokens…"
+                        },
+                        onToken = { piece ->
+                            _generationProgress.value = "Generating response…"
+                            val current = _messages.value
+                            if (current.isNotEmpty()) {
+                                val last = current.last()
+                                _messages.value = current.dropLast(1) + last.copy(content = last.content + piece)
+                            }
+                        },
+                        onMetrics = { metrics ->
+                            _generationMetrics.value = metrics
+                            _memorySnapshots.value = _memorySnapshots.value.copy(
+                                afterGeneration = takeMemorySnapshot(),
+                                afterModelReleased = null
+                            )
+                        }
                     )
                 }
-                if (answer.isBlank() && !_isStopRequested.value) {
+                if (_messages.value.lastOrNull()?.content.isNullOrBlank() && !_isStopRequested.value) {
                     error("Model returned no content")
-                } else if (answer.isNotBlank()) {
-                    val finalAssistant = _messages.value.lastOrNull { it.role == MessageRole.Assistant }
-                    if (finalAssistant != null && finalAssistant.content.isNotBlank()) {
-                        withContext(Dispatchers.IO) {
-                            conversationDatabase.saveMessage(finalAssistant)
-                        }
-                        recordCompletedTurnInSummary(prompt, finalAssistant.content, toolAction = "Researched live facts on ${prompt.take(35)}")
-                    }
                 }
             } catch (error: Throwable) {
                 _generationError.value = error.message ?: "Generation failed"
             } finally {
-                finishLatestAssistantAgentTrace(generationStartedAtNanos)
                 _generationProgress.value = null
                 _isGenerating.value = false
                 _isStopRequested.value = false
@@ -1184,9 +1110,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         _messages.value = emptyList()
         _conversationSummary.value = ""
-        viewModelScope.launch(Dispatchers.IO) {
-            conversationDatabase.clearAll()
-        }
         clearLastPromptState()
         _generationError.value = null
     }
