@@ -221,7 +221,6 @@ private fun ChatPage(
     val generationError by viewModel.generationError.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
 
-    var showClearConfirm by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
 
     Column(
@@ -233,7 +232,6 @@ private fun ChatPage(
         ChatHeader(
             uiState = uiState,
             cpuThreads = cpuThreads,
-            onClearChat = { showClearConfirm = true },
             onResetContext = { showResetConfirm = true },
             onOpenSettings = onNavigateToSettings
         )
@@ -250,7 +248,7 @@ private fun ChatPage(
                     if (messages.isEmpty()) {
                         EmptyState(
                             title = "Select a GGUF model to start",
-                            subtitle = "Device status, Android actions, weather, news, and web search work without a model. Load a model for general answers.",
+                            subtitle = "Load a local GGUF model. Each question is sent independently; chat history and memory are not retained.",
                             actionText = "Select Model",
                             onAction = onOpenModelPicker
                         )
@@ -311,13 +309,6 @@ private fun ChatPage(
             }
         }
 
-        // Quick Action Chips Row
-        if (uiState is ChatUiState.Ready && !isGenerating) {
-            QuickActionChipsRow(
-                onActionSelected = { prompt -> viewModel.send(prompt) }
-            )
-        }
-
         ChatComposer(
             enabled = uiState !is ChatUiState.Preparing,
             isGenerating = isGenerating,
@@ -325,19 +316,6 @@ private fun ChatPage(
             onSend = viewModel::send,
             onStop = viewModel::stopGenerating,
             onOpenModelPicker = onOpenModelPicker
-        )
-    }
-
-    if (showClearConfirm) {
-        ConfirmActionDialog(
-            title = "Clear chat history?",
-            message = "This will delete all messages from this session. The loaded model and context remain in memory.",
-            confirmText = "Clear",
-            onConfirm = {
-                viewModel.clearConversation()
-                showClearConfirm = false
-            },
-            onDismiss = { showClearConfirm = false }
         )
     }
 
@@ -359,7 +337,6 @@ private fun ChatPage(
 private fun ChatHeader(
     uiState: ChatUiState,
     cpuThreads: Int,
-    onClearChat: () -> Unit,
     onResetContext: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -400,13 +377,6 @@ private fun ChatHeader(
                     tint = AppColors.TextSecondary
                 )
             }
-            IconButton(onClick = onClearChat, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Clear Chat",
-                    tint = AppColors.TextSecondary
-                )
-            }
             IconButton(onClick = onOpenSettings, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.Default.Settings,
@@ -414,36 +384,6 @@ private fun ChatHeader(
                     tint = AppColors.TextSecondary
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun QuickActionChipsRow(onActionSelected: (String) -> Unit) {
-    val quickActions = listOf(
-        "⚡ Battery & RAM" to "Check my phone battery, RAM and storage vitals",
-        "💬 Draft message" to "Draft a message saying Hello from Mr-Red",
-        "📞 Open Dialer" to "Open phone dialer",
-        "⏰ Set 5m Timer" to "Set a countdown timer for 5 minutes",
-        "⚙️ Battery Settings" to "Open device battery settings",
-        "🌐 Web Search" to "Search the web for latest AI news"
-    )
-
-    LazyRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(quickActions) { (label, prompt) ->
-            AssistChip(
-                onClick = { onActionSelected(prompt) },
-                label = { Text(label, fontSize = 12.sp, color = AppColors.TextPrimary) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = AppColors.CardBackground
-                ),
-                shape = RoundedCornerShape(16.dp)
-            )
         }
     }
 }
@@ -470,7 +410,7 @@ private fun ChatEmptyGreeting(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Model: $modelName · Context: $nCtx tokens\nLiving phone agent ready for offline dialogue and device tools.",
+            text = "Model: $modelName · Context: $nCtx tokens\nReady for direct, single-question GGUF inference.",
             fontSize = 13.sp,
             color = AppColors.TextSecondary,
             lineHeight = 18.sp
@@ -479,15 +419,15 @@ private fun ChatEmptyGreeting(
         Spacer(modifier = Modifier.height(24.dp))
 
         val prompts = listOf(
-            "What are my device vitals right now?",
-            "Draft a WhatsApp message to Mom: I will be home soon",
-            "Set a countdown timer for 3 minutes",
-            "Open phone battery settings",
-            "Who created Linux?"
+            "Explain how a transformer language model works.",
+            "Compare Kotlin coroutines and Java threads.",
+            "Write a concise project proposal for a mobile app.",
+            "What are the main causes of the French Revolution?",
+            "How does quantization reduce GGUF model size?"
         )
 
         Text(
-            text = "Suggested actions:",
+            text = "Example questions:",
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             color = AppColors.TextSecondary,
@@ -846,7 +786,6 @@ private fun DashboardPage(
     val cpuThreads by viewModel.cpuThreads.collectAsState()
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
-    val conversationSummary by viewModel.conversationSummary.collectAsState()
 
     var batteryPct by remember { mutableIntStateOf(-1) }
     var freeStorageGb by remember { mutableStateOf("...") }
@@ -999,12 +938,6 @@ private fun DashboardPage(
                 } ?: "No runs yet"
                 DashboardMetricRow("KV Cache Reuse", cacheReuseText)
 
-                val memoryText = if (conversationSummary.isNotBlank()) {
-                    "Active (${conversationSummary.lines().size} notes in SQLite)"
-                } else {
-                    "SQLite Ready (persisting chat)"
-                }
-                DashboardMetricRow("Persistent Memory", memoryText)
             }
         }
 
@@ -1080,26 +1013,16 @@ private fun SettingsPage(
     onOpenModelPicker: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val personaCard by viewModel.personaCard.collectAsState()
-    val finalPrompt by viewModel.finalPrompt.collectAsState()
-    val promptTokenCount by viewModel.promptTokenCount.collectAsState()
-    val trimmedHistoryTurnCount by viewModel.trimmedHistoryTurnCount.collectAsState()
     val requestedNctx by viewModel.requestedNctx.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
     val inferenceConfig by viewModel.inferenceConfig.collectAsState()
-    val thinkingEnabled by viewModel.thinkingEnabled.collectAsState()
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val modelPreparationMetrics by viewModel.modelPreparationMetrics.collectAsState()
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
-    val summaryLines by viewModel.summaryLines.collectAsState()
 
-    var showPersonaCardDialog by remember { mutableStateOf(false) }
-    var showSummaryLinesDialog by remember { mutableStateOf(false) }
-    var showFinalPromptDialog by remember { mutableStateOf(false) }
     var showContextWindowDialog by remember { mutableStateOf(false) }
     var showCpuThreadsDialog by remember { mutableStateOf(false) }
     var showSamplingDialog by remember { mutableStateOf(false) }
-    var showClearConfirm by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var showReleaseConfirm by remember { mutableStateOf(false) }
 
@@ -1140,30 +1063,6 @@ private fun SettingsPage(
             }
         }
 
-        // Conversation Configuration
-        SettingsSection(title = "Conversation & Persona") {
-            SettingsRow(
-                title = "Character Card",
-                summary = "${personaCard.name}: editable voice and personality, saved on this phone",
-                onClick = { showPersonaCardDialog = true }
-            )
-            SettingsRow(
-                title = "Conversation Memory Summary",
-                summary = if (summaryLines == 0) "Disabled (Question only, fixed minimal prefill)" else "$summaryLines lines (rolling)",
-                onClick = { showSummaryLinesDialog = true }
-            )
-            SettingsRow(
-                title = "Final Formatted Prompt",
-                summary = if (finalPrompt.isBlank()) "No conversation yet" else "View formatted prompt",
-                onClick = { showFinalPromptDialog = true }
-            )
-            SettingsRow(
-                title = "Clear Chat History",
-                summary = "Retain loaded model",
-                onClick = { showClearConfirm = true }
-            )
-        }
-
         // Inference Settings
         SettingsSection(title = "Inference & Runtime") {
             SettingsRow(
@@ -1176,24 +1075,10 @@ private fun SettingsPage(
                 summary = "$cpuThreads threads",
                 onClick = { showCpuThreadsDialog = true }
             )
-            SettingsSwitchRow(
-                title = "Qwen3 Thinking Mode",
-                subtitle = "Generate reasoning before final response",
-                checked = thinkingEnabled,
-                onCheckedChange = viewModel::updateThinkingEnabled
-            )
             SettingsRow(
                 title = "Sampling Parameters",
                 summary = if (inferenceConfig.temperature == 0f) "Stable (Greedy) · ${inferenceConfig.maxTokens} tokens" else "T=${inferenceConfig.temperature} · ${inferenceConfig.maxTokens} tokens",
                 onClick = { showSamplingDialog = true }
-            )
-            SettingsRow(
-                title = "Prompt Token Usage",
-                summary = if (promptTokenCount > 0) "$promptTokenCount tokens" else "None"
-            )
-            SettingsRow(
-                title = "History Trimming",
-                summary = if (trimmedHistoryTurnCount > 0) "$trimmedHistoryTurnCount turns omitted" else "Full history retained"
             )
             SettingsRow(
                 title = "Reset KV Cache / Context",
@@ -1237,125 +1122,6 @@ private fun SettingsPage(
                 summary = memorySnapshots.current?.nativePssKb?.let(::formatKb) ?: "None"
             )
         }
-    }
-
-    // Summary Lines Dialog
-    if (showSummaryLinesDialog) {
-        val options = listOf(
-            0 to "0 lines (Question only - minimal prefill)",
-            2 to "2 lines (Ultra-fast - 2 facts & actions)",
-            4 to "4 lines (Balanced recall & tool actions)",
-            7 to "7 lines (Extended memory facts)"
-        )
-        var selectedLines by remember { mutableIntStateOf(summaryLines) }
-
-        AlertDialog(
-            onDismissRequest = { showSummaryLinesDialog = false },
-            title = { Text("Conversation Memory Lines", fontSize = 16.sp) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Controls how many compact context facts and tool actions are kept in memory. Only these bullet facts and your current question are sent to the model, keeping prefill token usage stable and fast.",
-                        fontSize = 12.sp,
-                        color = AppColors.TextSecondary
-                    )
-                    options.forEach { (count, label) ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedLines = count }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            RadioButton(
-                                selected = selectedLines == count,
-                                onClick = { selectedLines = count }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(label, fontSize = 14.sp)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.updateSummaryLines(selectedLines)
-                    showSummaryLinesDialog = false
-                }) {
-                    Text("Confirm")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSummaryLinesDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // Local Character Card editor (stored on device; compact identity is used when GGUF writes).
-    if (showPersonaCardDialog) {
-        var name by remember(personaCard) { mutableStateOf(personaCard.name) }
-        var description by remember(personaCard) { mutableStateOf(personaCard.description) }
-        var personality by remember(personaCard) { mutableStateOf(personaCard.personality) }
-        var speakingStyle by remember(personaCard) { mutableStateOf(personaCard.speakingStyle) }
-        var greeting by remember(personaCard) { mutableStateOf(personaCard.greeting) }
-        AlertDialog(
-            onDismissRequest = { showPersonaCardDialog = false },
-            title = { Text("Mr-Red Character Card", fontSize = 16.sp) },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("Edit the local persona. The APK answers phone actions itself; the local model uses a compact voice identity only when generating prose.", fontSize = 12.sp)
-                    OutlinedTextField(name, { name = it }, label = { Text("Character name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(description, { description = it }, label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
-                    OutlinedTextField(personality, { personality = it }, label = { Text("Personality") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
-                    OutlinedTextField(speakingStyle, { speakingStyle = it }, label = { Text("Speaking style") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
-                    OutlinedTextField(greeting, { greeting = it }, label = { Text("Greeting") }, modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 2)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.updatePersonaCard(PersonaCard(
-                        name = name.trim().ifBlank { "Mr-Red" },
-                        description = description.trim().ifBlank { PersonaCard().description },
-                        personality = personality.trim().ifBlank { PersonaCard().personality },
-                        speakingStyle = speakingStyle.trim().ifBlank { PersonaCard().speakingStyle },
-                        greeting = greeting.trim().ifBlank { PersonaCard().greeting }
-                    ))
-                    showPersonaCardDialog = false
-                }) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    viewModel.updatePersonaCard(PersonaCard())
-                    showPersonaCardDialog = false
-                }) { Text("Reset") }
-            }
-        )
-    }
-
-    // Final Prompt Viewer Dialog
-    if (showFinalPromptDialog) {
-        AlertDialog(
-            onDismissRequest = { showFinalPromptDialog = false },
-            title = { Text("Final Formatted Prompt", fontSize = 16.sp) },
-            text = {
-                Text(
-                    text = finalPrompt.ifBlank { "No formatted prompt generated yet." },
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.verticalScroll(rememberScrollState())
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { showFinalPromptDialog = false }) {
-                    Text("Close")
-                }
-            }
-        )
     }
 
     // Context Window Selector Dialog
@@ -1531,19 +1297,6 @@ private fun SettingsPage(
                     Text("Cancel")
                 }
             }
-        )
-    }
-
-    if (showClearConfirm) {
-        ConfirmActionDialog(
-            title = "Clear chat history?",
-            message = "This clears all chat messages from memory. The loaded model and context remain available.",
-            confirmText = "Clear",
-            onConfirm = {
-                viewModel.clearConversation()
-                showClearConfirm = false
-            },
-            onDismiss = { showClearConfirm = false }
         )
     }
 
