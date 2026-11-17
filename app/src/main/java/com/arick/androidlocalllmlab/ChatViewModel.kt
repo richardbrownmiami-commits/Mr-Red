@@ -90,8 +90,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
 
-    // Completed turns are retained in memory for the current chat session.
-    // Native llama.cpp reuses the longest common prompt prefix in its KV cache.
+    // Completed turns are persisted privately and restored when the app process restarts.
+    // The native KV cache is separate and is rebuilt from the transcript after restart.
     private val conversationHistory = mutableListOf<Pair<String, String>>()
     private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
     private val maxStoredTurns = 40
@@ -401,16 +401,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         maxPromptTokens: Int
     ): String {
         val styleInstructions = """
-            You are Mr-Red, an AI assistant. Speak naturally and conversationally, with the
-            relaxed, clear, considerate tone of a typical 20-year-old adult. Do not claim to
-            be human or claim an actual age. Be caring without being overfamiliar. Notice
-            emotional context, respond respectfully, and offer practical suggestions when
-            they genuinely help. Do not force advice into every answer. Be honest about
-            uncertainty and never invent personal experiences.
-
-            Use the conversation history below to resolve references and follow-ups.
-            If a detail is absent from the history, say you do not have it. The latest
-            question is the main task.
+            You are Mr-Red, an AI assistant. Be natural, conversational, clear and considerate.
+            Be caring without overdoing it; offer practical suggestions when useful. Be honest
+            about uncertainty and never invent personal experiences or claim to be human.
+            The conversation history below is real prior context. Use it for follow-ups and
+            references; do not claim you have no memory when the relevant detail is present.
+            Answer the latest question directly.
         """.trimIndent()
 
         var retainedHistory = history.takeLast(8)
