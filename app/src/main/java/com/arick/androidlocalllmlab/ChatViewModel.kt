@@ -261,7 +261,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val answer = withContext(Dispatchers.Default) {
                     runtime.generate(
-                        messages = listOf(userMessage),
+                        prompt = prompt,
                         inferenceConfig = inferenceConfig,
                         onPrompt = { formattedPrompt, tokenCount ->
                             _promptTokenCount.value = tokenCount
@@ -574,7 +574,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         runtime.requestStop()
     }
 
-    /** Clears chat history in UI and SQLite; retains loaded model and native context. */
+    /** Clears the current turn from the UI; retains the loaded model and native context. */
     fun clearConversation() {
         if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
             return
@@ -586,9 +586,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Clears native KV cache while keeping Kotlin chat history and model.
-     * Resets inference state.
-     * KV cache state management.
+     * Clears the native KV cache and resets inference state without unloading model weights.
      */
     fun resetContext() {
         if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
