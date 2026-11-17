@@ -323,8 +323,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var templateStartsThinking = false
             try {
                 val answer = withContext(Dispatchers.Default) {
-                    // Keep the native KV cache between turns. Send the full in-session
-                    // transcript so llama.cpp can reuse its longest common token prefix.
+                    // Keep the native KV cache between turns. Supply recent transcript plus
+                    // the logger's durable summary so llama.cpp can reuse a stable prompt prefix.
                     val readyState = _uiState.value as? ChatUiState.Ready
                     val promptBudget = ((readyState?.nCtx ?: 512) - inferenceConfig.maxTokens - 32)
                         .coerceAtLeast(1)
@@ -400,12 +400,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Builds real role-separated messages for the GGUF chat template. Oldest turns are
-     * removed first to fit the context budget; the current question is always retained.
-     */
-    /**
-     * Builds role-separated messages and always gives the logger's conversation summary
-     * first claim on the prompt budget. Recent verbatim turns are added when they fit.
+     * Builds role-separated GGUF messages. Logger memory is prioritized; recent verbatim
+     * turns are added when they fit. The current question is always retained.
      */
     private fun buildPromptMessages(
         currentQuestion: String,
