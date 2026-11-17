@@ -223,14 +223,6 @@ class LocalLlmRuntime : AutoCloseable {
     }
 }
 
-/** Assistant trace for native runtime; UI displays reasoning separately. */
-private fun ChatMessage.toNativeContent(): String {
-    if (role != MessageRole.Assistant || reasoningContent.isBlank()) {
-        return content
-    }
-    return "<think>\n$reasoningContent\n</think>\n\n$content"
-}
-
 /**
  * Sampler configuration. Greedy sampling is used when temperature is 0;
  * other parameters do not participate during greedy mode.
