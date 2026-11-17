@@ -84,7 +84,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     // Runtime holds native JNI handle with ViewModel lifecycle.
     private val runtime = LocalLlmRuntime()
-    val toolExecutor = AndroidToolExecutor(application)
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
 
@@ -94,8 +93,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
-    // System prompt is session configuration, not rendered as a chat bubble.
-    // Callback after applying native chat template, showing actual formatted prompt.
     // Default context window sizing.
     private val _requestedNctx = MutableStateFlow(512)
     val requestedNctx: StateFlow<Int> = _requestedNctx.asStateFlow()
