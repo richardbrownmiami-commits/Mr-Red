@@ -1,9 +1,6 @@
 package com.arick.androidlocalllmlab
 
 import android.app.ActivityManager
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -11,6 +8,11 @@ import android.os.BatteryManager
 import android.os.Bundle
 import android.os.Environment
 import android.os.StatFs
+import android.os.Build
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -155,25 +157,24 @@ enum class AppPage(val title: String, val icon: ImageVector) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MainAppScreen(viewModel: ChatViewModel) {
-    val activityContext = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
     var selectedPage by remember { mutableStateOf(AppPage.Chat) }
-    val modelLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.loadModel(it) }
-    }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) {}
 
     LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(activityContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
+    }
+    val modelLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.loadModel(it) }
     }
 
     Scaffold(
@@ -251,6 +252,8 @@ private fun ChatPage(
     val generationProgress by viewModel.generationProgress.collectAsState()
     val generationError by viewModel.generationError.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
+    val activityContext = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     var showClearConfirm by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
@@ -339,7 +342,8 @@ private fun ChatPage(
                             generationProgress = generationProgress,
                             errorMessage = generationError,
                             onToggleReasoning = viewModel::toggleReasoning,
-                            onToggleAgentTrace = viewModel::toggleAgentTrace
+                            onToggleAgentTrace = viewModel::toggleAgentTrace,
+                            onToggleModelInput = viewModel::toggleModelInput
                         )
                     }
                 }
@@ -358,7 +362,8 @@ private fun ChatPage(
                             generationProgress = generationProgress,
                             errorMessage = generationError,
                             onToggleReasoning = viewModel::toggleReasoning,
-                            onToggleAgentTrace = viewModel::toggleAgentTrace
+                            onToggleAgentTrace = viewModel::toggleAgentTrace,
+                            onToggleModelInput = viewModel::toggleModelInput
                         )
                     }
                 }
