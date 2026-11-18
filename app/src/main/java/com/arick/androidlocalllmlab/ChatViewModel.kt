@@ -343,9 +343,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     // Use the logger's underlying recent exchanges, not text parsed from the
                     // lossy, human-readable Settings summary.
                     val rawMemorySummary = ActivityLogger.promptMemory(getApplication())
-                    // Hard cap logger context at 240 actual model tokens, not characters.
+                    // Hard cap paraphrased logger memory at approximately 300 actual model tokens, not characters.
                     // This keeps memory compact and prevents it crowding out the current turn.
-                    val memorySummary = trimMemoryToTokenBudget(rawMemorySummary, 240)
+                    val memorySummary = trimMemoryToTokenBudget(rawMemorySummary, 300)
                     val promptMessages = buildPromptMessages(
                         currentQuestion = prompt,
                         history = historySnapshot,
