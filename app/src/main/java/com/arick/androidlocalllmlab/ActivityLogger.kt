@@ -107,7 +107,7 @@ object ActivityLogger {
      * Builds a compact, paraphrased memory from recent conversation and app activity.
      * This deliberately avoids copying raw questions/answers into the model prompt.
      */
-    fun promptMemory(context: Context, maxExchanges: Int = 12): String {
+    fun promptMemory(context: Context, maxExchanges: Int = 12, excludeRecentExchanges: Int = 8): String {
         val lines = runCatching {
             File(context.applicationContext.filesDir, FILE_NAME)
                 .takeIf { it.isFile }?.readLines()?.takeLast(240).orEmpty()
@@ -135,13 +135,18 @@ object ActivityLogger {
         val device = otherEvents.filter { it.layer == "DEVICE" || it.layer == "NOTIFICATION" }
         val web = otherEvents.filter { it.action.contains("search", true) || it.layer == "WEB" }
         val errors = otherEvents.filter { it.layer == "ERROR" || it.action.contains("fail", true) }
-        val recent = exchanges.takeLast(maxExchanges)
+        // ChatViewModel separately injects its latest eight transcript exchanges. Exclude
+        // those here so the logger summary contains only older conversation context and
+        // app/device activity, rather than repeating the same Q&A in two prompt sections.
+        val olderConversation = exchanges
+            .dropLast(excludeRecentExchanges.coerceAtLeast(0))
+            .takeLast(maxExchanges)
 
         return buildString {
             append("Memory summary of recent Mr-Red activity (paraphrased, not a transcript). ")
-            if (recent.isNotEmpty()) {
-                append("Conversation topics and outcomes: ")
-                append(recent.joinToString("; ") { (q, a) ->
+            if (olderConversation.isNotEmpty()) {
+                append("Earlier conversation topics and outcomes (excluding recent transcript turns): ")
+                append(olderConversation.joinToString("; ") { (q, a) ->
                     "${topic(q)}; response outcome: ${gist(a)}"
                 })
                 append(". ")
