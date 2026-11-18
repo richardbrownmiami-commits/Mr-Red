@@ -104,35 +104,81 @@ object ActivityLogger {
     }
 
     /**
-     * Returns actual recent Q&A text for inference. The Settings summary is intentionally
-     * human-readable and lossy; the model needs the underlying exchanges, not a parsed
-     * paraphrase of that display string.
+     * Builds a compact, paraphrased memory from recent conversation and app activity.
+     * This deliberately avoids copying raw questions/answers into the model prompt.
      */
-    fun promptMemory(context: Context, maxExchanges: Int = 3): String {
+    fun promptMemory(context: Context, maxExchanges: Int = 12): String {
         val lines = runCatching {
             File(context.applicationContext.filesDir, FILE_NAME)
                 .takeIf { it.isFile }?.readLines()?.takeLast(240).orEmpty()
         }.getOrDefault(emptyList())
-        data class Exchange(val question: String, val answer: String)
-        val exchanges = mutableListOf<Exchange>()
-        var pendingQuestion: String? = null
-        lines.forEach { line ->
+        data class Event(val time: String, val layer: String, val action: String, val detail: String)
+        val events = lines.mapNotNull { line ->
             val parts = line.split(" | ", limit = 4)
-            if (parts.size < 4) return@forEach
+            if (parts.size < 4) null else Event(parts[0], parts[1], parts[2], parts[3])
+        }
+        if (events.isEmpty()) return "No previous conversation or app activity is recorded."
+
+        val exchanges = mutableListOf<Pair<String, String>>()
+        var pendingQuestion: String? = null
+        events.forEach { event ->
             when {
-                parts[1] == "QUESTION" && parts[2] == "asked" -> pendingQuestion = parts[3]
-                parts[1] == "ANSWER" && parts[2] == "generated" -> {
-                    val question = pendingQuestion
-                    if (!question.isNullOrBlank() && parts[3].isNotBlank()) {
-                        exchanges += Exchange(question.take(140), parts[3].take(220))
-                    }
+                event.layer == "QUESTION" && event.action == "asked" -> pendingQuestion = event.detail
+                event.layer == "ANSWER" && event.action == "generated" -> {
+                    val q = pendingQuestion
+                    if (!q.isNullOrBlank() && event.detail.isNotBlank()) exchanges += q to event.detail
                     pendingQuestion = null
                 }
             }
         }
-        return exchanges.takeLast(maxExchanges).joinToString("\n") { exchange ->
-            "Earlier user: ${exchange.question}\nEarlier Mr-Red: ${exchange.answer}"
-        }.take(1000)
+        val otherEvents = events.filter { it.layer != "QUESTION" && it.layer != "ANSWER" }
+        val device = otherEvents.filter { it.layer == "DEVICE" || it.layer == "NOTIFICATION" }
+        val web = otherEvents.filter { it.action.contains("search", true) || it.layer == "WEB" }
+        val errors = otherEvents.filter { it.layer == "ERROR" || it.action.contains("fail", true) }
+        val recent = exchanges.takeLast(maxExchanges)
+
+        return buildString {
+            append("Memory summary of recent Mr-Red activity (paraphrased, not a transcript). ")
+            if (recent.isNotEmpty()) {
+                append("Conversation topics and outcomes: ")
+                append(recent.joinToString("; ") { (q, a) ->
+                    "${topic(q)}; response outcome: ${gist(a)}"
+                })
+                append(". ")
+            }
+            if (device.isNotEmpty()) {
+                append("Android/device activity: ")
+                append(device.takeLast(12).joinToString("; ") { event ->
+                    "${event.action.replace('_', ' ')}" +
+                        if (event.detail.isBlank()) "" else " — ${event.detail.take(90)}"
+                })
+                append(". ")
+            }
+            if (web.isNotEmpty()) {
+                append("Web research: ")
+                append(web.takeLast(6).joinToString("; ") { event ->
+                    "${event.action.replace('_', ' ')}" +
+                        if (event.detail.isBlank()) "" else " — ${event.detail.take(100)}"
+                })
+                append(". ")
+            }
+            val appEvents = otherEvents.filter { it.layer !in setOf("DEVICE", "NOTIFICATION", "WEB") &&
+                !it.action.contains("search", true) && it.layer != "ERROR" }
+            if (appEvents.isNotEmpty()) {
+                append("Other app/model/settings activity: ")
+                append(appEvents.takeLast(8).joinToString("; ") { event ->
+                    "${event.layer.lowercase(Locale.US)}: ${event.action.replace('_', ' ')}" +
+                        if (event.detail.isBlank()) "" else " (${event.detail.take(65)})"
+                })
+                append(". ")
+            }
+            if (errors.isNotEmpty()) {
+                append("Recent errors: ")
+                append(errors.takeLast(3).joinToString("; ") { "${it.action}: ${it.detail.take(80)}" })
+                append(". ")
+            }
+            append("Use this as background context, distinguish historical records from live device state, and never claim a device check succeeded unless a current tool result confirms it.")
+        }
     }
 
     fun recentText(context: Context): String = runCatching {
