@@ -152,8 +152,6 @@ enum class AppPage(val title: String, val icon: ImageVector) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MainAppScreen(viewModel: ChatViewModel) {
-    val activityContext = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
     var selectedPage by remember { mutableStateOf(AppPage.Chat) }
     val modelLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -233,6 +231,8 @@ private fun ChatPage(
     val generationProgress by viewModel.generationProgress.collectAsState()
     val generationError by viewModel.generationError.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
+    val activityContext = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     var showClearConfirm by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
@@ -321,7 +321,8 @@ private fun ChatPage(
                             generationProgress = generationProgress,
                             errorMessage = generationError,
                             onToggleReasoning = viewModel::toggleReasoning,
-                            onToggleAgentTrace = viewModel::toggleAgentTrace
+                            onToggleAgentTrace = viewModel::toggleAgentTrace,
+                            onToggleModelInput = viewModel::toggleModelInput
                         )
                     }
                 }
