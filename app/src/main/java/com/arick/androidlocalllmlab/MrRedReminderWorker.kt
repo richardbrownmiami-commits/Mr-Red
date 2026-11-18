@@ -5,11 +5,18 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
+import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class MrRedReminderWorker(
     private val context: Context,
@@ -17,32 +24,78 @@ class MrRedReminderWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     companion object {
-        const val CHANNEL_ID = "mr_red_reminders_channel"
+        const val CHANNEL_ID = "mr_red_reminders_v2"
         const val KEY_MESSAGE = "reminder_message"
         const val KEY_TITLE = "reminder_title"
     }
 
     override suspend fun doWork(): Result {
-        val title = inputData.getString(KEY_TITLE) ?: "Mr-Red Reminder"
+        val title = inputData.getString(KEY_TITLE) ?: "⏰ Mr-Red Reminder"
         val message = inputData.getString(KEY_MESSAGE) ?: "Time for your reminder!"
-        showNotification(title, message)
+        
+        showNotificationAndAlert(title, message)
+        
+        // Wait briefly on IO thread so Text-to-Speech finishes announcement
+        delay(3500)
         return Result.success()
     }
 
-    private fun showNotification(title: String, message: String) {
+    private fun showNotificationAndAlert(title: String, message: String) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
 
+        val soundUri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try { nm.deleteNotificationChannel("mr_red_reminders_channel") } catch (_: Throwable) {}
+
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Mr-Red Reminders",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Periodic reminders scheduled with WorkManager"
+                description = "Audible spoken reminders"
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 250, 500)
+                setSound(soundUri, audioAttributes)
             }
             nm.createNotificationChannel(channel)
         }
+
+        try {
+            val ringtone = RingtoneManager.getRingtone(context, soundUri)
+            ringtone?.audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            ringtone?.play()
+        } catch (_: Throwable) {}
+
+        // Speak reminder aloud
+        try {
+            var tts: TextToSpeech? = null
+            tts = TextToSpeech(context.applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    tts?.language = Locale.getDefault()
+                    tts?.speak("Reminder: $message", TextToSpeech.QUEUE_FLUSH, null, "mr_red_worker_tts")
+                }
+            }
+        } catch (_: Throwable) {}
+
+        val dismissIntent = Intent(context, MrRedAlarmReceiver::class.java).apply {
+            action = MrRedAlarmReceiver.ACTION_DISMISS_ALARM
+        }
+        val dismissPendingIntent = PendingIntent.getBroadcast(
+            context,
+            MrRedAlarmReceiver.REMINDER_NOTIFICATION_ID,
+            dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         val contentIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -54,16 +107,16 @@ class MrRedReminderWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setSound(soundUri)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Dismiss", dismissPendingIntent)
             .build()
 
         val notificationId = (System.currentTimeMillis() % 100000).toInt() + 2000
