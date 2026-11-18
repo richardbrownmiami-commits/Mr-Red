@@ -55,6 +55,8 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -104,6 +106,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import android.widget.Toast
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -149,6 +153,7 @@ enum class AppPage(val title: String, val icon: ImageVector) {
 @Composable
 private fun MainAppScreen(viewModel: ChatViewModel) {
     val activityContext = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     var selectedPage by remember { mutableStateOf(AppPage.Chat) }
     val modelLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -236,14 +241,36 @@ private fun ChatPage(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .imePadding()
     ) {
         ChatHeader(
             uiState = uiState,
             cpuThreads = cpuThreads,
             onClearChat = { showClearConfirm = true },
             onResetContext = { showResetConfirm = true },
-            onOpenSettings = onNavigateToSettings
+            onOpenSettings = onNavigateToSettings,
+            onCopyConversation = {
+                val transcript = messages.filter { message ->
+                    message.content.isNotBlank() || message.reasoningContent.isNotBlank() || message.agentTrace.isNotEmpty()
+                }.joinToString("\n\n") { message ->
+                    buildString {
+                        append(if (message.role == MessageRole.User) "You: " else "Mr-Red: ")
+                        append(message.content)
+                        if (message.reasoningContent.isNotBlank()) append("\n\nThinking: \n").append(message.reasoningContent)
+                        if (message.agentTrace.isNotEmpty()) append("\n\nActivity: ").append(message.agentTrace.joinToString("; ") { it.text })
+                        if (message.sourceLinks.isNotEmpty()) append("\nSources: ").append(message.sourceLinks.joinToString("; ") { it.url })
+                    }
+                }
+                if (transcript.isBlank()) {
+                    Toast.makeText(activityContext, "There is no conversation to copy", Toast.LENGTH_SHORT).show()
+                } else {
+                    clipboardManager.setText(AnnotatedString(transcript))
+                    Toast.makeText(activityContext, "Conversation copied", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onCopyLoggerSummary = {
+                clipboardManager.setText(AnnotatedString(ActivityLogger.summary(activityContext)))
+                Toast.makeText(activityContext, "Activity logger summary copied", Toast.LENGTH_SHORT).show()
+            }
         )
 
         HorizontalDivider(color = AppColors.CardBorder, thickness = 1.dp)
@@ -369,7 +396,9 @@ private fun ChatHeader(
     cpuThreads: Int,
     onClearChat: () -> Unit,
     onResetContext: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onCopyConversation: () -> Unit,
+    onCopyLoggerSummary: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -401,6 +430,12 @@ private fun ChatHeader(
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onCopyConversation, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.ContentCopy, contentDescription = "Copy whole conversation", tint = AppColors.TextSecondary)
+            }
+            IconButton(onClick = onCopyLoggerSummary, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.Description, contentDescription = "Copy activity logger summary", tint = AppColors.TextSecondary)
+            }
             IconButton(onClick = onResetContext, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
