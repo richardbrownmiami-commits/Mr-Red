@@ -157,7 +157,7 @@ enum class AppPage(val title: String, val icon: ImageVector) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MainAppScreen(viewModel: ChatViewModel) {
-    val context = LocalContext.current
+    val activityContext = LocalContext.current
     var selectedPage by remember { mutableStateOf(AppPage.Chat) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -166,7 +166,7 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(activityContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
