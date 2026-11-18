@@ -297,7 +297,8 @@ private fun ChatPage(
                             generationProgress = generationProgress,
                             errorMessage = generationError,
                             onToggleReasoning = viewModel::toggleReasoning,
-                            onToggleAgentTrace = viewModel::toggleAgentTrace
+                            onToggleAgentTrace = viewModel::toggleAgentTrace,
+                            onToggleModelInput = viewModel::toggleModelInput
                         )
                     }
                 }
@@ -566,7 +567,8 @@ private fun ChatMessagesList(
     generationProgress: String?,
     errorMessage: String?,
     onToggleReasoning: (Int) -> Unit,
-    onToggleAgentTrace: (Int) -> Unit
+    onToggleAgentTrace: (Int) -> Unit,
+    onToggleModelInput: (Int) -> Unit
 ) {
     val listState = rememberLazyListState()
 
@@ -590,7 +592,8 @@ private fun ChatMessagesList(
                 message = messages[index],
                 messageIndex = index,
                 onToggleReasoning = { onToggleReasoning(index) },
-                onToggleAgentTrace = { onToggleAgentTrace(index) }
+                onToggleAgentTrace = { onToggleAgentTrace(index) },
+                onToggleModelInput = { onToggleModelInput(index) }
             )
         }
 
@@ -639,8 +642,11 @@ private fun ChatMessageItem(
     message: ChatMessage,
     messageIndex: Int,
     onToggleReasoning: () -> Unit,
-    onToggleAgentTrace: () -> Unit
+    onToggleAgentTrace: () -> Unit,
+    onToggleModelInput: () -> Unit
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
     val isUser = message.role == MessageRole.User
 
     Column(
@@ -667,6 +673,58 @@ private fun ChatMessageItem(
                     .background(AppColors.PageBackground, RoundedCornerShape(16.dp))
                     .padding(14.dp)
             ) {
+                // Exact formatted input captured from llama.cpp immediately before inference.
+                if (message.modelInputPrompt.isNotBlank()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .background(Color(0xFF17212B), RoundedCornerShape(8.dp))
+                            .border(1.dp, AppColors.CardBorder, RoundedCornerShape(8.dp))
+                            .padding(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Exact model input · ${message.modelInputTokenCount} tokens",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = AppColors.TextSecondary,
+                                modifier = Modifier.weight(1f).clickable { onToggleModelInput() }
+                            )
+                            IconButton(
+                                onClick = {
+                                    clipboardManager.setText(AnnotatedString(message.modelInputPrompt))
+                                    Toast.makeText(context, "Model input copied", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy exact model input", tint = AppColors.TextSecondary)
+                            }
+                            IconButton(onClick = onToggleModelInput, modifier = Modifier.size(32.dp)) {
+                                Icon(
+                                    imageVector = if (message.isModelInputExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Toggle exact model input",
+                                    tint = AppColors.TextSecondary
+                                )
+                            }
+                        }
+                        if (message.isModelInputExpanded) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = message.modelInputPrompt,
+                                fontSize = 10.sp,
+                                color = AppColors.TextTertiary,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 13.sp
+                            )
+                        }
+                    }
+                }
+
                 // Tool Execution Trace Section
                 if (message.agentTrace.isNotEmpty()) {
                     Column(
