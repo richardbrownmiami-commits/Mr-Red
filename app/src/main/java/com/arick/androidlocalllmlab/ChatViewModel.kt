@@ -55,7 +55,11 @@ data class ChatMessage(
     val isAgentTraceExpanded: Boolean = false,
     val agentDurationMillis: Long? = null,
     // Search sources provided by tool result.
-    val sourceLinks: List<SourceLink> = emptyList()
+    val sourceLinks: List<SourceLink> = emptyList(),
+    // Exact chat-template prompt delivered to llama.cpp for this response.
+    val modelInputPrompt: String = "",
+    val isModelInputExpanded: Boolean = false,
+    val modelInputTokenCount: Int = 0
 )
 
 data class AgentTraceItem(val text: String)
@@ -356,6 +360,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             _promptTokenCount.value = tokenCount
                             _generationProgress.value = "Prefilling $tokenCount tokens…"
                             templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
+                            updateLatestAssistantModelInput(formattedPrompt, tokenCount)
                         },
                         onToken = { piece ->
                             rawResponse += piece
@@ -557,6 +562,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 message
             }
+        }
+    }
+
+    private fun updateLatestAssistantModelInput(prompt: String, tokenCount: Int) {
+        val currentMessages = _messages.value
+        _messages.value = currentMessages.mapIndexed { index, message ->
+            if (index == currentMessages.lastIndex) {
+                message.copy(modelInputPrompt = prompt, modelInputTokenCount = tokenCount)
+            } else message
+        }
+    }
+
+    fun toggleModelInput(messageIndex: Int) {
+        if (messageIndex !in _messages.value.indices) return
+        _messages.value = _messages.value.mapIndexed { index, message ->
+            if (index == messageIndex && message.modelInputPrompt.isNotBlank()) {
+                message.copy(isModelInputExpanded = !message.isModelInputExpanded)
+            } else message
         }
     }
 
