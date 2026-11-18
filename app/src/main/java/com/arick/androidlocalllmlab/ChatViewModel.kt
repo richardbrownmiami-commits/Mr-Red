@@ -339,16 +339,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     val generationConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens)
                     val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
-                    val historySnapshot = synchronized(conversationHistory) { conversationHistory.toList() }
-                    // Use the logger's underlying recent exchanges, not text parsed from the
-                    // lossy, human-readable Settings summary.
+                    // One compact logger summary carries conversation Q&A and app/device events.
+                    // Do not append a second verbatim transcript: it duplicates the same turns.
                     val rawMemorySummary = ActivityLogger.promptMemory(getApplication())
-                    // Hard cap paraphrased logger memory at approximately 300 actual model tokens, not characters.
-                    // This keeps memory compact and prevents it crowding out the current turn.
                     val memorySummary = trimMemoryToTokenBudget(rawMemorySummary, 300)
                     val promptMessages = buildPromptMessages(
                         currentQuestion = prompt,
-                        history = historySnapshot,
                         memorySummary = memorySummary,
                         maxPromptTokens = promptBudget
                     )
@@ -436,59 +432,51 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildPromptMessages(
         currentQuestion: String,
-        history: List<Pair<String, String>>,
         memorySummary: String,
         maxPromptTokens: Int
     ): List<PromptMessage> {
+        // Keep this system message invariant across turns. llama.cpp can then reuse the
+        // entire system-instruction prefix from its KV cache; changing memory belongs after it.
         val systemInstructions = """
             You are Mr-Red, a natural, clear and considerate local assistant. Be caring without
             overdoing it; give practical suggestions when useful. Never claim to be human.
             Do not volunteer that you are an LLM/AI or that you have no memory. If asked what
-            you are, answer honestly. Use the stored conversation memory below as prior context:
-            recall relevant topics and details, resolve follow-ups, and never deny a detail that
-            is present in that memory. Answer the latest user message directly.
+            you are, answer honestly. Treat the following memory as prior context: recall relevant
+            topics, Q&A outcomes, device actions and their results; resolve follow-ups; distinguish
+            historical records from live device state; never claim a current device check succeeded
+            unless a current tool result confirms it. Answer the latest user message directly.
         """.trimIndent()
 
-        var retainedHistory = history.takeLast(8)
-        var retainedMemory = memorySummary.trim()
-        while (true) {
-            val systemContent = if (retainedMemory.isBlank()) {
-                systemInstructions
-            } else {
-                "$systemInstructions\n\nStored conversation memory from Mr-Red's on-device activity log:\n$retainedMemory"
+        val retainedMemory = memorySummary.trim()
+        val messages = buildList {
+            add(PromptMessage("system", systemInstructions))
+            if (retainedMemory.isNotBlank()) {
+                add(PromptMessage("user", "Mr-Red activity memory (compact summary of prior Q&A and app/device events):\n$retainedMemory"))
             }
-            val messages = buildList {
-                add(PromptMessage("system", systemContent))
-                retainedHistory.forEach { (question, answer) ->
-                    add(PromptMessage("user", question))
-                    add(PromptMessage("assistant", answer))
-                }
+            add(PromptMessage("user", currentQuestion))
+        }
+        // System instructions stay byte-for-byte stable; only the memory and current request
+        // vary. Reserve template overhead when enforcing the context budget.
+        val estimate = messages.joinToString("\n") { "${it.role}\n${it.content}" }
+        if (runtime.tokenize(estimate).size + 32 <= maxPromptTokens) return messages
+
+        // If context is tight, shorten memory first but never discard the current question
+        // or alter the invariant system instruction prefix.
+        var memory = retainedMemory
+        while (memory.isNotBlank()) {
+            memory = memory.take(memory.length * 3 / 4).trimEnd()
+            val reduced = buildList {
+                add(PromptMessage("system", systemInstructions))
+                if (memory.isNotBlank()) add(PromptMessage("user", "Mr-Red activity memory (compact summary of prior Q&A and app/device events):\n$memory"))
                 add(PromptMessage("user", currentQuestion))
             }
-            // Count role labels and leave room for the model-specific chat template.
-            val estimate = messages.joinToString("\n") { "${it.role}\n${it.content}" }
-            if (runtime.tokenize(estimate).size + 32 <= maxPromptTokens) return messages
-
-            // Preserve logger memory before spending tokens on verbatim transcript.
-            if (retainedHistory.isNotEmpty()) {
-                retainedHistory = retainedHistory.drop(1)
-                continue
-            }
-            if (retainedMemory.length > 120) {
-                retainedMemory = retainedMemory.take(retainedMemory.length * 3 / 4).trimEnd()
-                continue
-            }
-            if (retainedMemory.isNotBlank()) {
-                retainedMemory = ""
-                continue
-            }
-
-            // Keep the complete current question even on a very small context window.
-            return if (runtime.tokenize(currentQuestion).size + 8 <= maxPromptTokens) {
-                listOf(PromptMessage("system", systemInstructions), PromptMessage("user", currentQuestion))
-            } else {
-                listOf(PromptMessage("user", currentQuestion))
-            }
+            val reducedEstimate = reduced.joinToString("\n") { "${it.role}\n${it.content}" }
+            if (runtime.tokenize(reducedEstimate).size + 32 <= maxPromptTokens) return reduced
+        }
+        return if (runtime.tokenize(currentQuestion).size + 8 <= maxPromptTokens) {
+            listOf(PromptMessage("system", systemInstructions), PromptMessage("user", currentQuestion))
+        } else {
+            listOf(PromptMessage("user", currentQuestion))
         }
     }
 
