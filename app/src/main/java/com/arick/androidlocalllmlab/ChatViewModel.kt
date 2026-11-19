@@ -472,7 +472,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (memorySummary.isNotBlank()) {
             add(PromptMessage(
                 "user",
-                "Mr-Red activity memory (compact summary of prior Q&A and app/device events):\\n$memorySummary"
+                "Mr-Red activity memory (compact summary of prior Q&A and app/device events):\n$memorySummary"
             ))
         }
     }
@@ -485,14 +485,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // This prefix is byte-for-byte the same prefix prepared by the idle memory feeder.
         val retainedMemory = memorySummary.trim()
         val messages = buildMemoryPrefixMessages(retainedMemory) + PromptMessage("user", currentQuestion)
-        val estimate = messages.joinToString("\\n") { "${it.role}\\n${it.content}" }
+        val estimate = messages.joinToString("\n") { "${it.role}\n${it.content}" }
         if (runtime.tokenize(estimate).size + 32 <= maxPromptTokens) return messages
 
         var memory = retainedMemory
         while (memory.isNotBlank()) {
             memory = memory.take(memory.length * 3 / 4).trimEnd()
             val reduced = buildMemoryPrefixMessages(memory) + PromptMessage("user", currentQuestion)
-            val reducedEstimate = reduced.joinToString("\\n") { "${it.role}\\n${it.content}" }
+            val reducedEstimate = reduced.joinToString("\n") { "${it.role}\n${it.content}" }
             if (runtime.tokenize(reducedEstimate).size + 32 <= maxPromptTokens) return reduced
         }
         return if (runtime.tokenize(currentQuestion).size + 8 <= maxPromptTokens) {
