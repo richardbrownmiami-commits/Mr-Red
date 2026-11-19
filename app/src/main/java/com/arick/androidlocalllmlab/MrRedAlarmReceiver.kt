@@ -48,16 +48,24 @@ class MrRedAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
+        ActivityLogger.record(context, "ALARM", "receiver_invoked", "action=${action ?: "null"}")
         if (action == ACTION_DISMISS_ALARM) {
             stopRingtone(context)
+            ActivityLogger.record(context, "ALARM", "dismissed", "Alarm/reminder sound and notifications stopped")
             return
         }
 
         val message = intent.getStringExtra(EXTRA_ALARM_MESSAGE) ?: "Mr-Red Alert"
-        if (action == ACTION_REMINDER_TRIGGER) {
-            playReminder(context, message)
-        } else if (action == ACTION_ALARM_TRIGGER || action == Intent.ACTION_BOOT_COMPLETED) {
-            playAlarm(context, message)
+        when (action) {
+            ACTION_REMINDER_TRIGGER -> {
+                ActivityLogger.record(context, "REMINDER", "triggered", "message_length=${message.length}")
+                playReminder(context, message)
+            }
+            ACTION_ALARM_TRIGGER, Intent.ACTION_BOOT_COMPLETED -> {
+                ActivityLogger.record(context, "ALARM", "triggered", "message_length=${message.length} source=${action}")
+                playAlarm(context, message)
+            }
+            else -> ActivityLogger.record(context, "ALARM", "ignored_broadcast", "unsupported_action=${action}")
         }
     }
 
@@ -175,7 +183,9 @@ class MrRedAlarmReceiver : BroadcastReceiver() {
                 .build()
             ringtone?.play()
             activeRingtone = ringtone
-        } catch (_: Throwable) {}
+        } catch (error: Throwable) {
+            ActivityLogger.record(context, "ERROR", "reminder_audio_failed", "${error.javaClass.simpleName}: ${error.message}")
+        }
 
         speakAnnouncement(context.applicationContext, "Reminder: $message")
 
@@ -212,6 +222,7 @@ class MrRedAlarmReceiver : BroadcastReceiver() {
             .build()
 
         nm.notify(REMINDER_NOTIFICATION_ID, notification)
+        ActivityLogger.record(context, "REMINDER", "notification_posted", "notification_id=$REMINDER_NOTIFICATION_ID")
     }
 
     private fun speakAnnouncement(appContext: Context, text: String) {
