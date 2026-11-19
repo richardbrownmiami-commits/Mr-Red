@@ -30,18 +30,25 @@ class MrRedReminderWorker(
     }
 
     override suspend fun doWork(): Result {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
         val title = inputData.getString(KEY_TITLE) ?: "⏰ Mr-Red Reminder"
         val message = inputData.getString(KEY_MESSAGE) ?: "Time for your reminder!"
-        
-        showNotificationAndAlert(title, message)
-        
-        // Wait briefly on IO thread so Text-to-Speech finishes announcement
-        delay(3500)
-        return Result.success()
+        ActivityLogger.record(context, "REMINDER", "worker_started", "run_attempt=$runAttemptCount message_length=${message.length}")
+        return try {
+            showNotificationAndAlert(title, message)
+            // Wait briefly so Text-to-Speech can begin its announcement.
+            delay(3500)
+            ActivityLogger.record(context, "REMINDER", "worker_completed", "duration_ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
+            Result.success()
+        } catch (error: Throwable) {
+            ActivityLogger.record(context, "ERROR", "reminder_worker_failed", "duration_ms=${android.os.SystemClock.elapsedRealtime() - startedAt} type=${error.javaClass.name} message=${error.message}")
+            Result.failure()
+        }
     }
 
     private fun showNotificationAndAlert(title: String, message: String) {
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: throw IllegalStateException("NotificationManager service unavailable")
 
         val soundUri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
@@ -121,5 +128,6 @@ class MrRedReminderWorker(
 
         val notificationId = (System.currentTimeMillis() % 100000).toInt() + 2000
         nm.notify(notificationId, notification)
+        ActivityLogger.record(context, "REMINDER", "worker_notification_posted", "notification_id=$notificationId")
     }
 }
