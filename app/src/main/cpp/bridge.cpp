@@ -31,6 +31,7 @@ namespace {
     public:
         NativeRuntime() {
             llama_backend_init();
+            appendDiagnostic("llama_backend_initialized");
             __android_log_print(
                     ANDROID_LOG_INFO,
                     kLogTag,
@@ -64,6 +65,7 @@ namespace {
                 params.load_mode = LLAMA_LOAD_MODE_NONE;
             }
 
+            appendDiagnostic("model_load_started mmap=" + std::string(useMmap ? "true" : "false") + " mlock=" + std::string(useMlock ? "true" : "false"));
             model_ = llama_model_load_from_file(
                     modelPath.c_str(),
                     params
@@ -343,6 +345,7 @@ namespace {
             }
 
             const std::string prompt = formatChatPrompt(history, false);
+            appendDiagnostic("warm_prompt_started messages=" + std::to_string(history.size()));
             if (prompt.empty()) {
                 return 0;
             }
@@ -434,9 +437,11 @@ namespace {
             }
             cachedTokens_ = promptTokens;
             const auto prefillFinishedAt = Clock::now();
+            appendDiagnostic("prompt prompt_tokens=" + std::to_string(promptTokens.size()) + " reused_tokens=" + std::to_string(prefillStartIndex) + " prefilled_tokens=" + std::to_string(promptTokens.size() - prefillStartIndex));
             const auto prefillMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                     prefillFinishedAt - prefillStartedAt
             ).count();
+            appendDiagnostic("prefill_complete ms=" + std::to_string(prefillMillis));
 
             if (stopRequested_.load()) {
                 return {};
@@ -517,6 +522,7 @@ namespace {
             const auto totalMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                     generationFinishedAt - generationStartedAt
             ).count();
+            appendDiagnostic("generation_complete generated_tokens=" + std::to_string(generatedTokenCount) + " reused_prompt_tokens=" + std::to_string(prefillStartIndex) + " prefill_ms=" + std::to_string(prefillMillis) + " first_token_ms=" + std::to_string(firstTokenMillis) + " decode_ms=" + std::to_string(decodeMillis) + " total_ms=" + std::to_string(totalMillis));
             onMetrics(
                     generatedTokenCount,
                     static_cast<int>(prefillStartIndex),
@@ -701,6 +707,17 @@ namespace {
 
 NativeRuntime *toRuntime(jlong handle) {
     return reinterpret_cast<NativeRuntime *>(handle);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeSetDiagnosticLogPath(JNIEnv *env, jobject, jstring path) {
+    if (!path) return;
+    const char *chars = env->GetStringUTFChars(path, nullptr);
+    if (!chars) return;
+    { std::lock_guard<std::mutex> lock(gDiagnosticLogMutex); gDiagnosticLogPath = chars; }
+    env->ReleaseStringUTFChars(path, chars);
+    appendDiagnostic("native_log_initialized");
 }
 
 extern "C"
