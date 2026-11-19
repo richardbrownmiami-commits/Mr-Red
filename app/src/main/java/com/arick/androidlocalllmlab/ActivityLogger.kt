@@ -117,16 +117,18 @@ object ActivityLogger {
      * This deliberately avoids copying raw questions/answers into the model prompt.
      */
     fun promptMemory(context: Context, maxExchanges: Int = 40): String {
+        data class Event(val time: String, val layer: String, val action: String, val detail: String)
         val lines = runCatching {
             File(context.applicationContext.filesDir, FILE_NAME)
                 .takeIf { it.isFile }?.readLines()?.takeLast(240).orEmpty()
         }.getOrDefault(emptyList())
-        data class Event(val time: String, val layer: String, val action: String, val detail: String)
         val events = lines.mapNotNull { line ->
             val parts = line.split(" | ", limit = 4)
             if (parts.size < 4) null else Event(parts[0], parts[1], parts[2], parts[3])
         }
-        if (events.isEmpty()) return "No previous conversation or app activity is recorded."
+        if (events.isEmpty()) {
+            return "[USER CONTEXT] No stored user context yet.\n[CONVERSATION MEMORY] No previous exchanges recorded."
+        }
 
         val exchanges = mutableListOf<Pair<String, String>>()
         var pendingQuestion: String? = null
@@ -134,61 +136,97 @@ object ActivityLogger {
             when {
                 event.layer == "QUESTION" && event.action == "asked" -> pendingQuestion = event.detail
                 event.layer == "ANSWER" && event.action == "generated" -> {
-                    val q = pendingQuestion
-                    if (!q.isNullOrBlank() && event.detail.isNotBlank()) exchanges += q to event.detail
+                    val question = pendingQuestion
+                    if (!question.isNullOrBlank() && event.detail.isNotBlank()) {
+                        exchanges += question to event.detail
+                    }
                     pendingQuestion = null
                 }
             }
         }
+
         val otherEvents = events.filter { it.layer != "QUESTION" && it.layer != "ANSWER" }
-        val device = otherEvents.filter { it.layer == "DEVICE" || it.layer == "NOTIFICATION" }
-        val web = otherEvents.filter { it.action.contains("search", true) || it.layer == "WEB" }
+        val deviceEvents = otherEvents.filter { it.layer == "DEVICE" || it.layer == "NOTIFICATION" }
+        val webEvents = otherEvents.filter { it.layer == "WEB" || it.action.contains("search", true) }
         val errors = otherEvents.filter { it.layer == "ERROR" || it.action.contains("fail", true) }
-        // The logger is the single durable source of conversation context. Include recent
-        // Q&A outcomes here; ChatViewModel does not append a second verbatim transcript.
-        val conversationMemory = exchanges.takeLast(maxExchanges)
+        val recentQuestions = events.filter { it.layer == "QUESTION" && it.action == "asked" }.takeLast(12)
+        val emotionalNotes = recentQuestions.mapNotNull { event ->
+            emotionalCue(event.detail)?.let { cue -> cue }
+        }.distinct().takeLast(3)
+        val recurringTopics = exchanges.takeLast(maxExchanges.coerceAtLeast(1))
+            .map { topic(it.first) }
+            .groupingBy { it }
+            .eachCount()
+            .entries.sortedByDescending { it.value }
+            .take(3)
+            .joinToString(", ") { it.key }
 
         return buildString {
-            append("Memory summary of recent Mr-Red activity (paraphrased, not a transcript). ")
-            if (conversationMemory.isNotEmpty()) {
-                append("Conversation topics and outcomes: ")
-                append(conversationMemory.joinToString("; ") { (q, a) ->
-                    "${topic(q)}; response outcome: ${gist(a)}"
+            append("[USER CONTEXT] ")
+            append("Recorded interaction history: ${exchanges.size} completed exchanges.")
+            if (recurringTopics.isNotBlank()) append(" Recurring topics: $recurringTopics.")
+            append(" Use only explicit preferences and facts; do not invent personal details.\n")
+
+            append("[CONVERSATION MEMORY] ")
+            val recentExchanges = exchanges.takeLast(6)
+            if (recentExchanges.isNotEmpty()) {
+                append(recentExchanges.joinToString("; ") { (question, answer) ->
+                    "${topic(question)} — ${gist(answer)}"
                 })
-                append(". ")
+            } else {
+                append("No completed Q&A exchange recorded.")
             }
-            if (device.isNotEmpty()) {
-                append("Android/device activity: ")
-                append(device.takeLast(12).joinToString("; ") { event ->
-                    "${event.action.replace('_', ' ')}" +
-                        if (event.detail.isBlank()) "" else " — ${event.detail.take(90)}"
-                })
-                append(". ")
+            append("\n")
+
+            append("[RELATIONSHIP CONTEXT] ")
+            append("This is an ongoing assistant-user conversation. Build familiarity from recorded interactions, ")
+            append("use shared references only when supported by memory, and never assume intimacy or dependency.\n")
+
+            append("[EMOTIONAL CONTEXT] ")
+            if (emotionalNotes.isNotEmpty()) {
+                append("Recent user wording contained these possible self-expressed cues: ")
+                append(emotionalNotes.joinToString("; "))
+                append(". These are historical clues, not a diagnosis or proof of the user's current mood.")
+            } else {
+                append("No clear recent self-expressed emotional cue was identified; do not assume a mood.")
             }
-            if (web.isNotEmpty()) {
-                append("Web research: ")
-                append(web.takeLast(6).joinToString("; ") { event ->
-                    "${event.action.replace('_', ' ')}" +
-                        if (event.detail.isBlank()) "" else " — ${event.detail.take(100)}"
+            append("\n")
+
+            if (deviceEvents.isNotEmpty()) {
+                append("[DEVICE AND NOTIFICATION ACTIVITY] ")
+                append(deviceEvents.takeLast(5).joinToString("; ") { event ->
+                    "${event.action.replace('_', ' ')}: ${event.detail.take(75)}"
                 })
-                append(". ")
+                append("\n")
             }
-            val appEvents = otherEvents.filter { it.layer !in setOf("DEVICE", "NOTIFICATION", "WEB") &&
-                !it.action.contains("search", true) && it.layer != "ERROR" }
-            if (appEvents.isNotEmpty()) {
-                append("Other app/model/settings activity: ")
-                append(appEvents.takeLast(8).joinToString("; ") { event ->
-                    "${event.layer.lowercase(Locale.US)}: ${event.action.replace('_', ' ')}" +
-                        if (event.detail.isBlank()) "" else " (${event.detail.take(65)})"
+            if (webEvents.isNotEmpty()) {
+                append("[WEB FACTS AND SEARCHES] ")
+                append(webEvents.takeLast(3).joinToString("; ") { event ->
+                    "${event.action.replace('_', ' ')}: ${event.detail.take(85)}"
                 })
-                append(". ")
+                append("\n")
             }
             if (errors.isNotEmpty()) {
-                append("Recent errors: ")
-                append(errors.takeLast(3).joinToString("; ") { "${it.action}: ${it.detail.take(80)}" })
-                append(". ")
+                append("[OPEN ISSUES] ")
+                append(errors.takeLast(2).joinToString("; ") { "${it.action}: ${it.detail.take(70)}" })
+                append("\n")
             }
-            append("Use this as background context, distinguish historical records from live device state, and never claim a device check succeeded unless a current tool result confirms it.")
+            append("[MEMORY RULE] Treat this as historical context. Verify live device state with current tools; ")
+            append("do not claim an action or check succeeded without a current confirmed result.")
+        }
+    }
+
+    /** Returns a cautious cue only when the user's own recent wording explicitly signals it. */
+    private fun emotionalCue(question: String): String? {
+        val text = question.lowercase(Locale.US)
+        return when {
+            Regex("\\b(i am|i'm|im|i feel|feeling)\\b.{0,45}\\b(stressed|overwhelmed|anxious|worried|scared|upset|frustrated|angry|sad|tired|exhausted)\\b").containsMatchIn(text) ->
+                "user explicitly described feeling distressed, tired or frustrated"
+            Regex("\\b(i am|i'm|im|i feel|feeling)\\b.{0,45}\\b(happy|excited|proud|relieved|great|good)\\b").containsMatchIn(text) ->
+                "user explicitly described a positive mood"
+            Regex("\\b(i lost|i failed|i can't|i cannot|i give up|i'm stuck|im stuck)\\b").containsMatchIn(text) ->
+                "user recently expressed difficulty or feeling stuck"
+            else -> null
         }
     }
 
