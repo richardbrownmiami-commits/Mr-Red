@@ -763,8 +763,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 _uiState.value = ChatUiState.Preparing("Rebuilding context…")
+                memoryWarmupJob?.cancel()
                 val actualNctx = withContext(Dispatchers.Default) {
-                    runtime.recreateContext(requestedNctx)
+                    nativeInferenceMutex.withLock { runtime.recreateContext(requestedNctx) }
                 }
                 check(actualNctx > 0) { "Context allocation failed" }
 
@@ -928,9 +929,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        memoryWarmupJob?.cancel()
         _messages.value = emptyList()
         synchronized(conversationHistory) { conversationHistory.clear(); persistConversationHistoryLocked() }
-        runtime.resetContext()
+        viewModelScope.launch {
+            withContext(Dispatchers.Default) {
+                nativeInferenceMutex.withLock { runtime.resetContext() }
+            }
+        }
         clearLastPromptState()
         _generationError.value = null
         ActivityLogger.record(getApplication(), "UI", "conversation_cleared", "Current chat view cleared")
@@ -944,9 +950,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        memoryWarmupJob?.cancel()
         viewModelScope.launch {
             withContext(Dispatchers.Default) {
-                runtime.resetContext()
+                nativeInferenceMutex.withLock { runtime.resetContext() }
             }
             synchronized(conversationHistory) {
                 conversationHistory.clear()
@@ -966,9 +973,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             _uiState.value = ChatUiState.Preparing("Unloading model…")
+            memoryWarmupJob?.cancel()
             withContext(Dispatchers.Default) {
-                // Native cleanup order: Context -> Model -> llama backend.
-                runtime.close()
+                nativeInferenceMutex.withLock {
+                    // Native cleanup order: Context -> Model -> llama backend.
+                    runtime.close()
+                }
             }
             ActivityLogger.record(getApplication(), "MODEL", "model_released", "Native model and context released")
             _memorySnapshots.value = _memorySnapshots.value.copy(
