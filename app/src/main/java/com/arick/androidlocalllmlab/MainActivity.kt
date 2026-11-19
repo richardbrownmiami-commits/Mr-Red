@@ -1242,7 +1242,9 @@ private fun SettingsPage(
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val modelPreparationMetrics by viewModel.modelPreparationMetrics.collectAsState()
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
-    val activitySummary = ActivityLogger.summary(LocalContext.current)
+    val settingsContext = LocalContext.current
+    val settingsClipboard = LocalClipboardManager.current
+    val activitySummary = ActivityLogger.summary(settingsContext)
 
     var showContextWindowDialog by remember { mutableStateOf(false) }
     var showCpuThreadsDialog by remember { mutableStateOf(false) }
