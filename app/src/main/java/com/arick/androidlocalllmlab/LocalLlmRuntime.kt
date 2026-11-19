@@ -173,6 +173,17 @@ class LocalLlmRuntime : AutoCloseable {
         )
     }
 
+    /** Prefills a chat-template-formatted memory prefix without generating any tokens. */
+    fun warmPrompt(messages: List<PromptMessage>): Int {
+        check(nativeHandle != 0L) { "Runtime has not been created" }
+        require(messages.isNotEmpty()) { "Memory prefix must not be empty" }
+        return NativeLlmBridge.nativeWarmPrompt(
+            handle = nativeHandle,
+            roles = messages.map { it.role }.toTypedArray(),
+            contents = messages.map { it.content }.toTypedArray()
+        )
+    }
+
     fun sampleNextToken(): Int {
         check(nativeHandle != 0L) { "Runtime has not been created" }
         return NativeLlmBridge.nativeSampleNextToken(nativeHandle)
