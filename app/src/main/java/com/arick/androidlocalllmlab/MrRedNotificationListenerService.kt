@@ -20,6 +20,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        ActivityLogger.record(applicationContext, "NOTIFICATION", "listener_disconnect_callback", "Android disconnected notification listener")
         super.onListenerDisconnected()
         if (instance === this) {
             instance = null
@@ -55,11 +56,17 @@ class MrRedNotificationListenerService : NotificationListenerService() {
 
     fun syncActiveNotifications() {
         runCatching {
-            val active = activeNotifications ?: return
+            val active = activeNotifications ?: run {
+                ActivityLogger.record(applicationContext, "ERROR", "notification_sync_unavailable", "Android returned null activeNotifications")
+                return
+            }
             this@MrRedNotificationListenerService.let { service ->
                 Companion.activeNotificationRecords.clear()
                 for (sbn in active) service.processNotification(sbn)
             }
+            ActivityLogger.record(applicationContext, "NOTIFICATION", "active_notifications_synced", "count=${active.size}")
+        }.onFailure { error ->
+            ActivityLogger.record(applicationContext, "ERROR", "notification_sync_failed", "${error.javaClass.name}: ${error.message}")
         }
     }
 
