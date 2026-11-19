@@ -1337,6 +1337,14 @@ private fun SettingsPage(
                 color = AppColors.TextSecondary,
                 lineHeight = 19.sp
             )
+            SettingsRow(
+                title = "Copy complete diagnostic report",
+                summary = "Device, Android, app activity, conversation and llama.cpp logs",
+                onClick = {
+                    settingsClipboard.setText(AnnotatedString(ActivityLogger.diagnosticReport(settingsContext)))
+                    Toast.makeText(settingsContext, "Complete diagnostic report copied", Toast.LENGTH_LONG).show()
+                }
+            )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "The on-device activity log stores questions and generated answers to create conversation summaries, along with app navigation, model/runtime events, device actions, settings changes, and errors. The chat transcript is also retained privately on this device (up to 40 completed turns). Nothing is sent to a Mr-Red server.",
