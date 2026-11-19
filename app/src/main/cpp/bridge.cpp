@@ -215,33 +215,20 @@ namespace {
             return tokens;
         }
 
-        // 使用当前 GGUF 自带的 Chat Template 生成 Prompt。计数和真正推理必须复用
-        // 这条路径，否则 Kotlin 按 Token 预算裁剪时会与 Native 实际 Prefill 不一致。
-        std::string formatChatPromptFallback(const std::vector<ChatMessage> &history) const {
-            std::string prompt;
-            for (const ChatMessage &message : history) {
-                if (message.role.empty()) {
-                    continue;
-                }
-                prompt += "<|im_start|>" + message.role + "\n" + message.content + "<|im_end|>\n";
-            }
-            prompt += "<|im_start|>assistant\n";
-            return prompt;
-        }
-
-        std::string formatChatPrompt(const std::vector<ChatMessage> &history) const {
+        // Always use the chat template embedded in the loaded GGUF. Never guess a
+        // fallback format: a mismatched template silently corrupts prompt semantics.
+        std::string formatChatPrompt(
+                const std::vector<ChatMessage> &history,
+                bool addAssistantPrefix = true) const {
             if (model_ == nullptr || history.empty()) {
                 return {};
             }
 
             const char *chatTemplate = llama_model_chat_template(model_, nullptr);
             if (chatTemplate == nullptr) {
-                __android_log_print(
-                        ANDROID_LOG_WARN,
-                        kLogTag,
-                        "The loaded GGUF has no chat template; using ChatML fallback"
-                );
-                return formatChatPromptFallback(history);
+                __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                                    "Loaded GGUF has no embedded chat template");
+                return {};
             }
 
             std::vector<llama_chat_message> messages;
@@ -264,19 +251,15 @@ namespace {
                     chatTemplate,
                     messages.data(),
                     messages.size(),
-                    true,
+                    addAssistantPrefix,
                     formattedPrompt.data(),
                     static_cast<int32_t>(formattedPrompt.size())
             );
 
             if (promptLength < 0) {
-                __android_log_print(
-                        ANDROID_LOG_WARN,
-                        kLogTag,
-                        "llama_chat_apply_template returned %d; using ChatML fallback",
-                        promptLength
-                );
-                return formatChatPromptFallback(history);
+                __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                                    "llama_chat_apply_template failed: %d", promptLength);
+                return {};
             }
 
             if (promptLength > static_cast<int32_t>(formattedPrompt.size())) {
@@ -285,14 +268,14 @@ namespace {
                         chatTemplate,
                         messages.data(),
                         messages.size(),
-                        true,
+                        addAssistantPrefix,
                         formattedPrompt.data(),
                         static_cast<int32_t>(formattedPrompt.size())
                 );
             }
 
             if (promptLength <= 0) {
-                return formatChatPromptFallback(history);
+                return {};
             }
 
             return {
@@ -346,6 +329,50 @@ namespace {
             }
 
             nextPosition_ = static_cast<llama_pos>(tokens.size());
+            return static_cast<int>(tokens.size());
+        }
+
+        // Prefill a template-formatted memory prefix without sampling or emitting output.
+        // The prefix intentionally omits the assistant generation marker so a later user
+        // message can be appended while preserving the exact cached token prefix.
+        int warmPrompt(const std::vector<ChatMessage> &history) {
+            if (model_ == nullptr || context_ == nullptr || history.empty() ||
+                stopRequested_.load()) {
+                return 0;
+            }
+
+            const std::string prompt = formatChatPrompt(history, false);
+            if (prompt.empty()) {
+                return 0;
+            }
+            const std::vector<llama_token> tokens = tokenize(prompt, true);
+            if (tokens.empty() || tokens.size() > llama_n_ctx(context_)) {
+                return 0;
+            }
+
+            const size_t reused = commonPrefixLength(cachedTokens_, tokens);
+            size_t startIndex = 0;
+            if (!cachedTokens_.empty() && reused > 0) {
+                if (reused < cachedTokens_.size() &&
+                    !llama_memory_seq_rm(llama_get_memory(context_), 0,
+                                          static_cast<llama_pos>(reused), -1)) {
+                    resetContext();
+                } else {
+                    startIndex = reused;
+                    nextPosition_ = static_cast<llama_pos>(reused);
+                }
+            } else {
+                resetContext();
+            }
+
+            if (prefill(tokens, startIndex) != static_cast<int>(tokens.size())) {
+                resetContext();
+                return 0;
+            }
+            cachedTokens_ = tokens;
+            __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                "Memory prefix warmed: %zu tokens (%zu reused)",
+                                tokens.size(), reused);
             return static_cast<int>(tokens.size());
         }
 
@@ -920,6 +947,48 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativePrefill(
     // 独立 Prefill 实验从空 Context 开始，不能混用聊天的增量 KV Cache。
     runtime->resetContext();
     return runtime->prefill(tokens, 0);
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeWarmPrompt(
+        JNIEnv *env,
+        jobject /* thiz */,
+        jlong handle,
+        jobjectArray roles,
+        jobjectArray contents) {
+    auto *runtime = toRuntime(handle);
+    if (runtime == nullptr || roles == nullptr || contents == nullptr) return 0;
+    const jsize roleCount = env->GetArrayLength(roles);
+    const jsize contentCount = env->GetArrayLength(contents);
+    if (roleCount <= 0 || roleCount != contentCount) return 0;
+
+    std::vector<ChatMessage> messages;
+    messages.reserve(static_cast<size_t>(roleCount));
+    for (jsize index = 0; index < roleCount; ++index) {
+        auto role = static_cast<jstring>(env->GetObjectArrayElement(roles, index));
+        auto content = static_cast<jstring>(env->GetObjectArrayElement(contents, index));
+        if (role == nullptr || content == nullptr) {
+            if (role != nullptr) env->DeleteLocalRef(role);
+            if (content != nullptr) env->DeleteLocalRef(content);
+            return 0;
+        }
+        const char *roleChars = env->GetStringUTFChars(role, nullptr);
+        const char *contentChars = env->GetStringUTFChars(content, nullptr);
+        if (roleChars == nullptr || contentChars == nullptr) {
+            if (roleChars != nullptr) env->ReleaseStringUTFChars(role, roleChars);
+            if (contentChars != nullptr) env->ReleaseStringUTFChars(content, contentChars);
+            env->DeleteLocalRef(role);
+            env->DeleteLocalRef(content);
+            return 0;
+        }
+        messages.push_back({roleChars, contentChars});
+        env->ReleaseStringUTFChars(role, roleChars);
+        env->ReleaseStringUTFChars(content, contentChars);
+        env->DeleteLocalRef(role);
+        env->DeleteLocalRef(content);
+    }
+    return runtime->warmPrompt(messages);
 }
 
 extern "C"
