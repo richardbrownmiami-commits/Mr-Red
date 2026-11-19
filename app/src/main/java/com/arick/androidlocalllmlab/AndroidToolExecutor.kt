@@ -445,15 +445,15 @@ class AndroidToolExecutor(private val context: Context) {
         if (!isNotificationAccessEnabled()) {
             return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
         }
-        val records = MrRedNotificationListenerService.recentNotifications(context)
+        val records = MrRedNotificationListenerService.currentNotifications(context)
         if (records.isEmpty()) {
             return if (!MrRedNotificationListenerService.isConnected()) {
-                ToolResult.Success("Notification access is enabled, but the background listener service is starting up. If notifications do not show, try toggling Mr-Red off and on once in Android Notification Access settings.")
+                ToolResult.Success("Notification access is enabled, but Android has not connected the notification listener yet. No current notifications can be verified.")
             } else {
-                ToolResult.Success("No active or recent notifications found on your device right now.")
+                ToolResult.Success("There are no currently active notifications on the device.")
             }
         }
-        return ToolResult.Success("Recent notifications (stored in memory only):\n" + records.joinToString("\n") { r ->
+        return ToolResult.Success("Currently active notifications (live Android notification snapshot; stored in memory only):\\n" + records.joinToString("\\n") { r ->
             val details = if (r.text.isNotBlank()) ": ${r.text}" else ""
             "• ${r.app}: ${r.title}$details"
         })
