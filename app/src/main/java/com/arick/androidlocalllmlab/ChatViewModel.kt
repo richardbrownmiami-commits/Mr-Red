@@ -553,6 +553,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     is ToolResult.Success -> Triple(result.content, result.sources, "Completed locally: ${call.name}")
                     is ToolResult.Failure -> Triple(result.message, emptyList(), "Could not complete: ${call.name}")
                 }
+                val memoryLayer = when (call.name) {
+                    "read_notifications" -> "NOTIFICATION"
+                    "web_search", "get_news", "get_weather" -> "WEB"
+                    else -> "DEVICE"
+                }
+                ActivityLogger.record(
+                    getApplication(),
+                    memoryLayer,
+                    "result_${call.name}",
+                    toolContent
+                )
                 val requiresNaturalAnswer = call.name in setOf("read_notifications", "web_search", "get_news", "get_weather") &&
                     _uiState.value is ChatUiState.Ready
                 val content = if (requiresNaturalAnswer) {
