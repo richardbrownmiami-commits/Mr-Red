@@ -37,7 +37,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
 
     fun syncActiveNotifications() {
         runCatching {
-            val active = activeNotificationRecords ?: return
+            val active = activeNotifications ?: return
             this@MrRedNotificationListenerService.let { service ->
                 Companion.activeNotificationRecords.clear()
                 for (sbn in active) service.processNotification(sbn)
