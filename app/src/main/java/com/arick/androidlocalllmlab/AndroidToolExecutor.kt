@@ -453,7 +453,7 @@ class AndroidToolExecutor(private val context: Context) {
                 ToolResult.Success("There are no currently active notifications on the device.")
             }
         }
-        return ToolResult.Success("Currently active notifications (live Android notification snapshot; stored in memory only):\\n" + records.joinToString("\\n") { r ->
+        return ToolResult.Success("Currently active notifications (live Android notification snapshot; stored in memory only):\n" + records.joinToString("\n") { r ->
             val details = if (r.text.isNotBlank()) ": ${r.text}" else ""
             "• ${r.app}: ${r.title}$details"
         })
