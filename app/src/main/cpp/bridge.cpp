@@ -53,8 +53,15 @@ namespace {
             }
 
             llama_model_params params = llama_model_default_params();
-            params.use_mmap = useMmap;
-            params.use_mlock = useMlock;
+            if (useMmap && useMlock) {
+                params.load_mode = LLAMA_LOAD_MODE_MMAP_MLOCK;
+            } else if (useMmap) {
+                params.load_mode = LLAMA_LOAD_MODE_MMAP;
+            } else if (useMlock) {
+                params.load_mode = LLAMA_LOAD_MODE_MLOCK;
+            } else {
+                params.load_mode = LLAMA_LOAD_MODE_NONE;
+            }
 
             model_ = llama_model_load_from_file(
                     modelPath.c_str(),
