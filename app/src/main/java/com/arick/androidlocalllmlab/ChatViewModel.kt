@@ -339,8 +339,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var templateStartsThinking = false
             try {
                 val answer = withContext(Dispatchers.Default) {
-                    // Keep the native KV cache between turns. Supply recent transcript plus
-                    // the logger's durable summary so llama.cpp can reuse a stable prompt prefix.
+                    // Keep the native KV cache between turns. The prompt uses the invariant
+                    // system instructions, one compact logger summary, and the current question.
                     val readyState = _uiState.value as? ChatUiState.Ready
                     val contextCapacity = (readyState?.nCtx ?: 512).coerceAtLeast(128)
                     // Small context windows must reserve room for memory as well as output.
@@ -420,8 +420,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Builds role-separated GGUF messages. Logger memory is prioritized; recent verbatim
-     * turns are added when they fit. The current question is always retained.
+     * Builds role-separated GGUF messages from the invariant system instructions,
+     * one compact logger summary, and the current question. No separate transcript is added.
      */
     private fun trimMemoryToTokenBudget(memory: String, maxTokens: Int): String {
         if (memory.isBlank() || maxTokens <= 0) return ""
