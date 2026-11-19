@@ -20,7 +20,9 @@ object NativeLlmBridge {
         System.loadLibrary("native_llm")
     }
 
-    external fun nativeSetDiagnosticLogPath(path: String)\n\n    external fun nativeCreateRuntime(): Long
+    external fun nativeSetDiagnosticLogPath(path: String)
+
+    external fun nativeCreateRuntime(): Long
 
     external fun nativeReleaseRuntime(handle: Long)
 
