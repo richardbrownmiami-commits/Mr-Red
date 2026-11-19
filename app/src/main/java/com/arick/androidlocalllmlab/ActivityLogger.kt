@@ -248,7 +248,7 @@ object ActivityLogger {
         buildString {
             appendLine("MR-RED DIAGNOSTIC REPORT")
             appendLine("Generated: ${Date()}")
-            appendLine("App: ${info.packageName} version=${info.versionName} code=${if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()}")
+            appendLine("App: ${info.packageName} version=${info.versionName} code=${if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()}")
             appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
             appendLine("Android: ${android.os.Build.VERSION.RELEASE} API ${android.os.Build.VERSION.SDK_INT} build=${android.os.Build.DISPLAY}")
             appendLine("ABIs: ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
@@ -274,6 +274,7 @@ object ActivityLogger {
 
     fun clear(context: Context) {
         runCatching { File(context.applicationContext.filesDir, FILE_NAME).delete() }
+        runCatching { File(context.applicationContext.filesDir, "mr_red_native.log").delete() }
     }
 
     private fun clean(value: String, maxLength: Int): String =
