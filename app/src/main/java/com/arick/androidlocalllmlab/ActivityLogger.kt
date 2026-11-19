@@ -168,10 +168,10 @@ object ActivityLogger {
             append(" Use only explicit preferences and facts; do not invent personal details.\n")
 
             append("[CONVERSATION MEMORY] ")
-            val recentExchanges = exchanges.takeLast(6)
+            val recentExchanges = exchanges.takeLast(4)
             if (recentExchanges.isNotEmpty()) {
                 append(recentExchanges.joinToString("; ") { (question, answer) ->
-                    "${topic(question)} — ${gist(answer)}"
+                    "${topic(question).take(65)} — ${gist(answer).take(110)}"
                 })
             } else {
                 append("No completed Q&A exchange recorded.")
@@ -179,14 +179,13 @@ object ActivityLogger {
             append("\n")
 
             append("[RELATIONSHIP CONTEXT] ")
-            append("This is an ongoing assistant-user conversation. Build familiarity from recorded interactions, ")
-            append("use shared references only when supported by memory, and never assume intimacy or dependency.\n")
+            append("Ongoing conversation; build familiarity only from recorded interactions.\n")
 
             append("[EMOTIONAL CONTEXT] ")
             if (emotionalNotes.isNotEmpty()) {
-                append("Recent user wording contained these possible self-expressed cues: ")
+                append("Recent self-expressed cues (historical, not current mood): ")
                 append(emotionalNotes.joinToString("; "))
-                append(". These are historical clues, not a diagnosis or proof of the user's current mood.")
+                append(".")
             } else {
                 append("No clear recent self-expressed emotional cue was identified; do not assume a mood.")
             }
@@ -194,21 +193,21 @@ object ActivityLogger {
 
             if (deviceEvents.isNotEmpty()) {
                 append("[DEVICE AND NOTIFICATION ACTIVITY] ")
-                append(deviceEvents.takeLast(5).joinToString("; ") { event ->
-                    "${event.action.replace('_', ' ')}: ${event.detail.take(75)}"
+                append(deviceEvents.takeLast(3).joinToString("; ") { event ->
+                    "${event.action.replace('_', ' ')}: ${event.detail.take(55)}"
                 })
                 append("\n")
             }
             if (webEvents.isNotEmpty()) {
                 append("[WEB FACTS AND SEARCHES] ")
-                append(webEvents.takeLast(3).joinToString("; ") { event ->
-                    "${event.action.replace('_', ' ')}: ${event.detail.take(85)}"
+                append(webEvents.takeLast(2).joinToString("; ") { event ->
+                    "${event.action.replace('_', ' ')}: ${event.detail.take(60)}"
                 })
                 append("\n")
             }
             if (errors.isNotEmpty()) {
                 append("[OPEN ISSUES] ")
-                append(errors.takeLast(2).joinToString("; ") { "${it.action}: ${it.detail.take(70)}" })
+                append(errors.takeLast(1).joinToString("; ") { "${it.action}: ${it.detail.take(60)}" })
                 append("\n")
             }
             append("[MEMORY RULE] Treat this as historical context. Verify live device state with current tools; ")
