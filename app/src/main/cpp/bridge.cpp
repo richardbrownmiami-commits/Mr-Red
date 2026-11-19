@@ -27,7 +27,7 @@ namespace {
         std::tm tm{};
         gmtime_r(&now, &tm);
         std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &tm);
-        std::fprintf(file, "%s | NATIVE | %s\\n", timestamp, event.c_str());
+        std::fprintf(file, "%s | NATIVE | %s\n", timestamp, event.c_str());
         std::fclose(file);
     }
 
