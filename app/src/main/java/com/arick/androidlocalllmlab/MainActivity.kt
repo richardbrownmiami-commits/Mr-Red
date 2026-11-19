@@ -846,6 +846,17 @@ private fun ChatMessageItem(
                     )
                 }
 
+                // Per-answer generation telemetry: full formatted input and actual sampled output.
+                message.generationMetrics?.let { metrics ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Generated in ${formatDuration(metrics.totalMillis)}  ·  Input ${metrics.promptTokenCount} tokens  ·  Output ${metrics.generatedTokenCount} tokens  ·  ${formatTokensPerSecond(metrics.decodeTokensPerSecond)}",
+                        fontSize = 11.sp,
+                        color = AppColors.TextSecondary,
+                        lineHeight = 15.sp
+                    )
+                }
+
                 // Source Links
                 if (message.sourceLinks.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
