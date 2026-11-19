@@ -2,7 +2,7 @@
 #include <android/log.h>
 #include <algorithm>
 #include <atomic>
-#include <chrono>
+#include <chrono>\n#include <cstdio>\n#include <mutex>
 #include <functional>
 #include <string>
 #include <vector>
@@ -10,7 +10,7 @@
 
 namespace {
 
-    constexpr char kLogTag[] = "NativeLlm";
+    constexpr char kLogTag[] = "NativeLlm";\n    std::string gDiagnosticLogPath;\n    std::mutex gDiagnosticLogMutex;\n\n    void appendDiagnostic(const std::string &event) {\n        std::lock_guard<std::mutex> lock(gDiagnosticLogMutex);\n        if (gDiagnosticLogPath.empty()) return;\n        FILE *file = std::fopen(gDiagnosticLogPath.c_str(), "ab");\n        if (file == nullptr) return;\n        const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());\n        char timestamp[32]{};\n        std::tm tm{};\n#if defined(_WIN32)\n        gmtime_s(&tm, &now);\n#else\n        gmtime_r(&now, &tm);\n#endif\n        std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &tm);\n        std::fprintf(file, "%s | NATIVE | %s\\n", timestamp, event.c_str());\n        std::fclose(file);\n    }
 
     struct ChatMessage {
         std::string role;
@@ -394,7 +394,7 @@ namespace {
 
             using Clock = std::chrono::steady_clock;
             const auto generationStartedAt = Clock::now();
-            const std::string prompt = formatChatPrompt(history);
+            const std::string prompt = formatChatPrompt(history);\n            appendDiagnostic("generation_started messages=" + std::to_string(history.size()) + " max_tokens=" + std::to_string(maxTokens));
             if (prompt.empty()) {
                 return {};
             }
