@@ -22,7 +22,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         super.onListenerDisconnected()
         if (instance === this) {
             instance = null
-            activeNotifications.clear()
+            activeNotificationRecords.clear()
         }
     }
 
@@ -31,15 +31,15 @@ class MrRedNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        activeNotifications.removeAll { it.key == sbn.key }
+        activeNotificationRecords.removeAll { it.key == sbn.key }
         // Recent history is retained separately for historical questions.
     }
 
     fun syncActiveNotifications() {
         runCatching {
-            val active = activeNotifications ?: return
+            val active = activeNotificationRecords ?: return
             this@MrRedNotificationListenerService.let { service ->
-                Companion.activeNotifications.clear()
+                Companion.activeNotificationRecords.clear()
                 for (sbn in active) service.processNotification(sbn)
             }
         }
@@ -56,8 +56,8 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         if (title.isBlank() && text.isBlank()) return
         val shortApp = sbn.packageName.substringAfterLast('.')
         val record = MrRedNotification(shortApp, title.take(160), text.take(400), sbn.key)
-        activeNotifications.removeAll { it.key == sbn.key }
-        activeNotifications.add(0, record)
+        activeNotificationRecords.removeAll { it.key == sbn.key }
+        activeNotificationRecords.add(0, record)
         notifications.removeAll { (it.app == shortApp || it.app == sbn.packageName) && it.title == title }
         notifications.add(0, record)
         while (notifications.size > MAX_NOTIFICATIONS) notifications.removeAt(notifications.lastIndex)
@@ -66,7 +66,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
     companion object {
         private const val MAX_NOTIFICATIONS = 30
         private val notifications = CopyOnWriteArrayList<MrRedNotification>()
-        private val activeNotifications = CopyOnWriteArrayList<MrRedNotification>()
+        private val activeNotificationRecords = CopyOnWriteArrayList<MrRedNotification>()
         @Volatile private var instance: MrRedNotificationListenerService? = null
 
         fun recentNotifications(context: Context? = null): List<MrRedNotification> {
@@ -90,7 +90,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
             } else if (context != null) {
                 requestRebindService(context)
             }
-            return activeNotifications.toList()
+            return activeNotificationRecords.toList()
         }
 
         fun isConnected(): Boolean = instance != null
