@@ -15,6 +15,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         instance = this
+        ActivityLogger.record(applicationContext, "NOTIFICATION", "listener_connected", "Android notification access connected")
         syncActiveNotifications()
     }
 
@@ -23,15 +24,32 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         if (instance === this) {
             instance = null
             activeNotificationRecords.clear()
+            ActivityLogger.record(applicationContext, "NOTIFICATION", "listener_disconnected", "Android notification access disconnected")
         }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         processNotification(sbn)
+        val extras = sbn.notification?.extras
+        val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val text = (extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)
+            ?: extras?.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
+        ActivityLogger.record(
+            applicationContext,
+            "NOTIFICATION",
+            "posted",
+            "${sbn.packageName.substringAfterLast('.')}: $title — $text"
+        )
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         activeNotificationRecords.removeAll { it.key == sbn.key }
+        ActivityLogger.record(
+            applicationContext,
+            "NOTIFICATION",
+            "removed",
+            sbn.packageName.substringAfterLast('.') + ": " + sbn.key.take(120)
+        )
         // Recent history is retained separately for historical questions.
     }
 
