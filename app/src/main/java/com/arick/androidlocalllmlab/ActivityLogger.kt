@@ -9,7 +9,7 @@ import java.util.Locale
 /** Private on-device journal. Conversation text is retained privately for concise Q&A summaries. */
 object ActivityLogger {
     private const val FILE_NAME = "mr_red_activity.log"
-    private const val MAX_LINES = 2400
+    private const val MAX_LINES = 12000
     private const val MAX_DETAIL_LENGTH = 4000
 
     @Volatile
@@ -237,6 +237,35 @@ object ActivityLogger {
             else -> null
         }
     }
+
+    fun diagnosticReport(context: Context): String = runCatching {
+        val app = context.applicationContext
+        val info = app.packageManager.getPackageInfo(app.packageName, 0)
+        val activity = File(app.filesDir, FILE_NAME).takeIf { it.isFile }?.readText().orEmpty()
+        val native = File(app.filesDir, "mr_red_native.log").takeIf { it.isFile }?.readText().orEmpty()
+        val am = app.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val memory = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        buildString {
+            appendLine("MR-RED DIAGNOSTIC REPORT")
+            appendLine("Generated: ${Date()}")
+            appendLine("App: ${info.packageName} version=${info.versionName} code=${if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()}")
+            appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+            appendLine("Android: ${android.os.Build.VERSION.RELEASE} API ${android.os.Build.VERSION.SDK_INT} build=${android.os.Build.DISPLAY}")
+            appendLine("ABIs: ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
+            appendLine("CPU: ${Runtime.getRuntime().availableProcessors()} processors")
+            appendLine("RAM: total=${memory.totalMem} available=${memory.availMem} low=${memory.lowMemory}")
+            appendLine("Heap: max=${Runtime.getRuntime().maxMemory()} total=${Runtime.getRuntime().totalMemory()} free=${Runtime.getRuntime().freeMemory()}")
+            appendLine("\n===== APP ACTIVITY LOG =====")
+            appendLine(activity.ifBlank { "No activity log." })
+            appendLine("\n===== LLAMA.CPP NATIVE LOG =====")
+            appendLine(native.ifBlank { "No native diagnostics. Check native logger initialization." })
+        }
+    }.getOrElse { "Diagnostic report generation failed: ${it.javaClass.simpleName}: ${it.message}" }
+
+    fun nativeRecentText(context: Context): String = runCatching {
+        File(context.applicationContext.filesDir, "mr_red_native.log").takeIf { it.isFile }?.readText()?.takeLast(100000)
+            ?: "No native diagnostics recorded yet."
+    }.getOrDefault("Unable to read native diagnostics.")
 
     fun recentText(context: Context): String = runCatching {
         File(context.applicationContext.filesDir, FILE_NAME).takeIf { it.isFile }?.readText()?.takeLast(24000)
