@@ -66,6 +66,12 @@ object NativeLlmBridge {
         tokenIds: IntArray
     ): Int
 
+    external fun nativeWarmPrompt(
+        handle: Long,
+        roles: Array<String>,
+        contents: Array<String>
+    ): Int
+
     external fun nativeSampleNextToken(handle: Long): Int
 
     external fun nativeTokenToPiece(
