@@ -6,6 +6,10 @@ import android.os.Debug
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -92,6 +96,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     // Runtime holds native JNI handle with ViewModel lifecycle.
     private val runtime = LocalLlmRuntime()
+    private val nativeInferenceMutex = Mutex()
+    private var memoryWarmupJob: Job? = null
+    private val fixedSystemInstructions = """
+        You are Mr-Red, a natural, clear and considerate local assistant. Be caring without
+        overdoing it; give practical suggestions when useful. Never claim to be human.
+        Do not volunteer that you are an LLM/AI or that you have no memory. If asked what
+        you are, answer honestly. Treat the following memory as prior context: recall relevant
+        topics, Q&A outcomes, device actions and their results; resolve follow-ups; distinguish
+        historical records from live device state; never claim a current device check succeeded
+        unless a current tool result confirms it. Answer the latest user message directly.
+    """.trimIndent()
     val toolExecutor = AndroidToolExecutor(application)
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
@@ -153,6 +168,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         ActivityLogger.record(application, "APP", "view_model_created", "Chat runtime initialized")
+        ActivityLogger.setMemoryChangeListener { scheduleMemoryWarmup() }
         // Retire legacy chat, personal-memory, persona and summary stores from older installs.
         application.deleteDatabase("mr_red_conversation.db")
         application.deleteDatabase("mr_red_memory.db")
@@ -223,11 +239,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun prepareModel(modelFile: File) {
+        memoryWarmupJob?.cancel()
         ActivityLogger.record(getApplication(), "MODEL", "runtime_prepare_started", "Preparing native model and context")
         _uiState.value = ChatUiState.Preparing("Loading model and creating context…")
         val beforeLoad = takeMemorySnapshot()
         var afterModelLoaded: MemorySnapshot? = null
         val preparationMetrics = withContext(Dispatchers.Default) {
+            nativeInferenceMutex.withLock {
             // Loading model and allocating context on background dispatcher.
             runtime.prepareModel(
                 modelPath = modelFile.absolutePath,
@@ -237,6 +255,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 useMlock = _useMlock.value,
                 onModelLoaded = { afterModelLoaded = takeMemorySnapshot() }
             )
+            }
         }
 
         check(preparationMetrics.actualNctx > 0) { "Failed to create model or context" }
@@ -268,6 +287,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             modelName
         )
         ActivityLogger.record(getApplication(), "MODEL", "runtime_ready", "Native model and context are ready")
+        scheduleMemoryWarmup()
     }
 
     private fun restoreConversationHistory() {
@@ -310,6 +330,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Retain both sides privately so the summary can describe the exchange without quoting it.
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
+        memoryWarmupJob?.cancel()
 
         // Keep phone actions local; they are not injected into GGUF inference.
         DeviceIntentRouter.route(prompt)?.let { call ->
@@ -339,6 +360,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var templateStartsThinking = false
             try {
                 val answer = withContext(Dispatchers.Default) {
+                    nativeInferenceMutex.withLock {
                     // Keep the native KV cache between turns. The prompt uses the invariant
                     // system instructions, one compact logger summary, and the current question.
                     val readyState = _uiState.value as? ChatUiState.Ready
@@ -387,6 +409,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     )
+                    }
                 }
                 if (answer.isBlank() && !_isStopRequested.value) {
                     error("Model returned no content")
@@ -415,6 +438,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _generationProgress.value = null
                 _isGenerating.value = false
                 _isStopRequested.value = false
+                scheduleMemoryWarmup()
             }
         }
     }
@@ -443,53 +467,64 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         return best
     }
 
+    private fun buildMemoryPrefixMessages(memorySummary: String): List<PromptMessage> = buildList {
+        add(PromptMessage("system", fixedSystemInstructions))
+        if (memorySummary.isNotBlank()) {
+            add(PromptMessage(
+                "user",
+                "Mr-Red activity memory (compact summary of prior Q&A and app/device events):\\n$memorySummary"
+            ))
+        }
+    }
+
     private fun buildPromptMessages(
         currentQuestion: String,
         memorySummary: String,
         maxPromptTokens: Int
     ): List<PromptMessage> {
-        // Keep this system message invariant across turns. llama.cpp can then reuse the
-        // entire system-instruction prefix from its KV cache; changing memory belongs after it.
-        val systemInstructions = """
-            You are Mr-Red, a natural, clear and considerate local assistant. Be caring without
-            overdoing it; give practical suggestions when useful. Never claim to be human.
-            Do not volunteer that you are an LLM/AI or that you have no memory. If asked what
-            you are, answer honestly. Treat the following memory as prior context: recall relevant
-            topics, Q&A outcomes, device actions and their results; resolve follow-ups; distinguish
-            historical records from live device state; never claim a current device check succeeded
-            unless a current tool result confirms it. Answer the latest user message directly.
-        """.trimIndent()
-
+        // This prefix is byte-for-byte the same prefix prepared by the idle memory feeder.
         val retainedMemory = memorySummary.trim()
-        val messages = buildList {
-            add(PromptMessage("system", systemInstructions))
-            if (retainedMemory.isNotBlank()) {
-                add(PromptMessage("user", "Mr-Red activity memory (compact summary of prior Q&A and app/device events):\n$retainedMemory"))
-            }
-            add(PromptMessage("user", currentQuestion))
-        }
-        // System instructions stay byte-for-byte stable; only the memory and current request
-        // vary. Reserve template overhead when enforcing the context budget.
-        val estimate = messages.joinToString("\n") { "${it.role}\n${it.content}" }
+        val messages = buildMemoryPrefixMessages(retainedMemory) + PromptMessage("user", currentQuestion)
+        val estimate = messages.joinToString("\\n") { "${it.role}\\n${it.content}" }
         if (runtime.tokenize(estimate).size + 32 <= maxPromptTokens) return messages
 
-        // If context is tight, shorten memory first but never discard the current question
-        // or alter the invariant system instruction prefix.
         var memory = retainedMemory
         while (memory.isNotBlank()) {
             memory = memory.take(memory.length * 3 / 4).trimEnd()
-            val reduced = buildList {
-                add(PromptMessage("system", systemInstructions))
-                if (memory.isNotBlank()) add(PromptMessage("user", "Mr-Red activity memory (compact summary of prior Q&A and app/device events):\n$memory"))
-                add(PromptMessage("user", currentQuestion))
-            }
-            val reducedEstimate = reduced.joinToString("\n") { "${it.role}\n${it.content}" }
+            val reduced = buildMemoryPrefixMessages(memory) + PromptMessage("user", currentQuestion)
+            val reducedEstimate = reduced.joinToString("\\n") { "${it.role}\\n${it.content}" }
             if (runtime.tokenize(reducedEstimate).size + 32 <= maxPromptTokens) return reduced
         }
         return if (runtime.tokenize(currentQuestion).size + 8 <= maxPromptTokens) {
-            listOf(PromptMessage("system", systemInstructions), PromptMessage("user", currentQuestion))
+            listOf(PromptMessage("system", fixedSystemInstructions), PromptMessage("user", currentQuestion))
         } else {
             listOf(PromptMessage("user", currentQuestion))
+        }
+    }
+
+    /** Debounced idle-time prefill. This fills KV cache without sampling response tokens. */
+    private fun scheduleMemoryWarmup() {
+        if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) return
+        memoryWarmupJob?.cancel()
+        memoryWarmupJob = viewModelScope.launch {
+            delay(900)
+            if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) return@launch
+            val warmedTokens = withContext(Dispatchers.Default) {
+                nativeInferenceMutex.withLock {
+                    if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
+                        0
+                    } else {
+                        val summary = trimMemoryToTokenBudget(
+                            ActivityLogger.promptMemory(getApplication()),
+                            300
+                        )
+                        runtime.warmPrompt(buildMemoryPrefixMessages(summary))
+                    }
+                }
+            }
+            if (warmedTokens > 0) {
+                android.util.Log.d("MrRedMemory", "Warmed $warmedTokens memory-prefix tokens")
+            }
         }
     }
 
@@ -545,6 +580,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     var rawAnswer = ""
                     var startsThinking = false
                     val generated = withContext(Dispatchers.Default) {
+                        nativeInferenceMutex.withLock {
                         runtime.generate(
                             messages = buildPromptMessages(synthesisRequest, memory, promptBudget),
                             inferenceConfig = _inferenceConfig.value.copy(maxTokens = maxOutput),
@@ -566,6 +602,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             }
                         )
+                        }
                     }
                     val parts = splitAssistantResponse(generated, startsThinking)
                     parts.answer.ifBlank { toolContent }
@@ -597,6 +634,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _generationProgress.value = null
                 _isGenerating.value = false
+                scheduleMemoryWarmup()
             }
         }
     }
@@ -964,6 +1002,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        memoryWarmupJob?.cancel()
+        ActivityLogger.setMemoryChangeListener(null)
         // Release native heap memory on ViewModel disposal.
         runtime.close()
     }
