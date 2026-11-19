@@ -26,7 +26,9 @@ object NativeLlmBridge {
 
     external fun nativeLoadModel(
         handle: Long,
-        modelPath: String
+        modelPath: String,
+        useMmap: Boolean,
+        useMlock: Boolean
     ): Boolean
 
     external fun nativeUnloadModel(handle: Long)

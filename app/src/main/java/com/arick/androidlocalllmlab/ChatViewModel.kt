@@ -117,6 +117,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _cpuThreads = MutableStateFlow(DEFAULT_CPU_THREADS)
     val cpuThreads: StateFlow<Int> = _cpuThreads.asStateFlow()
 
+    private val runtimePreferences = application.getSharedPreferences("local_llm_preferences", android.content.Context.MODE_PRIVATE)
+
+    private val _useMmap = MutableStateFlow(runtimePreferences.getBoolean("use_mmap", true))
+    val useMmap: StateFlow<Boolean> = _useMmap.asStateFlow()
+
+    private val _useMlock = MutableStateFlow(runtimePreferences.getBoolean("use_mlock", false))
+    val useMlock: StateFlow<Boolean> = _useMlock.asStateFlow()
+
     private val _inferenceConfig = MutableStateFlow(InferenceConfig(maxTokens = 256))
     val inferenceConfig: StateFlow<InferenceConfig> = _inferenceConfig.asStateFlow()
 
@@ -223,6 +231,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 modelPath = modelFile.absolutePath,
                 requestedNctx = _requestedNctx.value,
                 cpuThreads = _cpuThreads.value,
+                useMmap = _useMmap.value,
+                useMlock = _useMlock.value,
                 onModelLoaded = { afterModelLoaded = takeMemorySnapshot() }
             )
         }
@@ -678,6 +688,36 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Updates decode and prefill thread counts in llama.cpp without recreating context. */
+    fun updateUseMmap(enabled: Boolean) {
+        if (_isGenerating.value || _uiState.value is ChatUiState.Preparing) return
+        _useMmap.value = enabled
+        runtimePreferences.edit().putBoolean("use_mmap", enabled).apply()
+        ActivityLogger.record(getApplication(), "SETTINGS", "mmap_changed", "Memory mapping set to $enabled")
+        val ready = _uiState.value as? ChatUiState.Ready ?: return
+        viewModelScope.launch {
+            try {
+                prepareModel(ready.modelFile)
+            } catch (error: Throwable) {
+                _uiState.value = ChatUiState.Error(error.message ?: "Failed to reload model with updated mmap setting")
+            }
+        }
+    }
+
+    fun updateUseMlock(enabled: Boolean) {
+        if (_isGenerating.value || _uiState.value is ChatUiState.Preparing) return
+        _useMlock.value = enabled
+        runtimePreferences.edit().putBoolean("use_mlock", enabled).apply()
+        ActivityLogger.record(getApplication(), "SETTINGS", "mlock_changed", "Memory locking set to $enabled")
+        val ready = _uiState.value as? ChatUiState.Ready ?: return
+        viewModelScope.launch {
+            try {
+                prepareModel(ready.modelFile)
+            } catch (error: Throwable) {
+                _uiState.value = ChatUiState.Error(error.message ?: "Failed to reload model with updated mlock setting")
+            }
+        }
+    }
+
     fun updateCpuThreads(threads: Int) {
         if (threads <= 0 || _isGenerating.value || _uiState.value is ChatUiState.Preparing) {
             return

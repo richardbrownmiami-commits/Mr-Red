@@ -28,9 +28,13 @@ class LocalLlmRuntime : AutoCloseable {
         }
     }
 
-    fun loadModel(modelPath: String): Boolean {
+    fun loadModel(
+        modelPath: String,
+        useMmap: Boolean = true,
+        useMlock: Boolean = false
+    ): Boolean {
         check(nativeHandle != 0L) { "Runtime has not been created" }
-        return NativeLlmBridge.nativeLoadModel(nativeHandle, modelPath)
+        return NativeLlmBridge.nativeLoadModel(nativeHandle, modelPath, useMmap, useMlock)
     }
 
     fun unloadModel() {
@@ -93,6 +97,8 @@ class LocalLlmRuntime : AutoCloseable {
         modelPath: String,
         requestedNctx: Int,
         cpuThreads: Int,
+        useMmap: Boolean = true,
+        useMlock: Boolean = false,
         onModelLoaded: () -> Unit = {}
     ): ModelPreparationMetrics {
         this.cpuThreads = cpuThreads
@@ -102,7 +108,7 @@ class LocalLlmRuntime : AutoCloseable {
         unloadModel()
 
         val modelLoadStartedAt = SystemClock.elapsedRealtime()
-        if (!loadModel(modelPath)) {
+        if (!loadModel(modelPath, useMmap, useMlock)) {
             return ModelPreparationMetrics(
                 modelLoadMillis = SystemClock.elapsedRealtime() - modelLoadStartedAt,
                 contextCreateMillis = 0L,

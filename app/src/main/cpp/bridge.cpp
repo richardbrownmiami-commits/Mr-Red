@@ -47,12 +47,14 @@ namespace {
             );
         }
 
-        bool loadModel(const std::string &modelPath) {
+        bool loadModel(const std::string &modelPath, bool useMmap = true, bool useMlock = false) {
             if (model_ != nullptr) {
                 return false;
             }
 
-            const llama_model_params params = llama_model_default_params();
+            llama_model_params params = llama_model_default_params();
+            params.use_mmap = useMmap;
+            params.use_mlock = useMlock;
 
             model_ = llama_model_load_from_file(
                     modelPath.c_str(),
@@ -694,7 +696,9 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeLoadModel(
         JNIEnv *env,
         jobject /* thiz */,
         jlong handle,
-        jstring modelPath) {
+        jstring modelPath,
+        jboolean useMmap,
+        jboolean useMlock) {
     auto *runtime = toRuntime(handle);
     if (runtime == nullptr || modelPath == nullptr) {
         return JNI_FALSE;
@@ -705,7 +709,7 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeLoadModel(
         return JNI_FALSE;
     }
 
-    const bool loaded = runtime->loadModel(pathChars);
+    const bool loaded = runtime->loadModel(pathChars, useMmap == JNI_TRUE, useMlock == JNI_TRUE);
 
     env->ReleaseStringUTFChars(modelPath, pathChars);
     return loaded ? JNI_TRUE : JNI_FALSE;

@@ -968,6 +968,8 @@ private fun DashboardPage(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
+    val useMmap by viewModel.useMmap.collectAsState()
+    val useMlock by viewModel.useMlock.collectAsState()
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
 
@@ -1108,6 +1110,12 @@ private fun DashboardPage(
                 DashboardMetricRow("Context Window", nCtxText)
                 DashboardMetricRow("CPU Threads", "$cpuThreads threads")
 
+                val memoryModeText = buildString {
+                    if (useMmap) append("mmap (demand-paged)") else append("Direct RAM (no mmap)")
+                    if (useMlock) append(" · mlock pinned")
+                }
+                DashboardMetricRow("Memory Mode", memoryModeText)
+
                 val promptFillText = generationMetrics?.let {
                     "${it.promptTokenCount} / ${it.contextWindowTokens} tokens (${String.format(Locale.US, "%.1f", it.contextFillPercent)}%)"
                 } ?: "No runs yet"
@@ -1217,6 +1225,8 @@ private fun SettingsPage(
     val promptTokenCount by viewModel.promptTokenCount.collectAsState()
     val requestedNctx by viewModel.requestedNctx.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
+    val useMmap by viewModel.useMmap.collectAsState()
+    val useMlock by viewModel.useMlock.collectAsState()
     val inferenceConfig by viewModel.inferenceConfig.collectAsState()
     val generationMetrics by viewModel.generationMetrics.collectAsState()
     val modelPreparationMetrics by viewModel.modelPreparationMetrics.collectAsState()
@@ -1278,6 +1288,18 @@ private fun SettingsPage(
                 title = "CPU Threads",
                 summary = "$cpuThreads threads",
                 onClick = { showCpuThreadsDialog = true }
+            )
+            SettingsSwitchRow(
+                title = "Memory Mapping (mmap)",
+                subtitle = if (useMmap) "Enabled · Pages weights on demand to conserve RAM" else "Disabled · Direct RAM load (faster answers, requires free RAM)",
+                checked = useMmap,
+                onCheckedChange = viewModel::updateUseMmap
+            )
+            SettingsSwitchRow(
+                title = "Lock Memory in RAM (mlock)",
+                subtitle = if (useMlock) "Enabled · Pins model in RAM to prevent disk paging" else "Disabled · System can reclaim inactive pages when memory is low",
+                checked = useMlock,
+                onCheckedChange = viewModel::updateUseMlock
             )
             SettingsRow(
                 title = "Sampling Parameters",
