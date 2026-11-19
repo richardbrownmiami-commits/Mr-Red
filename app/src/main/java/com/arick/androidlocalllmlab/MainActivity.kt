@@ -137,12 +137,52 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ActivityLogger.initialize(applicationContext)
+        installCrashDiagnostics()
+        ActivityLogger.record(applicationContext, "APP", "activity_created", "saved_state=${savedInstanceState != null} task_id=$taskId")
         ScheduledTasksStore.init(this)
         enableEdgeToEdge()
         setContent {
             AndroidLocalLlmLabTheme {
                 MainAppScreen(viewModel = chatViewModel)
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ActivityLogger.record(applicationContext, "APP", "activity_started", "MainActivity visible")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ActivityLogger.record(applicationContext, "APP", "activity_resumed", "MainActivity interactive")
+    }
+
+    override fun onPause() {
+        ActivityLogger.record(applicationContext, "APP", "activity_paused", "MainActivity losing foreground")
+        super.onPause()
+    }
+
+    override fun onStop() {
+        ActivityLogger.record(applicationContext, "APP", "activity_stopped", "MainActivity no longer visible")
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        ActivityLogger.record(applicationContext, "APP", "activity_destroyed", "changing_configurations=$isChangingConfigurations")
+        super.onDestroy()
+    }
+
+    private fun installCrashDiagnostics() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            ActivityLogger.record(
+                applicationContext, "FATAL", "uncaught_exception",
+                "thread=${thread.name} type=${error.javaClass.name} message=${error.message}\n" +
+                    error.stackTraceToString().take(12000)
+            )
+            previous?.uncaughtException(thread, error)
         }
     }
 }
@@ -162,7 +202,9 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) {}
+    ) { granted ->
+        ActivityLogger.record(activityContext, "PERMISSION", "notification_permission_result", "granted=$granted api=${Build.VERSION.SDK_INT}")
+    }
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) {
@@ -174,6 +216,7 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
     val modelLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
+        ActivityLogger.record(activityContext, "UI", "model_picker_result", if (uri == null) "cancelled=true" else "selected=true scheme=${uri.scheme}")
         uri?.let { viewModel.loadModel(it) }
     }
 
