@@ -2,7 +2,8 @@
 #include <android/log.h>
 #include <algorithm>
 #include <atomic>
-#include <chrono>\n#include <cstdio>\n#include <mutex>
+#include <chrono>
+#include <ctime>\n#include <cstdio>\n#include <mutex>
 #include <functional>
 #include <string>
 #include <vector>
