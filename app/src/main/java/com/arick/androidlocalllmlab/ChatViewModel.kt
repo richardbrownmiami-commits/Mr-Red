@@ -59,7 +59,9 @@ data class ChatMessage(
     // Exact chat-template prompt delivered to llama.cpp for this response.
     val modelInputPrompt: String = "",
     val isModelInputExpanded: Boolean = false,
-    val modelInputTokenCount: Int = 0
+    val modelInputTokenCount: Int = 0,
+    // Per-response native inference metrics shown directly beneath this answer.
+    val generationMetrics: GenerationMetrics? = null
 )
 
 data class AgentTraceItem(val text: String)
@@ -378,6 +380,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         },
                         onMetrics = { metrics ->
                             _generationMetrics.value = metrics
+                            updateLatestAssistantGenerationMetrics(metrics)
                             _memorySnapshots.value = _memorySnapshots.value.copy(
                                 afterGeneration = takeMemorySnapshot(),
                                 afterModelReleased = null
@@ -511,17 +514,71 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         _generationProgress.value = progress
                     }
                 }
-                val (content, sources, trace) = when (result) {
+                val (toolContent, sources, trace) = when (result) {
                     is ToolResult.Success -> Triple(result.content, result.sources, "Completed locally: ${call.name}")
                     is ToolResult.Failure -> Triple(result.message, emptyList(), "Could not complete: ${call.name}")
                 }
+                val requiresNaturalAnswer = call.name in setOf("read_notifications", "web_search", "get_news", "get_weather") &&
+                    _uiState.value is ChatUiState.Ready
+                val content = if (requiresNaturalAnswer) {
+                    val ready = _uiState.value as ChatUiState.Ready
+                    appendLatestAssistantAgentTrace("Kotlin tool completed: ${call.name}")
+                    appendLatestAssistantAgentTrace("Passing verified tool output to the local GGUF model for a natural-language answer")
+                    appendLatestAssistantSources(sources)
+                    _generationProgress.value = "Writing a natural-language answer…"
+                    val memory = trimMemoryToTokenBudget(ActivityLogger.promptMemory(getApplication()), 300)
+                    val contextCapacity = ready.nCtx.coerceAtLeast(128)
+                    val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
+                    val promptBudget = (contextCapacity - maxOutput - 32).coerceAtLeast(1)
+                    val synthesisRequest = """
+                        Original user request: $prompt
+
+                        Verified result returned by the Kotlin Android tool '${call.name}':
+                        $toolContent
+
+                        Answer the original request naturally and directly using the tool result.
+                        Treat the result as the only source of current facts. Do not invent missing
+                        notifications, search findings, dates, or device state. If access failed or
+                        the result says no data is available, explain that clearly and briefly.
+                        Do not mention internal tool names unless useful to explain a limitation.
+                    """.trimIndent()
+                    var rawAnswer = ""
+                    var startsThinking = false
+                    val generated = withContext(Dispatchers.Default) {
+                        runtime.generate(
+                            messages = buildPromptMessages(synthesisRequest, memory, promptBudget),
+                            inferenceConfig = _inferenceConfig.value.copy(maxTokens = maxOutput),
+                            contextWindowTokens = ready.nCtx,
+                            onPrompt = { formatted, tokens ->
+                                startsThinking = formatted.trimEnd().endsWith("<think>")
+                                updateLatestAssistantModelInput(formatted, tokens)
+                            },
+                            onToken = { piece ->
+                                rawAnswer += piece
+                                replaceLatestAssistantMessage(splitAssistantResponse(rawAnswer, startsThinking), null)
+                            },
+                            onMetrics = { metrics ->
+                                _generationMetrics.value = metrics
+                                updateLatestAssistantGenerationMetrics(metrics)
+                                _memorySnapshots.value = _memorySnapshots.value.copy(
+                                    afterGeneration = takeMemorySnapshot(),
+                                    afterModelReleased = null
+                                )
+                            }
+                        )
+                    }
+                    val parts = splitAssistantResponse(generated, startsThinking)
+                    parts.answer.ifBlank { toolContent }
+                } else {
+                    toolContent
+                }
                 val elapsed = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0)
-                val assistant = ChatMessage(
-                    role = MessageRole.Assistant,
+                val currentAssistant = _messages.value.lastOrNull()
+                val assistant = (currentAssistant ?: ChatMessage(MessageRole.Assistant, content)).copy(
                     content = content,
-                    agentTrace = listOf(AgentTraceItem("Handled locally: ${call.name}"), AgentTraceItem(trace)),
+                    agentTrace = (currentAssistant?.agentTrace.orEmpty() + AgentTraceItem(trace)),
                     agentDurationMillis = elapsed,
-                    sourceLinks = sources
+                    sourceLinks = (currentAssistant?.sourceLinks.orEmpty() + sources).distinctBy(SourceLink::url)
                 )
                 _messages.value = _messages.value.dropLast(1) + assistant
                 ActivityLogger.record(getApplication(), "ANSWER", "generated", content)
@@ -560,6 +617,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 message
             }
+        }
+    }
+
+    private fun updateLatestAssistantGenerationMetrics(metrics: GenerationMetrics) {
+        val currentMessages = _messages.value
+        _messages.value = currentMessages.mapIndexed { index, message ->
+            if (index == currentMessages.lastIndex) message.copy(generationMetrics = metrics) else message
         }
     }
 
