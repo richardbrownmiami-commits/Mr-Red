@@ -58,16 +58,64 @@ interface ToolDefinition {
     fun execute(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult
 }
 
-class ToolRegistry(definitions: List<ToolDefinition>) {
+class ToolRegistry(
+    definitions: List<ToolDefinition>,
+    private val context: Context
+) {
     private val definitionsByName = definitions.associateBy(ToolDefinition::name)
 
     init {
         require(definitionsByName.size == definitions.size) { "Tool names must be unique" }
     }
 
-    fun execute(call: ToolCall, onProgress: (String) -> Unit = {}): ToolResult =
-        definitionsByName[call.name]?.execute(call.arguments, onProgress)
-            ?: ToolResult.Failure("Tool not allowed: ${call.name}")
+    fun execute(call: ToolCall, onProgress: (String) -> Unit = {}): ToolResult {
+        val startedAt = SystemClock.elapsedRealtime()
+        val safeArguments = diagnosticArguments(call.arguments)
+        ActivityLogger.record(
+            context, "FEATURE", "tool_started",
+            "tool=${call.name} args=$safeArguments"
+        )
+        return try {
+            val result = definitionsByName[call.name]?.execute(call.arguments, onProgress)
+                ?: ToolResult.Failure("Tool not allowed: ${call.name}")
+            val durationMs = SystemClock.elapsedRealtime() - startedAt
+            when (result) {
+                is ToolResult.Success -> ActivityLogger.record(
+                    context, "FEATURE", "tool_completed",
+                    "tool=${call.name} duration_ms=$durationMs source_count=${result.sources.size} result_chars=${result.content.length}"
+                )
+                is ToolResult.Failure -> ActivityLogger.record(
+                    context, "ERROR", "tool_failed",
+                    "tool=${call.name} duration_ms=$durationMs error=${result.message}"
+                )
+            }
+            result
+        } catch (error: Throwable) {
+            val durationMs = SystemClock.elapsedRealtime() - startedAt
+            ActivityLogger.record(
+                context, "ERROR", "tool_exception",
+                "tool=${call.name} duration_ms=$durationMs type=${error.javaClass.name} message=${error.message}"
+            )
+            ToolResult.Failure("Tool ${call.name} failed: ${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
+    private fun diagnosticArguments(arguments: JSONObject): String {
+        val safe = JSONObject()
+        val keys = arguments.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val value = arguments.opt(key)
+            val sensitive = key.contains("message", true) ||
+                key.contains("recipient", true) ||
+                key.contains("phone", true) ||
+                key.contains("number", true) ||
+                key.contains("password", true) ||
+                key.contains("token", true)
+            safe.put(key, if (sensitive) "[REDACTED]" else value)
+        }
+        return safe.toString().take(800)
+    }
 
     fun modelInstruction(): String = definitionsByName.values.joinToString("\n") { tool ->
         val parameters = tool.parameterSchema.joinToString("; ") { parameter ->
@@ -214,7 +262,8 @@ class AndroidToolExecutor(private val context: Context) {
 
                 override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = webSearch(arguments, onProgress)
             }
-        )
+        ),
+        context.applicationContext
     )
 
     fun execute(call: ToolCall, onProgress: (String) -> Unit = {}): ToolResult =
