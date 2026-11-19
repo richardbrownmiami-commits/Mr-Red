@@ -8,7 +8,7 @@ import android.service.notification.StatusBarNotification
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** Notification contents are held in process memory only; they are not written to SQLite. */
-data class MrRedNotification(val app: String, val title: String, val text: String)
+data class MrRedNotification(val app: String, val title: String, val text: String, val key: String = "")
 
 class MrRedNotificationListenerService : NotificationListenerService() {
 
@@ -22,6 +22,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         super.onListenerDisconnected()
         if (instance === this) {
             instance = null
+            activeNotifications.clear()
         }
     }
 
@@ -30,14 +31,16 @@ class MrRedNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        // Keep a short in-memory history so a user can ask what arrived recently.
+        activeNotifications.removeAll { it.key == sbn.key }
+        // Recent history is retained separately for historical questions.
     }
 
     fun syncActiveNotifications() {
         runCatching {
             val active = activeNotifications ?: return
-            for (sbn in active) {
-                processNotification(sbn)
+            this@MrRedNotificationListenerService.let { service ->
+                Companion.activeNotifications.clear()
+                for (sbn in active) service.processNotification(sbn)
             }
         }
     }
@@ -52,14 +55,18 @@ class MrRedNotificationListenerService : NotificationListenerService() {
             ?: extras.getCharSequence(Notification.EXTRA_SUB_TEXT))?.toString().orEmpty().trim()
         if (title.isBlank() && text.isBlank()) return
         val shortApp = sbn.packageName.substringAfterLast('.')
+        val record = MrRedNotification(shortApp, title.take(160), text.take(400), sbn.key)
+        activeNotifications.removeAll { it.key == sbn.key }
+        activeNotifications.add(0, record)
         notifications.removeAll { (it.app == shortApp || it.app == sbn.packageName) && it.title == title }
-        notifications.add(0, MrRedNotification(shortApp, title.take(160), text.take(400)))
+        notifications.add(0, record)
         while (notifications.size > MAX_NOTIFICATIONS) notifications.removeAt(notifications.lastIndex)
     }
 
     companion object {
         private const val MAX_NOTIFICATIONS = 30
         private val notifications = CopyOnWriteArrayList<MrRedNotification>()
+        private val activeNotifications = CopyOnWriteArrayList<MrRedNotification>()
         @Volatile private var instance: MrRedNotificationListenerService? = null
 
         fun recentNotifications(context: Context? = null): List<MrRedNotification> {
@@ -74,6 +81,16 @@ class MrRedNotificationListenerService : NotificationListenerService() {
             runCatching {
                 requestRebind(ComponentName(context, MrRedNotificationListenerService::class.java))
             }
+        }
+
+        fun currentNotifications(context: Context? = null): List<MrRedNotification> {
+            val service = instance
+            if (service != null) {
+                service.syncActiveNotifications()
+            } else if (context != null) {
+                requestRebindService(context)
+            }
+            return activeNotifications.toList()
         }
 
         fun isConnected(): Boolean = instance != null
