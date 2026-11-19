@@ -417,7 +417,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     // One compact logger summary carries conversation Q&A and app/device events.
                     // Do not append a second verbatim transcript: it duplicates the same turns.
                     val rawMemorySummary = ActivityLogger.promptMemory(getApplication())
-                    val memorySummary = trimMemoryToTokenBudget(rawMemorySummary, 300)
+                    // No fixed memory-token ceiling: buildPromptMessages fits memory into
+                    // the actual remaining context after system instructions and the question.
+                    val memorySummary = rawMemorySummary
                     val promptMessages = buildPromptMessages(
                         currentQuestion = prompt,
                         memorySummary = memorySummary,
@@ -555,9 +557,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
                         0
                     } else {
+                        val ready = _uiState.value as? ChatUiState.Ready
+                        val contextCapacity = (ready?.nCtx ?: 512).coerceAtLeast(128)
+                        val outputReserve = _inferenceConfig.value.maxTokens.coerceAtMost(
+                            (contextCapacity / 3).coerceAtLeast(64)
+                        )
+                        val systemTokens = runtime.tokenize(fixedSystemInstructions).size + 48
+                        // Reserve room for the next user question; use all remaining context
+                        // for memory rather than an arbitrary fixed 300-token ceiling.
+                        val memoryBudget = (contextCapacity - outputReserve - systemTokens - 256).coerceAtLeast(0)
                         val summary = trimMemoryToTokenBudget(
                             ActivityLogger.promptMemory(getApplication()),
-                            300
+                            memoryBudget
                         )
                         runtime.resetStopRequest()
                         runtime.warmPrompt(buildMemoryPrefixMessages(summary))
@@ -614,7 +625,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     appendLatestAssistantAgentTrace("Passing verified tool output to the local GGUF model for a natural-language answer")
                     appendLatestAssistantSources(sources)
                     _generationProgress.value = "Writing a natural-language answer…"
-                    val memory = trimMemoryToTokenBudget(ActivityLogger.promptMemory(getApplication()), 300)
+                    val memory = ActivityLogger.promptMemory(getApplication())
                     val contextCapacity = ready.nCtx.coerceAtLeast(128)
                     val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
                     val promptBudget = (contextCapacity - maxOutput - 32).coerceAtLeast(1)
