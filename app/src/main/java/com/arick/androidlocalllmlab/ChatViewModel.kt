@@ -331,6 +331,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         // Retain both sides privately so the summary can describe the exchange without quoting it.
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
         memoryWarmupJob?.cancel()
+        // Interrupt any in-progress idle prefill so a foreground request gets priority.
+        runtime.requestStop()
 
         // Keep phone actions local; they are not injected into GGUF inference.
         DeviceIntentRouter.route(prompt)?.let { call ->
@@ -351,7 +353,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _promptTokenCount.value = 0
         _generationProgress.value = "Preparing current question…"
         _generationMetrics.value = null
-        runtime.resetStopRequest()
         _isStopRequested.value = false
         _isGenerating.value = true
 
@@ -361,6 +362,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val answer = withContext(Dispatchers.Default) {
                     nativeInferenceMutex.withLock {
+                    runtime.resetStopRequest()
                     // Keep the native KV cache between turns. The prompt uses the invariant
                     // system instructions, one compact logger summary, and the current question.
                     val readyState = _uiState.value as? ChatUiState.Ready
@@ -518,6 +520,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             ActivityLogger.promptMemory(getApplication()),
                             300
                         )
+                        runtime.resetStopRequest()
                         runtime.warmPrompt(buildMemoryPrefixMessages(summary))
                     }
                 }
@@ -592,6 +595,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     var startsThinking = false
                     val generated = withContext(Dispatchers.Default) {
                         nativeInferenceMutex.withLock {
+                        runtime.resetStopRequest()
                         runtime.generate(
                             messages = buildPromptMessages(synthesisRequest, memory, promptBudget),
                             inferenceConfig = _inferenceConfig.value.copy(maxTokens = maxOutput),
