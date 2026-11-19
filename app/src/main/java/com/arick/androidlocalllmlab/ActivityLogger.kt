@@ -12,6 +12,14 @@ object ActivityLogger {
     private const val MAX_LINES = 2400
     private const val MAX_DETAIL_LENGTH = 4000
 
+    @Volatile
+    private var memoryChangeListener: (() -> Unit)? = null
+
+    /** Registers the in-process memory feeder; this callback must remain lightweight. */
+    fun setMemoryChangeListener(listener: (() -> Unit)?) {
+        memoryChangeListener = listener
+    }
+
     @Synchronized
     fun record(context: Context, layer: String, action: String, detail: String = "") {
         runCatching {
@@ -23,6 +31,7 @@ object ActivityLogger {
             file.appendText("$timestamp | $safeLayer | $safeAction | ${clean(detail, limit)}\n")
             val lines = file.readLines()
             if (lines.size > MAX_LINES) file.writeText(lines.takeLast(MAX_LINES * 3 / 4).joinToString("\n", postfix = "\n"))
+            memoryChangeListener?.invoke()
         }
     }
 
