@@ -15,6 +15,15 @@ object ActivityLogger {
     @Volatile
     private var memoryChangeListener: (() -> Unit)? = null
 
+    /** Initialize the native diagnostic sink inside app-private storage. */
+    fun initialize(context: Context) {
+        runCatching {
+            NativeLlmBridge.nativeSetDiagnosticLogPath(
+                File(context.applicationContext.filesDir, "mr_red_native.log").absolutePath
+            )
+        }.onFailure { record(context, "ERROR", "native_logger_init_failed", it.javaClass.simpleName) }
+    }
+
     /** Registers the in-process memory feeder; this callback must remain lightweight. */
     fun setMemoryChangeListener(listener: (() -> Unit)?) {
         memoryChangeListener = listener
