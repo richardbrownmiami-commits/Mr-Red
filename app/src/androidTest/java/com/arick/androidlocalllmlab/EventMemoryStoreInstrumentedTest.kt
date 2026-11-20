@@ -63,7 +63,7 @@ class EventMemoryStoreInstrumentedTest {
             )
         }
 
-        val retrieved = EventMemoryStore.relevantContext(context, "What happened today?", now + 1000)
+        val retrieved = EventMemoryStore.relevantContext(context, "What happened in the last two hours?", now + 1000)
         details.forEach { (_, detail) ->
             assertTrue("Broad retrieval must include $detail", retrieved.contains(detail))
         }
