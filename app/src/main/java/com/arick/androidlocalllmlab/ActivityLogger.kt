@@ -37,7 +37,9 @@ object ActivityLogger {
             val safeAction = clean(action, 64)
             // SQLite is the canonical timestamped event store; the text journal remains a diagnostic export.
             // Pass untruncated details to SQLite so stored conversations are not clipped at 4,000 characters.
-            EventMemoryStore.recordEvent(context, safeLayer, safeAction, detail, source = "activity_logger")
+            if (!(safeLayer == "NOTIFICATION" && (safeAction == "posted" || safeAction == "removed"))) {
+                EventMemoryStore.recordEvent(context, safeLayer, safeAction, detail, source = "activity_logger")
+            }
             val limit = if (safeLayer == "QUESTION" || safeLayer == "ANSWER" || safeLayer == "NOTIFICATION") MAX_DETAIL_LENGTH else 500
             val file = File(context.applicationContext.filesDir, FILE_NAME)
             file.appendText("$timestamp | $safeLayer | $safeAction | ${clean(detail, limit)}\n")
@@ -260,6 +262,8 @@ object ActivityLogger {
             appendLine("CPU: ${Runtime.getRuntime().availableProcessors()} processors")
             appendLine("RAM: total=${memory.totalMem} available=${memory.availMem} low=${memory.lowMemory}")
             appendLine("Heap: max=${Runtime.getRuntime().maxMemory()} total=${Runtime.getRuntime().totalMemory()} free=${Runtime.getRuntime().freeMemory()}")
+            val memoryCounts = EventMemoryStore.counts(app)
+            appendLine("Memory database counts: " + memoryCounts.entries.joinToString { "${it.key}=${it.value}" })
             appendLine("\n===== APP ACTIVITY LOG =====")
             appendLine(activity.ifBlank { "No activity log." })
             appendLine("\n===== LLAMA.CPP NATIVE LOG =====")
@@ -278,6 +282,7 @@ object ActivityLogger {
     }.getOrDefault("Unable to read the activity log.")
 
     fun clear(context: Context) {
+        EventMemoryStore.clearEventHistory(context)
         runCatching { File(context.applicationContext.filesDir, FILE_NAME).delete() }
         runCatching { File(context.applicationContext.filesDir, "mr_red_native.log").delete() }
     }
