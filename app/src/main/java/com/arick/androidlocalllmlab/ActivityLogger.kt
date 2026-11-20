@@ -291,6 +291,8 @@ object ActivityLogger {
             appendLine("Heap: max=${Runtime.getRuntime().maxMemory()} total=${Runtime.getRuntime().totalMemory()} free=${Runtime.getRuntime().freeMemory()}")
             val memoryCounts = EventMemoryStore.counts(app)
             appendLine("Memory database counts: " + memoryCounts.entries.joinToString { "${it.key}=${it.value}" })
+            val writeHealth = EventMemoryStore.writeDiagnostics()
+            appendLine("Memory write health: " + writeHealth.entries.joinToString { "${it.key}=${it.value}" })
             appendLine("\n===== APP ACTIVITY LOG =====")
             appendLine(activity.ifBlank { "No activity log." })
             appendLine("\n===== LLAMA.CPP NATIVE LOG =====")
