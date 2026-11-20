@@ -362,13 +362,19 @@ namespace {
                 return 0;
             }
 
+            using WarmClock = std::chrono::steady_clock;
+            const auto warmStartedAt = WarmClock::now();
             const std::string prompt = formatChatPrompt(history, false);
             appendDiagnostic("warm_prompt_started messages=" + std::to_string(history.size()));
             if (prompt.empty()) {
+                appendDiagnostic("warm_prompt_failed reason=empty_formatted_prompt");
                 return 0;
             }
             const std::vector<llama_token> tokens = tokenize(prompt, true);
             if (tokens.empty() || tokens.size() > llama_n_ctx(context_)) {
+                appendDiagnostic("warm_prompt_failed reason=invalid_token_count tokens=" +
+                                 std::to_string(tokens.size()) + " n_ctx=" +
+                                 std::to_string(llama_n_ctx(context_)));
                 return 0;
             }
 
@@ -387,14 +393,25 @@ namespace {
                 resetContext();
             }
 
-            if (prefill(tokens, startIndex) != static_cast<int>(tokens.size())) {
+            const int prefetched = prefill(tokens, startIndex);
+            if (prefetched != static_cast<int>(tokens.size())) {
+                appendDiagnostic("warm_prompt_failed reason=prefill_incomplete expected=" +
+                                 std::to_string(tokens.size()) + " actual=" +
+                                 std::to_string(prefetched));
                 resetContext();
                 return 0;
             }
             cachedTokens_ = tokens;
+            const auto warmFinishedAt = WarmClock::now();
+            const auto warmMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    warmFinishedAt - warmStartedAt).count();
+            appendDiagnostic("warm_prompt_completed tokens=" + std::to_string(tokens.size()) +
+                             " reused_tokens=" + std::to_string(reused) +
+                             " prefilled_tokens=" + std::to_string(tokens.size() - startIndex) +
+                             " duration_ms=" + std::to_string(warmMillis));
             __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                                "Memory prefix warmed: %zu tokens (%zu reused)",
-                                tokens.size(), reused);
+                                "System prefix warmed: %zu tokens (%zu reused) in %lld ms",
+                                tokens.size(), reused, static_cast<long long>(warmMillis));
             return static_cast<int>(tokens.size());
         }
 
