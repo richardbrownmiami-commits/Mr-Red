@@ -49,7 +49,7 @@ object ActivityLogger {
                 runCatching {
                     val limit = if (safeLayer == "QUESTION" || safeLayer == "ANSWER" || safeLayer == "NOTIFICATION") MAX_DETAIL_LENGTH else 500
                     val file = File(appContext.filesDir, FILE_NAME)
-                    file.appendText("$timestamp | $safeLayer | $safeAction | \${clean(detail, limit)}\n")
+                    file.appendText("$timestamp | $safeLayer | $safeAction | ${clean(detail, limit)}\n")
                     val lines = file.readLines()
                     if (lines.size > MAX_LINES) {
                         file.writeText(lines.takeLast(MAX_LINES * 3 / 4).joinToString("\n", postfix = "\n"))
