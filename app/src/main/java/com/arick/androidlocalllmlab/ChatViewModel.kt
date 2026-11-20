@@ -746,31 +746,42 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 // Kotlin reads the live Android snapshot; the GGUF model analyses the
                 // complete verified notification payload rather than returning a raw dump.
-                val analyseNotificationSnapshot = call.name == "read_notifications" &&
-                    Regex("\\b(important|miss|missed|explain|summari[sz]e|priority|urgent|anything i|what did i)\\b", RegexOption.IGNORE_CASE)
-                        .containsMatchIn(prompt)
-                val requiresNaturalAnswer = (
-                    call.name in setOf("web_search", "get_news", "get_weather") ||
-                    analyseNotificationSnapshot
-                ) && _uiState.value is ChatUiState.Ready
+                // Notification results are evidence for the GGUF model, never a final
+                // Kotlin-authored answer or raw notification dump. Always synthesize them.
+                val requiresNaturalAnswer = call.name == "read_notifications" ||
+                    (call.name in setOf("web_search", "get_news", "get_weather") &&
+                        _uiState.value is ChatUiState.Ready)
                 val content = if (requiresNaturalAnswer) {
-                    val ready = _uiState.value as ChatUiState.Ready
+                    val ready = _uiState.value as? ChatUiState.Ready
+                        ?: error("Load a GGUF model before asking Mr-Red to interpret notification data.")
                     appendLatestAssistantAgentTrace("Kotlin tool completed: ${call.name}")
-                    appendLatestAssistantAgentTrace("Passing verified tool output to the local GGUF model for a natural-language answer")
+                    appendLatestAssistantAgentTrace("Passing verified system data and your question to the local GGUF model")
                     appendLatestAssistantSources(sources)
                     _generationProgress.value = "Writing a natural-language answer…"
-                    // Prior logger history is less useful than the complete live snapshot.
-                    val memory = if (call.name == "read_notifications") "" else ActivityLogger.promptMemory(getApplication())
+                    // The live snapshot is primary evidence; SQLite contributes relevant
+                    // timestamped history. The current user message remains in synthesisRequest.
+                    val memory = if (call.name == "read_notifications") {
+                        EventMemoryStore.relevantContext(getApplication(), prompt)
+                    } else {
+                        ActivityLogger.promptMemory(getApplication())
+                    }
                     val contextCapacity = ready.nCtx.coerceAtLeast(128)
                     val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
                     val promptBudget = (contextCapacity - maxOutput - 32).coerceAtLeast(1)
                     val synthesisRequest = """
-                        Original user request: $prompt
+                        CURRENT USER MESSAGE (including any extra context the user supplied):
+                        $prompt
 
-                        Verified result returned by the Kotlin Android tool '${call.name}':
+                        LIVE SYSTEM DATA collected by Kotlin tool '${call.name}':
                         $toolContent
 
-                        Answer the original request naturally and directly using the verified tool result.
+                        STORED SYSTEM HISTORY selected from SQLite:
+                        ${memory.ifBlank { "No additional matching stored history was selected." }}
+
+                        Answer the current user message naturally and directly. Use the live system data,
+                        relevant stored history, and any context the user supplied in the current message.
+                        Keep their origins distinct: live tool output is current observed data; SQLite
+                        records are historical observations; user-provided text is user-supplied context.
                         For notification requests, analyse the FULL notification snapshot supplied below.
                         Identify actionable or time-sensitive items first: missed calls, personal messages,
                         account/security/bank alerts, reminders, deliveries and transaction updates.
@@ -810,7 +821,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                     val parts = splitAssistantResponse(generated, startsThinking)
-                    parts.answer.ifBlank { toolContent }
+                    parts.answer.ifBlank {
+                        "I retrieved the system data, but the local model did not produce a response. Please try again."
+                    }
                 } else {
                     toolContent
                 }
