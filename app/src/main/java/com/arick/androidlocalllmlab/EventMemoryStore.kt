@@ -248,7 +248,7 @@ object EventMemoryStore {
         }
 
         val output = StringBuilder()
-        if (asksFacts || broadActivity || asksConversation) {
+        if (asksFacts) {
             val factDb = database(context).readableDatabase
             factDb.rawQuery("SELECT fact FROM facts ORDER BY updated_at DESC LIMIT 8", null).use { cursor ->
                 val facts = mutableListOf<String>()
@@ -266,18 +266,26 @@ object EventMemoryStore {
             }
             val ordered = rows.sortedBy { it.time }
             val conversationRows = ordered.filter { it.type == "QUESTION" || it.type == "ANSWER" }
-            if ((asksConversation || broadActivity) && conversationRows.isNotEmpty()) {
-                output.append("[CONVERSATION EXCHANGES]\n")
+            if (asksConversation && conversationRows.isNotEmpty()) {
+                val exchanges = mutableListOf<Pair<String, String>>()
                 var pending: String? = null
                 conversationRows.forEach { row ->
                     if (row.type == "QUESTION") pending = row.detail
                     else if (row.type == "ANSWER" && pending != null) {
-                        output.append("User: ").append(pending!!.take(500)).append("\nMr-Red: ").append(row.detail.take(700)).append("\n")
+                        exchanges += pending!! to row.detail
                         pending = null
                     }
                 }
+                if (exchanges.isNotEmpty()) {
+                    output.append("[RECENT CONVERSATION EXCHANGES — NEWEST FIRST]\n")
+                    exchanges.asReversed().take(6).forEach { (question, answer) ->
+                        output.append("User: ").append(question.take(500))
+                            .append("\nMr-Red: ").append(answer.take(700)).append("\n")
+                    }
+                }
             }
-            rows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.takeLast(30).forEach { row ->
+            rows.filter { it.type != "QUESTION" && it.type != "ANSWER" }
+                .sortedByDescending { it.time }.take(30).forEach { row ->
                 val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(row.time))
                 val detail = if (row.type == "NOTIFICATION") {
                     val content = if (row.importance == "important") row.body else row.body.take(180)
