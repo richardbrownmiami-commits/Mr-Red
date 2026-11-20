@@ -33,12 +33,12 @@ class MrRedReminderWorker(
         val startedAt = android.os.SystemClock.elapsedRealtime()
         val title = inputData.getString(KEY_TITLE) ?: "⏰ Mr-Red Reminder"
         val message = inputData.getString(KEY_MESSAGE) ?: "Time for your reminder!"
-        ActivityLogger.record(context, "REMINDER", "worker_started", "run_attempt=$runAttemptCount message_length=${message.length}")
+        ActivityLogger.record(context, "REMINDER", "worker_started", "run_attempt=$runAttemptCount title=$title message=$message")
         return try {
             showNotificationAndAlert(title, message)
             // Wait briefly so Text-to-Speech can begin its announcement.
             delay(3500)
-            ActivityLogger.record(context, "REMINDER", "worker_completed", "duration_ms=${android.os.SystemClock.elapsedRealtime() - startedAt}")
+            ActivityLogger.record(context, "REMINDER", "worker_completed", "duration_ms=${android.os.SystemClock.elapsedRealtime() - startedAt} message=$message")
             Result.success()
         } catch (error: Throwable) {
             ActivityLogger.record(context, "ERROR", "reminder_worker_failed", "duration_ms=${android.os.SystemClock.elapsedRealtime() - startedAt} type=${error.javaClass.name} message=${error.message}")
