@@ -752,10 +752,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     _generationProgress.value = "Writing a natural-language answer…"
                     // The live snapshot is primary evidence; SQLite contributes relevant
                     // timestamped history. The current user message remains in synthesisRequest.
-                    val memory = if (call.name == "read_notifications") {
-                        EventMemoryStore.relevantContext(getApplication(), prompt)
-                    } else {
-                        ActivityLogger.promptMemory(getApplication())
+                    val memory = withContext(Dispatchers.IO) {
+                        if (call.name == "read_notifications") {
+                            EventMemoryStore.relevantContext(getApplication(), prompt)
+                        } else {
+                            ActivityLogger.promptMemory(getApplication())
+                        }
                     }
                     val contextCapacity = ready.nCtx.coerceAtLeast(128)
                     val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
