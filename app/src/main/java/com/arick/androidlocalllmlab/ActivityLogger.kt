@@ -5,12 +5,18 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 
 /** Private on-device journal. Conversation text is retained privately for concise Q&A summaries. */
 object ActivityLogger {
     private const val FILE_NAME = "mr_red_activity.log"
     private const val MAX_LINES = 12000
     private const val MAX_DETAIL_LENGTH = 4000
+
+    // File journaling is diagnostic-only and must never block a notification callback or UI thread.
+    private val journalWriter = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "mr-red-activity-journal").apply { isDaemon = true }
+    }
 
     @Volatile
     private var memoryChangeListener: (() -> Unit)? = null
@@ -29,28 +35,41 @@ object ActivityLogger {
         memoryChangeListener = listener
     }
 
-    @Synchronized
     fun record(context: Context, layer: String, action: String, detail: String = "") {
         runCatching {
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
             val safeLayer = clean(layer, 32)
             val safeAction = clean(action, 64)
-            // SQLite is the canonical timestamped event store; the text journal remains a diagnostic export.
-            // Pass untruncated details to SQLite so stored conversations are not clipped at 4,000 characters.
+            // SQLite is the canonical timestamped event store. Its own writer is asynchronous.
             if (!(safeLayer == "NOTIFICATION" && (safeAction == "posted" || safeAction == "removed"))) {
                 EventMemoryStore.recordEvent(context, safeLayer, safeAction, detail, source = "activity_logger")
             }
-            val limit = if (safeLayer == "QUESTION" || safeLayer == "ANSWER" || safeLayer == "NOTIFICATION") MAX_DETAIL_LENGTH else 500
-            val file = File(context.applicationContext.filesDir, FILE_NAME)
-            file.appendText("$timestamp | $safeLayer | $safeAction | ${clean(detail, limit)}\n")
-            val lines = file.readLines()
-            if (lines.size > MAX_LINES) file.writeText(lines.takeLast(MAX_LINES * 3 / 4).joinToString("\n", postfix = "\n"))
-            // Only a completed answer changes the conversation memory worth preloading.
-            // Logging navigation, notification churn, and lifecycle events must not keep
-            // restarting a multi-second native prefill.
-            if (safeLayer == "ANSWER" && safeAction == "generated") {
-                memoryChangeListener?.invoke()
+            val appContext = context.applicationContext
+            journalWriter.execute {
+                runCatching {
+                    val limit = if (safeLayer == "QUESTION" || safeLayer == "ANSWER" || safeLayer == "NOTIFICATION") MAX_DETAIL_LENGTH else 500
+                    val file = File(appContext.filesDir, FILE_NAME)
+                    file.appendText("$timestamp | $safeLayer | $safeAction | \${clean(detail, limit)}\n")
+                    val lines = file.readLines()
+                    if (lines.size > MAX_LINES) {
+                        file.writeText(lines.takeLast(MAX_LINES * 3 / 4).joinToString("\n", postfix = "\n"))
+                    }
+                }.onFailure { error ->
+                    EventMemoryStore.recordEvent(
+                        appContext, "ERROR", "activity_journal_write_failed",
+                        error.javaClass.simpleName, source = "activity_logger"
+                    )
+                }
+                // Only a completed answer changes the in-process memory feeder.
+                if (safeLayer == "ANSWER" && safeAction == "generated") {
+                    memoryChangeListener?.invoke()
+                }
             }
+        }.onFailure { error ->
+            EventMemoryStore.recordEvent(
+                context.applicationContext, "ERROR", "activity_journal_enqueue_failed",
+                error.javaClass.simpleName, source = "activity_logger"
+            )
         }
     }
 
