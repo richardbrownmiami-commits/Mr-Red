@@ -261,7 +261,7 @@ object EventMemoryStore {
                 val counts = rows.groupingBy { it.type }.eachCount()
                 output.append("Event totals: ")
                     .append(counts.entries.joinToString(", ") { "${it.key.lowercase(java.util.Locale.US)}=${it.value}" })
-                    .append(".\\n")
+                    .append(".\n")
             }
             val ordered = rows.sortedBy { it.time }
             val conversationRows = ordered.filter { it.type == "QUESTION" || it.type == "ANSWER" }
