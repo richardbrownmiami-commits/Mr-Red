@@ -20,20 +20,35 @@ import java.util.concurrent.atomic.AtomicReference
 object EventMemoryStore {
     private const val DATABASE_NAME = "mr_red_memory.db"
     private const val DATABASE_VERSION = 2
+    private const val EVENT_RETENTION_DAYS = 90
+    private const val RETENTION_INTERVAL_MILLIS = 24L * 60 * 60 * 1000
 
     private val writer = Executors.newSingleThreadExecutor { task ->
         Thread(task, "mr-red-memory-db").apply { isDaemon = true }
     }
     private val failedWriteCount = AtomicInteger(0)
     private val lastWriteFailure = AtomicReference("")
+    @Volatile private var lastPruneAtMillis = 0L
 
     private fun noteWriteFailure(error: Throwable) {
         failedWriteCount.incrementAndGet()
         lastWriteFailure.set(error.javaClass.simpleName)
     }
 
+    private fun pruneOldEventsIfDue() {
+        val now = System.currentTimeMillis()
+        if (now - lastPruneAtMillis < RETENTION_INTERVAL_MILLIS) return
+        val db = helper?.writableDatabase ?: return
+        val cutoff = now - EVENT_RETENTION_DAYS * 24L * 60 * 60 * 1000
+        db.delete("events", "occurred_at < ?", arrayOf(cutoff.toString()))
+        lastPruneAtMillis = now
+    }
+
     private fun runWrite(block: () -> Unit) {
-        runCatching(block).onFailure(::noteWriteFailure)
+        runCatching {
+            block()
+            pruneOldEventsIfDue()
+        }.onFailure(::noteWriteFailure)
     }
 
     private fun awaitPendingWrites() {
@@ -51,7 +66,8 @@ object EventMemoryStore {
     /** Non-sensitive health counters for diagnostics and the sampler. */
     fun writeDiagnostics(): Map<String, String> = mapOf(
         "failed_writes" to failedWriteCount.get().toString(),
-        "last_failure_type" to lastWriteFailure.get()
+        "last_failure_type" to lastWriteFailure.get(),
+        "event_retention_days" to EVENT_RETENTION_DAYS.toString()
     )
 
     @Volatile
@@ -80,7 +96,7 @@ object EventMemoryStore {
                     put("detail", detail)
                     put("occurred_at", occurredAtMillis)
                 }
-                database(appContext).writableDatabase.insert("events", null, values)
+                check(database(appContext).writableDatabase.insert("events", null, values) != -1L) { "Event insert returned -1" }
              }
         }
     }
@@ -141,7 +157,7 @@ object EventMemoryStore {
                     put("event_key", notificationKey)
                     put("is_active", 0)
                 }
-                db.insert("events", null, values)
+                check(db.insert("events", null, values) != -1L) { "Notification removal insert returned -1" }
              }
         }
     }
@@ -189,7 +205,7 @@ object EventMemoryStore {
                     put("detail", fact)
                     put("occurred_at", now)
                 }
-                database(appContext).writableDatabase.insert("events", null, eventValues)
+                check(database(appContext).writableDatabase.insert("events", null, eventValues) != -1L) { "Fact event insert returned -1" }
             }
         }
     }
@@ -304,6 +320,7 @@ object EventMemoryStore {
                 appendLine("- " + timeFormat.format(java.util.Date(item.time)) + " | " + item.app +
                     " | " + item.importance + " | " + content + " | status=" + if (item.active) "active" else "dismissed")
             }
+            if (failedWriteCount.get() > 0) appendLine("COLLECTION WARNING: " + failedWriteCount.get() + " database write(s) failed; history may be incomplete.")
             append("Prioritise personal communication, missed calls, OTP/security, banking/transactions and time-sensitive alerts. Separate promotions and routine app chatter. Do not infer missing details.")
         }.trim()
     }
