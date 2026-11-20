@@ -276,7 +276,7 @@ object EventMemoryStore {
                     }
                 }
             }
-            balancedRows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.sortedByDescending { it.time }.take(50).forEach { row ->
+            balancedRows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.sortedByDescending { it.time }.forEach { row ->
                 val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(row.time))
                 val detail = if (row.type == "NOTIFICATION" && (row.title.isNotBlank() || row.body.isNotBlank())) {
                     val content = if (row.importance == "important") row.body else row.body.take(180)
@@ -314,8 +314,8 @@ object EventMemoryStore {
             if (failedWriteCount.get() > 0) appendLine("COLLECTION WARNING: " + failedWriteCount.get() + " database write(s) failed; history may be incomplete.")
             appendLine("Notifications posted in selected window: " + records.size + ". Times are local device time.")
             records.sortedBy { it.time }.forEach { item ->
-                val content = if (item.importance == "important") item.body.ifBlank { item.title } else
-                    (item.title + if (item.body.isNotBlank()) " — " + item.body else "").replace(Regex("\\s+"), " ").take(180)
+                val content = (item.title + if (item.body.isNotBlank()) " — " + item.body else "")
+                    .replace(Regex("\\s+"), " ").take(if (item.importance == "important") 800 else 180)
                 appendLine("- " + timeFormat.format(java.util.Date(item.time)) + " | " + item.app +
                     " | " + item.importance + " | " + content + " | status=" + if (item.active) "active" else "dismissed")
             }
