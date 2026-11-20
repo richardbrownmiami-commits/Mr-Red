@@ -552,6 +552,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (text.matches(Regex("^[.!?,;:]+$"))) {
             return "I'm here. What would you like to do?"
         }
+        if (Regex("\\b(do you have memory|have you got memory|do you remember me|what do you remember)\\b").containsMatchIn(text)) {
+            val turns = synchronized(conversationHistory) { conversationHistory.size }
+            return "Yes. Mr-Red has local memory: up to 40 completed chat exchanges are saved on this device, alongside the app's activity and notification log. I can use that saved context when it is included in the current prompt. It is not human memory, and live notifications still need a fresh Android check. Currently saved chat exchanges: $turns."
+        }
+        if (Regex("\\b(what you said|what did you say|repeat that|what was your last answer)\\b").containsMatchIn(text)) {
+            val previousAnswer = synchronized(conversationHistory) { conversationHistory.lastOrNull()?.second }
+            return previousAnswer ?: "I don't have an earlier completed answer available in the saved chat history."
+        }
         if (Regex("\\b(who are you|what are you|introduce yourself|tell me about yourself)\\b").containsMatchIn(text)) {
             return "I'm Mr-Red, your on-device personal assistant. I can help with conversation and the Android features connected in this app, including active notifications, device status, alarms and reminders. I'm composed, observant and occasionally dry-witted; I'll be clear about what I can and cannot access."
         }
@@ -613,8 +621,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 // Kotlin reads the live Android snapshot; the GGUF model analyses the
                 // complete verified notification payload rather than returning a raw dump.
-                val requiresNaturalAnswer = call.name in setOf(
-                    "web_search", "get_news", "get_weather", "read_notifications"
+                val analyseNotificationSnapshot = call.name == "read_notifications" &&
+                    Regex("\\b(important|miss|missed|explain|summari[sz]e|priority|urgent|anything i|what did i)\\b", RegexOption.IGNORE_CASE)
+                        .containsMatchIn(prompt)
+                val requiresNaturalAnswer = (
+                    call.name in setOf("web_search", "get_news", "get_weather") ||
+                    analyseNotificationSnapshot
                 ) && _uiState.value is ChatUiState.Ready
                 val content = if (requiresNaturalAnswer) {
                     val ready = _uiState.value as ChatUiState.Ready
