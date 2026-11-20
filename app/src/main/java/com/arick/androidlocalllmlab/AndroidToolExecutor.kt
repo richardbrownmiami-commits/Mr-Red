@@ -526,10 +526,16 @@ class AndroidToolExecutor(private val context: Context) {
                 ToolResult.Success("There are no currently active notifications on the device.")
             }
         }
-        return ToolResult.Success("Currently active notifications (live Android notification snapshot; stored in memory only):\n" + records.joinToString("\n") { r ->
-            val details = if (r.text.isNotBlank()) ": ${r.text}" else ""
-            "• ${r.app}: ${r.title}$details"
-        })
+        return ToolResult.Success(
+            "Complete active notification snapshot from Android (all available title and body text; stored in memory only). Count=${records.size}:\n" +
+                records.mapIndexed { index, r ->
+                    buildString {
+                        append("NOTIFICATION ${index + 1} [${r.app}]\n")
+                        append("Title: ${r.title}\n")
+                        append("Full text: ").append(r.text.ifBlank { "[No body text supplied]" })
+                    }
+                }.joinToString("\n\n")
+        )
     }
     private fun getNews(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
         val query = arguments.optString("query").trim().take(120)
