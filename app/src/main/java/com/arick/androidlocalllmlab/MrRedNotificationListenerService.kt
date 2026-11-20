@@ -106,7 +106,27 @@ class MrRedNotificationListenerService : NotificationListenerService() {
             if (instance == null && context != null) {
                 requestRebindService(context)
             }
-            return notifications.filter { it.postedAtMillis >= sinceMillis }.sortedByDescending { it.postedAtMillis }
+            // Rehydrate recent posted notifications from the app-private activity journal
+            // so the one-hour window still works after Android kills/restarts the process.
+            val persisted = runCatching {
+                val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                java.io.File(context?.applicationContext?.filesDir, "mr_red_activity.log")
+                    .takeIf { it.isFile }?.readLines()?.mapNotNull { line ->
+                        val parts = line.split(" | ", limit = 4)
+                        if (parts.size < 4 || parts[1] != "NOTIFICATION" || parts[2] != "posted") return@mapNotNull null
+                        val postedAt = formatter.parse(parts[0])?.time ?: return@mapNotNull null
+                        if (postedAt < sinceMillis) return@mapNotNull null
+                        val detail = parts[3]
+                        val app = detail.substringBefore(": ").ifBlank { "Unknown app" }
+                        val payload = detail.substringAfter(": ", "")
+                        val title = payload.substringBefore(" — ").ifBlank { payload }
+                        val body = payload.substringAfter(" — ", "")
+                        MrRedNotification(app, title, body, packageName = app, postedAtMillis = postedAt)
+                    }.orEmpty()
+            }.getOrDefault(emptyList())
+            return (notifications.filter { it.postedAtMillis >= sinceMillis } + persisted)
+                .distinctBy { "${it.postedAtMillis}|${it.packageName}|${it.title}" }
+                .sortedByDescending { it.postedAtMillis }
         }
 
         fun requestRebindService(context: Context) {
