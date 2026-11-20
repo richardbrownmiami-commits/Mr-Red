@@ -335,7 +335,7 @@ object EventMemoryStore {
         val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
         return buildString {
             appendLine("ANDROID NOTIFICATION DIGEST — SQLITE RECORDS")
-            appendLine("Active notifications: " + records.size + ". Times are local device time.")
+            appendLine("Notifications posted in selected window: " + records.size + ". Times are local device time.")
             records.sortedBy { it.time }.forEach { item ->
                 val content = if (item.importance == "important") item.body.ifBlank { item.title } else
                     (item.title + if (item.body.isNotBlank()) " — " + item.body else "").replace(Regex("\\s+"), " ").take(180)
