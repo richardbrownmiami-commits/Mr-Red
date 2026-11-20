@@ -179,7 +179,7 @@ object EventMemoryStore {
         val asksErrors = listOf("error", "crash", "failed", "failure", "model slow", "performance").any(q::contains)
         val asksWeb = listOf("web search", "searched online", "search history", "browsing", "website").any(q::contains)
         val broadActivity = listOf("what happened", "what have i done", "what did i do", "activity", "today", "yesterday", "this morning", "this afternoon", "this evening", "tonight", "last night").any(q::contains) ||
-            Regex("\\b(last|past)\\s+\\d+\\s+(hours?|days?)\\b").containsMatchIn(q)
+            Regex("\\b(last|past)\\s+(\\d+|one|five|seven)\\s+(hours?|days?)\\b").containsMatchIn(q)
 
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
         fun midnight(c: java.util.Calendar) {
@@ -320,15 +320,15 @@ object EventMemoryStore {
         nowMillis: Long = System.currentTimeMillis()
     ): String {
         runCatching { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
-        data class Notification(val app: String, val title: String, val body: String, val time: Long, val importance: String)
+        data class Notification(val app: String, val title: String, val body: String, val time: Long, val importance: String, val active: Boolean)
         val records = mutableListOf<Notification>()
         database(context).readableDatabase.rawQuery(
-            "SELECT source, title, body, occurred_at, importance FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' AND is_active = 1 AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 100",
+            "SELECT source, title, body, occurred_at, importance, is_active FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 100",
             arrayOf(sinceMillis.toString(), nowMillis.toString())
         ).use { cursor ->
             while (cursor.moveToNext()) records += Notification(
                 cursor.getString(0), cursor.getString(1), cursor.getString(2),
-                cursor.getLong(3), cursor.getString(4)
+                cursor.getLong(3), cursor.getString(4), cursor.getInt(5) == 1
             )
         }
         if (records.isEmpty()) return ""
@@ -340,7 +340,7 @@ object EventMemoryStore {
                 val content = if (item.importance == "important") item.body.ifBlank { item.title } else
                     (item.title + if (item.body.isNotBlank()) " — " + item.body else "").replace(Regex("\\s+"), " ").take(180)
                 appendLine("- " + timeFormat.format(java.util.Date(item.time)) + " | " + item.app +
-                    " | " + item.importance + " | " + content)
+                    " | " + item.importance + " | " + content + " | status=" + if (item.active) "active" else "dismissed")
             }
             append("Prioritise personal communication, missed calls, OTP/security, banking/transactions and time-sensitive alerts. Separate promotions and routine app chatter. Do not infer missing details.")
         }.trim()
