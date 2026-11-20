@@ -9,7 +9,13 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /** Notification contents are held in process memory only; they are not written to SQLite. */
 data class MrRedNotification(
-    val app: String,\n    val title: String,\n    val text: String,\n    val key: String = "",\n    val packageName: String = "",\n    val postedAtMillis: Long = System.currentTimeMillis()\n)
+    val app: String,
+    val title: String,
+    val text: String,
+    val key: String = "",
+    val packageName: String = "",
+    val postedAtMillis: Long = System.currentTimeMillis()
+)
 
 class MrRedNotificationListenerService : NotificationListenerService() {
 
@@ -88,7 +94,8 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         }.joinToString("\n")
         if (title.isBlank() && text.isBlank()) return
         val shortApp = sbn.packageName.substringAfterLast('.')
-        val appLabel = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(shortApp)\n        val record = MrRedNotification(appLabel, title, text, sbn.key, sbn.packageName, sbn.postTime)
+        val appLabel = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(shortApp)
+        val record = MrRedNotification(appLabel, title, text, sbn.key, sbn.packageName, sbn.postTime)
         activeNotificationRecords.removeAll { it.key == sbn.key }
         activeNotificationRecords.add(0, record)
         notifications.removeAll { (it.app == shortApp || it.app == sbn.packageName) && it.title == title }
