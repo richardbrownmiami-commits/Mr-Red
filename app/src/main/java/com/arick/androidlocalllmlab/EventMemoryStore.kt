@@ -313,6 +313,39 @@ object EventMemoryStore {
         return output.toString().trim()
     }
 
+    /** Canonical recent notification snapshot read directly from SQLite. */
+    fun recentNotificationDigest(
+        context: Context,
+        sinceMillis: Long,
+        nowMillis: Long = System.currentTimeMillis()
+    ): String {
+        runCatching { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
+        data class Notification(val app: String, val title: String, val body: String, val time: Long, val importance: String)
+        val records = mutableListOf<Notification>()
+        database(context).readableDatabase.rawQuery(
+            "SELECT source, title, body, occurred_at, importance FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' AND is_active = 1 AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 100",
+            arrayOf(sinceMillis.toString(), nowMillis.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) records += Notification(
+                cursor.getString(0), cursor.getString(1), cursor.getString(2),
+                cursor.getLong(3), cursor.getString(4)
+            )
+        }
+        if (records.isEmpty()) return ""
+        val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+        return buildString {
+            appendLine("ANDROID NOTIFICATION DIGEST — SQLITE RECORDS")
+            appendLine("Active notifications: " + records.size + ". Times are local device time.")
+            records.sortedBy { it.time }.forEach { item ->
+                val content = if (item.importance == "important") item.body.ifBlank { item.title } else
+                    (item.title + if (item.body.isNotBlank()) " — " + item.body else "").replace(Regex("\\s+"), " ").take(180)
+                appendLine("- " + timeFormat.format(java.util.Date(item.time)) + " | " + item.app +
+                    " | " + item.importance + " | " + content)
+            }
+            append("Prioritise personal communication, missed calls, OTP/security, banking/transactions and time-sensitive alerts. Separate promotions and routine app chatter. Do not infer missing details.")
+        }.trim()
+    }
+
     /** Clears event history while preserving explicitly captured long-term facts. */
     fun clearEventHistory(context: Context) {
         val appContext = context.applicationContext
