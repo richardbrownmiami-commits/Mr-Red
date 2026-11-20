@@ -58,11 +58,11 @@ class MrRedAlarmReceiver : BroadcastReceiver() {
         val message = intent.getStringExtra(EXTRA_ALARM_MESSAGE) ?: "Mr-Red Alert"
         when (action) {
             ACTION_REMINDER_TRIGGER -> {
-                ActivityLogger.record(context, "REMINDER", "triggered", "message_length=${message.length}")
+                ActivityLogger.record(context, "REMINDER", "triggered", "message=$message")
                 playReminder(context, message)
             }
             ACTION_ALARM_TRIGGER, Intent.ACTION_BOOT_COMPLETED -> {
-                ActivityLogger.record(context, "ALARM", "triggered", "message_length=${message.length} source=${action}")
+                ActivityLogger.record(context, "ALARM", "triggered", "message=$message source=$action")
                 playAlarm(context, message)
             }
             else -> ActivityLogger.record(context, "ALARM", "ignored_broadcast", "unsupported_action=${action}")
