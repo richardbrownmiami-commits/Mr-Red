@@ -518,24 +518,52 @@ class AndroidToolExecutor(private val context: Context) {
         if (!isNotificationAccessEnabled()) {
             return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
         }
-        val records = MrRedNotificationListenerService.currentNotifications(context)
+        val now = System.currentTimeMillis()
+        val hourAgo = now - 60L * 60L * 1000L
+        val records = MrRedNotificationListenerService.recentNotifications(context, hourAgo)
         if (records.isEmpty()) {
             return if (!MrRedNotificationListenerService.isConnected()) {
-                ToolResult.Success("Notification access is enabled, but Android has not connected the notification listener yet. No current notifications can be verified.")
+                ToolResult.Success("Notification access is enabled, but Android has not connected the notification listener yet. No notifications from the last hour can be verified.")
             } else {
-                ToolResult.Success("There are no currently active notifications on the device.")
+                ToolResult.Success("No notifications were posted in the last hour.")
             }
         }
-        return ToolResult.Success(
-            "Complete active notification snapshot from Android (all available title and body text; stored in memory only). Count=${records.size}:\n" +
-                records.mapIndexed { index, r ->
-                    buildString {
-                        append("NOTIFICATION ${index + 1} [${r.app}]\n")
-                        append("Title: ${r.title}\n")
-                        append("Full text: ").append(r.text.ifBlank { "[No body text supplied]" })
-                    }
-                }.joinToString("\n\n")
+        val criticalPackage = Regex(
+            "(sms|mms|messag|dialer|phone|telecom|call|gmail|email|outlook|mail|bank|pay|wallet|authenticator)",
+            RegexOption.IGNORE_CASE
         )
+        val timeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        val slots = listOf(
+            "LAST 0–15 MINUTES" to (now - 15L * 60L * 1000L),
+            "15–30 MINUTES AGO" to (now - 30L * 60L * 1000L),
+            "30–60 MINUTES AGO" to hourAgo
+        )
+        val payload = buildString {
+            appendLine("ANDROID NOTIFICATION DIGEST — LAST 60 MINUTES")
+            appendLine("Total notifications: ${records.size}. Times are local device time.")
+            slots.forEachIndexed { index, (label, threshold) ->
+                val inSlot = records.filter { it.postedAtMillis >= threshold &&
+                    (index == 0 || it.postedAtMillis < slots[index - 1].second) }
+                if (inSlot.isNotEmpty()) {
+                    appendLine()
+                    appendLine("[$label]")
+                    inSlot.forEach { item ->
+                        val full = criticalPackage.containsMatchIn(item.packageName) ||
+                            criticalPackage.containsMatchIn(item.app)
+                        val content = if (full) {
+                            item.text.ifBlank { item.title }
+                        } else {
+                            (item.title + if (item.text.isNotBlank()) " — " + item.text else "")
+                                .replace(Regex("\\s+"), " ").take(180)
+                        }
+                        appendLine("- ${timeFormat.format(java.util.Date(item.postedAtMillis))} | ${item.app} | ${if (full) "FULL MESSAGE" else "KEY CONTENT"}: $content")
+                    }
+                }
+            }
+            appendLine()
+            append("Analysis rule: prioritise actual personal communication, missed calls, OTP/security, banking/transactions and time-sensitive system alerts. For games, shopping and other apps, use only the short key-content description above. Separate promotions from urgent events. Do not invent missing details.")
+        }
+        return ToolResult.Success(payload)
     }
     private fun getNews(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
         val query = arguments.optString("query").trim().take(120)
