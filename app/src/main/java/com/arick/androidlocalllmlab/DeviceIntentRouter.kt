@@ -25,6 +25,12 @@ object DeviceIntentRouter {
             }
         }
 
+        // App notification controls and notification-listener access are distinct Android settings.
+        if (Regex("\\b(notification settings|app notification settings|enable notifications|turn on notifications)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text) &&
+            !text.contains("notification access")) {
+            return ToolCall("open_app_notification_settings", JSONObject())
+        }
+
         // 2. Notifications
         if (Regex("\\b(read|show|check|what|any|get|list|see|view|my|recent|unread|latest)\\b.*\\bnotifications?\\b|\\bnotifications?\\b.*\\b(read|show|check|get|list|see|view)\\b|^(?:all\\s+)?notifications?$", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
             return ToolCall("read_notifications", JSONObject())
