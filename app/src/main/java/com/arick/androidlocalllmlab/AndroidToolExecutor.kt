@@ -226,6 +226,12 @@ class AndroidToolExecutor(private val context: Context) {
                 override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = readNotifications()
             },
             object : ToolDefinition {
+                override val name = "open_app_notification_settings"
+                override val description = "Open notification settings for Mr-Red itself"
+                override val parameterSchema: List<ToolParameterSchema> = emptyList()
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = openAppNotificationSettings()
+            },
+            object : ToolDefinition {
                 override val name = "open_notification_access"
                 override val description = "Open Android settings so the user can explicitly grant notification access"
                 override val parameterSchema: List<ToolParameterSchema> = emptyList()
@@ -488,6 +494,24 @@ class AndroidToolExecutor(private val context: Context) {
                     android.content.ComponentName.unflattenFromString(comp)?.packageName == context.packageName
                 } == true
         }.getOrDefault(false)
+    }
+
+    private fun openAppNotificationSettings(): ToolResult {
+        return runCatching {
+            val intent = if (android.os.Build.VERSION.SDK_INT >= 26) {
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            } else {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+            }
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            ToolResult.Success(
+                "Opened Mr-Red's app notification settings. Enable Allow notifications there. " +
+                    "Notification access is a separate permission."
+            )
+        }.getOrElse { error ->
+            ToolResult.Failure("Could not open Mr-Red notification settings: ${error.message ?: error.javaClass.simpleName}")
+        }
     }
 
     private fun readNotifications(): ToolResult {
