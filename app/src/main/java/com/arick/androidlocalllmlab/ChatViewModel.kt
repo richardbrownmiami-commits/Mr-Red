@@ -123,6 +123,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
+    // Isolated sampler session: reads the event database but never writes test turns to it.
+    private val _samplerMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val samplerMessages: StateFlow<List<ChatMessage>> = _samplerMessages.asStateFlow()
+    private val _samplerGenerating = MutableStateFlow(false)
+    val samplerGenerating: StateFlow<Boolean> = _samplerGenerating.asStateFlow()
+    private val _samplerStatus = MutableStateFlow("Load a GGUF model, then ask a test question.")
+    val samplerStatus: StateFlow<String> = _samplerStatus.asStateFlow()
+    private val _samplerRetrievedMemory = MutableStateFlow("")
+    val samplerRetrievedMemory: StateFlow<String> = _samplerRetrievedMemory.asStateFlow()
+    private val _samplerFormattedPrompt = MutableStateFlow("")
+    val samplerFormattedPrompt: StateFlow<String> = _samplerFormattedPrompt.asStateFlow()
+    private val _samplerPromptTokenCount = MutableStateFlow(0)
+    val samplerPromptTokenCount: StateFlow<Int> = _samplerPromptTokenCount.asStateFlow()
+
     private val _promptTokenCount = MutableStateFlow(0)
     val promptTokenCount: StateFlow<Int> = _promptTokenCount.asStateFlow()
 
@@ -327,8 +341,118 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+
+    /**
+     * Runs a question through the real Kotlin retrieval and prompt-construction path,
+     * then the loaded GGUF model. The sampler is read-only: it does not add test turns
+     * to chat history, capture facts, execute Android tools, or mutate the memory DB.
+     */
+    fun sendSamplerQuestion(question: String) {
+        val prompt = question.trim()
+        if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
+        if (_uiState.value !is ChatUiState.Ready) {
+            _samplerStatus.value = "No model is ready. Load a GGUF model first."
+            return
+        }
+
+        _samplerMessages.value = _samplerMessages.value +
+            ChatMessage(MessageRole.User, prompt) +
+            ChatMessage(MessageRole.Assistant, "")
+        _samplerRetrievedMemory.value = ""
+        _samplerFormattedPrompt.value = ""
+        _samplerPromptTokenCount.value = 0
+        _samplerStatus.value = "Kotlin is retrieving matching database records…"
+        _samplerGenerating.value = true
+        val inferenceConfig = _inferenceConfig.value
+
+        viewModelScope.launch {
+            var rawResponse = ""
+            var templateStartsThinking = false
+            try {
+                memoryWarmupJob?.join()
+                val answer = withContext(Dispatchers.Default) {
+                    nativeInferenceMutex.withLock {
+                        runtime.resetStopRequest()
+                        val readyState = _uiState.value as? ChatUiState.Ready
+                            ?: error("The model is no longer ready.")
+                        val contextCapacity = readyState.nCtx.coerceAtLeast(128)
+                        val effectiveMaxTokens = inferenceConfig.maxTokens.coerceAtMost(
+                            (contextCapacity / 3).coerceAtLeast(64)
+                        )
+                        val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
+
+                        // This is the same question-specific SQLite retrieval used by normal chat.
+                        val retrievedMemory = EventMemoryStore.relevantContext(getApplication(), prompt)
+                        _samplerRetrievedMemory.value = retrievedMemory
+                        val promptMessages = buildPromptMessages(
+                            currentQuestion = prompt,
+                            memorySummary = retrievedMemory,
+                            maxPromptTokens = promptBudget
+                        )
+                        _samplerStatus.value = "Prompt built; running GGUF inference…"
+
+                        runtime.generate(
+                            messages = promptMessages,
+                            inferenceConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens),
+                            contextWindowTokens = readyState.nCtx,
+                            onPrompt = { formattedPrompt, tokenCount ->
+                                _samplerFormattedPrompt.value = formattedPrompt
+                                _samplerPromptTokenCount.value = tokenCount
+                                templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
+                            },
+                            onToken = { piece ->
+                                rawResponse += piece
+                                val parts = splitAssistantResponse(rawResponse, templateStartsThinking)
+                                _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
+                                    if (index == _samplerMessages.value.lastIndex) message.copy(content = parts.answer, reasoningContent = parts.reasoning)
+                                    else message
+                                }
+                            },
+                            onMetrics = { metrics ->
+                                _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
+                                    if (index == _samplerMessages.value.lastIndex) message.copy(generationMetrics = metrics)
+                                    else message
+                                }
+                            }
+                        )
+                    }
+                }
+                if (answer.isBlank()) error("The model returned no content.")
+                val parts = splitAssistantResponse(answer, templateStartsThinking)
+                _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
+                    if (index == _samplerMessages.value.lastIndex) message.copy(
+                        content = parts.answer,
+                        reasoningContent = parts.reasoning,
+                        modelInputPrompt = _samplerFormattedPrompt.value,
+                        modelInputTokenCount = _samplerPromptTokenCount.value
+                    ) else message
+                }
+                _samplerStatus.value = "Test complete. Database retrieval and prompt are shown below."
+            } catch (error: Throwable) {
+                val failure = error.message ?: "Sampler inference failed."
+                _samplerStatus.value = "Test failed: $failure"
+                _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
+                    if (index == _samplerMessages.value.lastIndex) message.copy(content = failure)
+                    else message
+                }
+            } finally {
+                _samplerGenerating.value = false
+                scheduleMemoryWarmup()
+            }
+        }
+    }
+
+    fun clearSamplerSession() {
+        if (_samplerGenerating.value) return
+        _samplerMessages.value = emptyList()
+        _samplerRetrievedMemory.value = ""
+        _samplerFormattedPrompt.value = ""
+        _samplerPromptTokenCount.value = 0
+        _samplerStatus.value = "Sampler cleared. The database was not changed."
+    }
+
     fun send(prompt: String) {
-        if (prompt.isBlank() || _isGenerating.value) return
+        if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
 
         // Retain both sides privately so the summary can describe the exchange without quoting it.
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
