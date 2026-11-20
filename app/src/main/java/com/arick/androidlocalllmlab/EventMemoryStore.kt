@@ -265,7 +265,7 @@ object EventMemoryStore {
             }
             val ordered = rows.sortedBy { it.time }
             val conversationRows = ordered.filter { it.type == "QUESTION" || it.type == "ANSWER" }
-            if (asksConversation && conversationRows.isNotEmpty()) {
+            if ((asksConversation || broadActivity) && conversationRows.isNotEmpty()) {
                 output.append("[CONVERSATION EXCHANGES]\n")
                 var pending: String? = null
                 conversationRows.forEach { row ->
