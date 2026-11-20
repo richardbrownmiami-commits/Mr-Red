@@ -40,7 +40,12 @@ object ActivityLogger {
             file.appendText("$timestamp | $safeLayer | $safeAction | ${clean(detail, limit)}\n")
             val lines = file.readLines()
             if (lines.size > MAX_LINES) file.writeText(lines.takeLast(MAX_LINES * 3 / 4).joinToString("\n", postfix = "\n"))
-            memoryChangeListener?.invoke()
+            // Only a completed answer changes the conversation memory worth preloading.
+            // Logging navigation, notification churn, and lifecycle events must not keep
+            // restarting a multi-second native prefill.
+            if (safeLayer == "ANSWER" && safeAction == "generated") {
+                memoryChangeListener?.invoke()
+            }
         }
     }
 
@@ -177,10 +182,10 @@ object ActivityLogger {
             append(" Use only explicit preferences and facts; do not invent personal details.\n")
 
             append("[CONVERSATION MEMORY] ")
-            val recentExchanges = exchanges.takeLast(4)
+            val recentExchanges = exchanges.takeLast(3)
             if (recentExchanges.isNotEmpty()) {
                 append(recentExchanges.joinToString("; ") { (question, answer) ->
-                    "${topic(question).take(65)} — ${gist(answer).take(110)}"
+                    "${topic(question).take(48)} — ${gist(answer).take(75)}"
                 })
             } else {
                 append("No completed Q&A exchange recorded.")
