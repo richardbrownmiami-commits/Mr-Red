@@ -312,8 +312,13 @@ object ActivityLogger {
 
     fun clear(context: Context) {
         EventMemoryStore.clearEventHistory(context)
-        runCatching { File(context.applicationContext.filesDir, FILE_NAME).delete() }
-        runCatching { File(context.applicationContext.filesDir, "mr_red_native.log").delete() }
+        val app = context.applicationContext
+        journalWriter.execute {
+            runCatching {
+                File(app.filesDir, FILE_NAME).delete()
+                File(app.filesDir, "mr_red_native.log").delete()
+            }
+        }
     }
 
     private fun clean(value: String, maxLength: Int): String =
