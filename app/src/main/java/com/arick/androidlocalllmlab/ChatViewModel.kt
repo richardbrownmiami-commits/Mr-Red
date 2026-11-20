@@ -333,6 +333,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Retain both sides privately so the summary can describe the exchange without quoting it.
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
+        EventMemoryStore.captureExplicitFact(getApplication(), prompt)
 
         // Answer stable capability/identity questions locally; a small on-device model
         // should not be allowed to hallucinate capabilities or drift on identity.
