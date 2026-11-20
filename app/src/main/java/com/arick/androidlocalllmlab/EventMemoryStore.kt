@@ -227,8 +227,9 @@ object EventMemoryStore {
             q.contains("today") -> {
                 midnight(cal); start = cal.timeInMillis; end = nowMillis; rangeLabel = "today"
             }
-            Regex("\\b(last|past)\\s+(\\d+)\\s+days?\\b").containsMatchIn(q) -> {
-                val days = Regex("\\b(last|past)\\s+(\\d+)\\s+days?\\b").find(q)!!.groupValues[2].toInt().coerceIn(1, 30)
+            Regex("\\b(last|past)\\s+(\\d+|one|five|seven)\\s+days?\\b").containsMatchIn(q) -> {
+                val rawDays = Regex("\\b(last|past)\\s+(\\d+|one|five|seven)\\s+days?\\b").find(q)!!.groupValues[2]
+                val days = (rawDays.toIntOrNull() ?: mapOf("one" to 1, "five" to 5, "seven" to 7)[rawDays]!!).coerceIn(1, 30)
                 start = nowMillis - days * 24L * 60 * 60 * 1000; end = nowMillis; rangeLabel = "last " + days + " days"
             }
             Regex("\\b(last|past)\\s+(5|five)\\s+hours?\\b").containsMatchIn(q) -> {
