@@ -31,8 +31,12 @@ object DeviceIntentRouter {
             return ToolCall("open_app_notification_settings", JSONObject())
         }
 
-        // 2. Notifications
-        if (Regex("\\b(read|show|check|what|any|get|list|see|view|my|recent|unread|latest)\\b.*\\bnotifications?\\b|\\bnotifications?\\b.*\\b(read|show|check|get|list|see|view)\\b|^(?:all\\s+)?notifications?$", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
+        // 2. Notifications, including intent-based "anything important I missed?" requests.
+        val notificationIntent = Regex(
+            "\\b(read|show|check|what|any|get|list|see|view|my|recent|unread|latest|important|missed)\\b.*\\bnotifications?\\b|\\bnotifications?\\b.*\\b(read|show|check|get|list|see|view|important|missed)\\b|\\b(anything important|anything i missed|what did i miss|anything i have missed)\\b",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(text) || text in setOf("notifications", "notification", "check notification", "check notifications")
+        if (notificationIntent) {
             return ToolCall("read_notifications", JSONObject())
         }
         if (Regex("\\b(enable|grant|allow|open)\\b.*\\bnotification access\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
