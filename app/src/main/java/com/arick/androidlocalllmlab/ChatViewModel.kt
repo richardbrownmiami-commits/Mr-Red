@@ -442,6 +442,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun stopSamplerGeneration() {
+        if (_samplerGenerating.value) runtime.requestStop()
+    }
+
     fun clearSamplerSession() {
         if (_samplerGenerating.value) return
         _samplerMessages.value = emptyList()
