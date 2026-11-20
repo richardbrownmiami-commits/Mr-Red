@@ -199,6 +199,7 @@ enum class AppPage(val title: String, val icon: ImageVector) {
 @Composable
 private fun MainAppScreen(viewModel: ChatViewModel) {
     val activityContext = LocalContext.current
+    val activityScope = rememberCoroutineScope()
     var selectedPage by remember { mutableStateOf(AppPage.Chat) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -338,8 +339,11 @@ private fun ChatPage(
                 }
             },
             onCopyLoggerSummary = {
-                clipboardManager.setText(AnnotatedString(ActivityLogger.summary(activityContext)))
-                Toast.makeText(activityContext, "Activity logger summary copied", Toast.LENGTH_SHORT).show()
+                activityScope.launch {
+                    val summary = withContext(Dispatchers.IO) { ActivityLogger.summary(activityContext) }
+                    clipboardManager.setText(AnnotatedString(summary))
+                    Toast.makeText(activityContext, "Activity logger summary copied", Toast.LENGTH_SHORT).show()
+                }
             }
         )
 
@@ -1293,7 +1297,11 @@ private fun SettingsPage(
     val memorySnapshots by viewModel.memorySnapshots.collectAsState()
     val settingsContext = LocalContext.current
     val settingsClipboard = LocalClipboardManager.current
-    val activitySummary = ActivityLogger.summary(settingsContext)
+    val settingsScope = rememberCoroutineScope()
+    var activitySummary by remember(settingsContext) { mutableStateOf("Loading activity summary…") }
+    LaunchedEffect(settingsContext) {
+        activitySummary = withContext(Dispatchers.IO) { ActivityLogger.summary(settingsContext) }
+    }
 
     var showContextWindowDialog by remember { mutableStateOf(false) }
     var showCpuThreadsDialog by remember { mutableStateOf(false) }
@@ -1390,8 +1398,11 @@ private fun SettingsPage(
                 title = "Copy complete diagnostic report",
                 summary = "Device, Android, app activity, conversation and llama.cpp logs",
                 onClick = {
-                    settingsClipboard.setText(AnnotatedString(ActivityLogger.diagnosticReport(settingsContext)))
-                    Toast.makeText(settingsContext, "Complete diagnostic report copied", Toast.LENGTH_LONG).show()
+                    settingsScope.launch {
+                        val report = withContext(Dispatchers.IO) { ActivityLogger.diagnosticReport(settingsContext) }
+                        settingsClipboard.setText(AnnotatedString(report))
+                        Toast.makeText(settingsContext, "Complete diagnostic report copied", Toast.LENGTH_LONG).show()
+                    }
                 }
             )
             Spacer(modifier = Modifier.height(6.dp))
