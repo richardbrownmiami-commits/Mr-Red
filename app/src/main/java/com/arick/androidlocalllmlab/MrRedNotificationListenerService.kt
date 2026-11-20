@@ -103,6 +103,16 @@ class MrRedNotificationListenerService : NotificationListenerService() {
             if (selected.isNotBlank()) add(selected)
             if (subText.isNotBlank() && subText != selected) add(subText)
             lines.filter { it.isNotBlank() && it !in this }.forEach(::add)
+            // MessagingStyle notifications can contain multiple messages beyond EXTRA_TEXT.
+            val messageBundles = listOf(Notification.EXTRA_MESSAGES, Notification.EXTRA_HISTORIC_MESSAGES)
+                .flatMap { key ->
+                    extras.getParcelableArray(key)?.mapNotNull { it as? android.os.Bundle }.orEmpty()
+                }
+            messageBundles.forEach { message ->
+                val body = message.getCharSequence("text")?.toString()?.trim().orEmpty()
+                val sender = message.getCharSequence("sender")?.toString()?.trim().orEmpty()
+                if (body.isNotBlank()) add(if (sender.isNotBlank()) "$sender: $body" else body)
+            }
         }.joinToString("\n")
         if (title.isBlank() && text.isBlank()) return
         val shortApp = sbn.packageName.substringAfterLast('.')
