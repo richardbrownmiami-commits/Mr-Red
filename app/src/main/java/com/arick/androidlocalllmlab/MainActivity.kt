@@ -305,6 +305,7 @@ private fun ChatPage(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
+            .imePadding()
     ) {
         ChatHeader(
             uiState = uiState,
@@ -2294,9 +2295,11 @@ private fun CenterMessage(message: String) {
     }
 }
 
-private fun formatDuration(durationMillis: Long): String = when {
-    durationMillis < 1000 -> "${durationMillis}ms"
-    else -> String.format(Locale.US, "%.1fs", durationMillis / 1000.0)
+private fun formatDuration(durationMillis: Long): String {
+    val totalSeconds = (durationMillis.coerceAtLeast(0L) + 500L) / 1_000L
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return String.format(Locale.US, "%02d:%02d", minutes, seconds)
 }
 
 private fun formatBytes(bytes: Long): String = when {
