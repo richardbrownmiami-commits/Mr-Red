@@ -559,23 +559,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             Regex("\\b(any|check|show|read|new|unread|latest|have|got|see|look|my)\\b").containsMatchIn(text)) {
             return "I can't read your email inbox in this build because no email account connection or inbox-reading tool is configured. I can open Gmail on your phone, but I can't see your messages or verify whether you have new mail."
         }
-        if (Regex("\\b(explain|what does|what is|meaning of)\\b.*\\bnotification\\b|\\bthis notification\\b").containsMatchIn(text)) {
-            val notifications = MrRedNotificationListenerService.currentNotifications(getApplication())
-            if (notifications.isEmpty()) {
-                return "I can't see an active notification right now. Make sure Notification access is enabled for Mr-Red, then ask me to check again."
-            }
-            if (notifications.size > 1) {
-                val choices = notifications.take(8).mapIndexed { index, item ->
-                    "${index + 1}. ${item.app}: ${item.title}" +
-                        item.text.takeIf { it.isNotBlank() }?.let { " — ${it.take(100)}" }.orEmpty()
-                }
-                return "There are ${notifications.size} active notifications, so “this notification” is ambiguous. Which one should I explain?\n" +
-                    choices.joinToString("\n")
-            }
-            val item = notifications.first()
-            val body = item.text.ifBlank { "No message text was supplied." }
-            return "This notification is from ${item.app}.\nTitle: ${item.title}\nMessage: $body\n\nIn plain terms, that is the information the app is displaying. I won't infer an action or result that the notification itself doesn't state."
-        }
         return null
     }
 
@@ -628,18 +611,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     "result_${call.name}",
                     toolContent
                 )
-                // Notification snapshots are already structured, verified Android data.
-                // Return them directly: asking a slow local model to paraphrase them caused
-                // hallucinated notification details and several minutes of extra latency.
-                val requiresNaturalAnswer = call.name in setOf("web_search", "get_news", "get_weather") &&
-                    _uiState.value is ChatUiState.Ready
+                // Kotlin reads the live Android snapshot; the GGUF model analyses the
+                // complete verified notification payload rather than returning a raw dump.
+                val requiresNaturalAnswer = call.name in setOf(
+                    "web_search", "get_news", "get_weather", "read_notifications"
+                ) && _uiState.value is ChatUiState.Ready
                 val content = if (requiresNaturalAnswer) {
                     val ready = _uiState.value as ChatUiState.Ready
                     appendLatestAssistantAgentTrace("Kotlin tool completed: ${call.name}")
                     appendLatestAssistantAgentTrace("Passing verified tool output to the local GGUF model for a natural-language answer")
                     appendLatestAssistantSources(sources)
                     _generationProgress.value = "Writing a natural-language answer…"
-                    val memory = ActivityLogger.promptMemory(getApplication())
+                    // Prior logger history is less useful than the complete live snapshot.
+                    val memory = if (call.name == "read_notifications") "" else ActivityLogger.promptMemory(getApplication())
                     val contextCapacity = ready.nCtx.coerceAtLeast(128)
                     val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
                     val promptBudget = (contextCapacity - maxOutput - 32).coerceAtLeast(1)
@@ -649,10 +633,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         Verified result returned by the Kotlin Android tool '${call.name}':
                         $toolContent
 
-                        Answer the original request naturally and directly using the tool result.
-                        Treat the result as the only source of current facts. Do not invent missing
-                        notifications, search findings, dates, or device state. If access failed or
-                        the result says no data is available, explain that clearly and briefly.
+                        Answer the original request naturally and directly using the verified tool result.
+                        For notification requests, analyse the FULL notification snapshot supplied below.
+                        Identify actionable or time-sensitive items first: missed calls, personal messages,
+                        account/security/bank alerts, reminders, deliveries and transaction updates.
+                        Separate those from promotions, games and routine app chatter. Explain what needs
+                        attention using the actual notification details. Do not label marketing as important
+                        merely because it uses urgent wording. If nothing appears urgent, say so.
+                        Treat the tool result as the only source of current facts. Never invent details.
+                        If access failed or no data is available, explain that clearly.
                         Do not mention internal tool names unless useful to explain a limitation.
                     """.trimIndent()
                     var rawAnswer = ""
