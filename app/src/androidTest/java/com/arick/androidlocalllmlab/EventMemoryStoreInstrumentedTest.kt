@@ -14,7 +14,7 @@ class EventMemoryStoreInstrumentedTest {
     @Test
     fun notificationHistoryIsReadFromSqliteAndTracksDismissal() {
         val now = System.currentTimeMillis()
-        val key = "mr-red-instrumented-\${now}"
+        val key = "mr-red-instrumented-$now"
         val title = "SQLite integration title $now"
         val body = "SQLite integration body $now"
 
