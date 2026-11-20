@@ -171,7 +171,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         ActivityLogger.setMemoryChangeListener { scheduleMemoryWarmup() }
         // Retire legacy chat, personal-memory, persona and summary stores from older installs.
         application.deleteDatabase("mr_red_conversation.db")
-        application.deleteDatabase("mr_red_memory.db")
         application.getSharedPreferences("mr_red_persona", android.content.Context.MODE_PRIVATE)
             .edit().clear().apply()
         application.getSharedPreferences("local_llm_preferences", android.content.Context.MODE_PRIVATE)
@@ -386,12 +385,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     val generationConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens)
                     val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
-                    // One compact logger summary carries conversation Q&A and app/device events.
-                    // Do not append a second verbatim transcript: it duplicates the same turns.
-                    val rawMemorySummary = ActivityLogger.promptMemory(getApplication())
-                    // No fixed memory-token ceiling: buildPromptMessages fits memory into
-                    // the actual remaining context after system instructions and the question.
-                    val memorySummary = rawMemorySummary
+                    // Retrieve only records relevant to this question from the persistent event database.
+                    // General questions receive no unrelated notification/device history.
+                    val memorySummary = EventMemoryStore.relevantContext(getApplication(), prompt)
                     val promptMessages = buildPromptMessages(
                         currentQuestion = prompt,
                         memorySummary = memorySummary,
