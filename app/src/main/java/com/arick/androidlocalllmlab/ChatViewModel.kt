@@ -528,15 +528,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         memoryWarmupJob?.cancel()
         memoryWarmupJob = viewModelScope.launch {
             delay(900)
-            if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) return@launch
+            if (_uiState.value !is ChatUiState.Ready) return@launch
             val warmedTokens = withContext(Dispatchers.Default) {
                 nativeInferenceMutex.withLock {
-                    if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
+                    if (_uiState.value !is ChatUiState.Ready) {
                         0
                     } else {
-                        // Warm only the invariant system prefix. The memory changes
-                        // between turns; preloading it makes the cache stale and expensive.
-                        // The system message is byte-for-byte identical in every request.
+                        // A foreground send joins this job before acquiring the native mutex,
+                        // so the invariant system prefix is never abandoned mid-prefill.
                         runtime.resetStopRequest()
                         runtime.warmPrompt(listOf(PromptMessage("system", fixedSystemInstructions)))
                     }
