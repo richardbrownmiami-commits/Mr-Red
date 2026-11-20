@@ -416,7 +416,8 @@ namespace {
 
             using Clock = std::chrono::steady_clock;
             const auto generationStartedAt = Clock::now();
-            const std::string prompt = formatChatPrompt(history);\n            appendDiagnostic("generation_started messages=" + std::to_string(history.size()) + " max_tokens=" + std::to_string(maxTokens));
+            const std::string prompt = formatChatPrompt(history);
+            appendDiagnostic("generation_started messages=" + std::to_string(history.size()) + " max_tokens=" + std::to_string(maxTokens));
             if (prompt.empty()) {
                 return {};
             }
