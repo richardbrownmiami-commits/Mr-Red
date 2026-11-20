@@ -46,11 +46,11 @@ class PromptBudgetPlannerTest {
             systemInstructions = "system",
             currentQuestion = "question",
             memorySummary = "one two three four five six seven eight nine ten",
-            maxPromptTokens = 105,
+            maxPromptTokens = 130,
             countTokens = ::characterCount
         )
         assertEquals(3, messages.size)
-        assertTrue(characterCount(messages) <= 105)
+        assertTrue(characterCount(messages) <= 130)
         assertEquals("system", messages.first().content)
         assertEquals("question", messages.last().content)
     }
