@@ -258,11 +258,11 @@ object EventMemoryStore {
         }
         if (selectedTypes.isNotEmpty()) {
             output.append("[RETRIEVED MEMORY — ").append(rangeLabel).append("]\n")
-            if (rows.isNotEmpty()) {
-                val counts = rows.groupingBy { it.type }.eachCount()
+            if (balancedRows.isNotEmpty()) {
+                val counts = balancedRows.groupingBy { it.type }.eachCount()
                 output.append("Event totals: ").append(counts.entries.joinToString(", ") { it.key.lowercase(java.util.Locale.US) + "=" + it.value }).append(".\n")
             }
-            val ordered = rows.sortedBy { it.time }
+            val ordered = balancedRows.sortedBy { it.time }
             val conversationRows = ordered.filter { it.type == "QUESTION" || it.type == "ANSWER" }
             if (plan.includeConversation && conversationRows.isNotEmpty()) {
                 val exchanges = mutableListOf<Pair<String, String>>()
@@ -278,7 +278,7 @@ object EventMemoryStore {
                     }
                 }
             }
-            rows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.sortedByDescending { it.time }.take(50).forEach { row ->
+            balancedRows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.sortedByDescending { it.time }.take(50).forEach { row ->
                 val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(row.time))
                 val detail = if (row.type == "NOTIFICATION" && (row.title.isNotBlank() || row.body.isNotBlank())) {
                     val content = if (row.importance == "important") row.body else row.body.take(180)
@@ -286,7 +286,7 @@ object EventMemoryStore {
                 } else row.detail.replace(Regex("\\s+"), " ").take(320)
                 if (detail.isNotBlank()) output.append(stamp).append(" | ").append(row.type).append(" | ").append(row.action).append(" | ").append(row.source).append(" | ").append(detail).append('\n')
             }
-            if (rows.isEmpty()) output.append("No matching stored events in this time range.\n")
+            if (balancedRows.isEmpty()) output.append("No matching stored events in this time range.\n")
         }
         return output.toString().trim()
     }
@@ -313,6 +313,7 @@ object EventMemoryStore {
         val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
         return buildString {
             appendLine("ANDROID NOTIFICATION DIGEST — SQLITE RECORDS")
+            if (failedWriteCount.get() > 0) appendLine("COLLECTION WARNING: " + failedWriteCount.get() + " database write(s) failed; history may be incomplete.")
             appendLine("Notifications posted in selected window: " + records.size + ". Times are local device time.")
             records.sortedBy { it.time }.forEach { item ->
                 val content = if (item.importance == "important") item.body.ifBlank { item.title } else
