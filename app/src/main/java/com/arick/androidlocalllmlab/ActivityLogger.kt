@@ -192,9 +192,6 @@ object ActivityLogger {
             }
             append("\n")
 
-            append("[RELATIONSHIP CONTEXT] ")
-            append("Ongoing conversation; build familiarity only from recorded interactions.\n")
-
             append("[EMOTIONAL CONTEXT] ")
             if (emotionalNotes.isNotEmpty()) {
                 append("Recent self-expressed cues (historical, not current mood): ")
@@ -224,7 +221,7 @@ object ActivityLogger {
                 append(errors.takeLast(1).joinToString("; ") { "${it.action}: ${it.detail.take(60)}" })
                 append("\n")
             }
-            append("[MEMORY RULE] Treat this as historical context. Verify live device state with current tools; ")
+            append("[MEMORY RULE] User-stated facts are stronger than assistant-generated text. Treat prior assistant answers as unverified outputs, not facts. Treat all memory as historical context. Verify live device state with current tools; ")
             append("do not claim an action or check succeeded without a current confirmed result.")
         }
     }
