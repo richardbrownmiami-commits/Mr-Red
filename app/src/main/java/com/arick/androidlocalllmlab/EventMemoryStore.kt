@@ -182,7 +182,8 @@ object EventMemoryStore {
         val asksSettings = listOf("setting", "settings", "configuration").any(q::contains)
         val asksErrors = listOf("error", "crash", "failed", "failure", "model slow", "performance").any(q::contains)
         val asksDevice = listOf("device activity", "app activity", "what happened", "activity yesterday", "what did i do").any(q::contains)
-        val broadActivity = asksDevice || q.contains("yesterday") || q.contains("today") || q.contains("last hour") || q.contains("last 5 hour")
+        val hasRecentWindow = Regex("\\b(last|past)\\s+(1|one|5|five)\\s+hours?\\b").containsMatchIn(q) || q.contains("last hour") || q.contains("past hour")
+        val broadActivity = asksDevice || q.contains("yesterday") || q.contains("today") || hasRecentWindow
 
         val calendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
         val end: Long
@@ -198,10 +199,10 @@ object EventMemoryStore {
                 end = calendar.timeInMillis - 1
                 rangeLabel = "yesterday"
             }
-            q.contains("last 5 hour") || q.contains("past 5 hour") -> {
+            Regex("\\b(last|past)\\s+(5|five)\\s+hours?\\b").containsMatchIn(q) -> {
                 start = nowMillis - 5 * 60 * 60 * 1000L; end = nowMillis; rangeLabel = "last 5 hours"
             }
-            q.contains("last hour") || q.contains("past hour") || q.contains("recent notification") -> {
+            Regex("\\b(last|past)\\s+(1|one)\\s+hours?\\b").containsMatchIn(q) || q.contains("last hour") || q.contains("past hour") || q.contains("recent notification") -> {
                 start = nowMillis - 60 * 60 * 1000L; end = nowMillis; rangeLabel = "last hour"
             }
             q.contains("today") -> {
