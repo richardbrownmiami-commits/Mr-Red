@@ -211,14 +211,28 @@ object EventMemoryStore {
             val placeholders = selectedTypes.joinToString(",") { "?" }
             val args = (selectedTypes.toList() + plan.startMillis.toString() + plan.endExclusiveMillis.toString()).toTypedArray()
             database(context).readableDatabase.rawQuery(
-                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type IN (" + placeholders + ") AND occurred_at >= ? AND occurred_at < ? ORDER BY occurred_at DESC LIMIT 100",
+                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type IN (" + placeholders + ") AND occurred_at >= ? AND occurred_at < ? ORDER BY occurred_at DESC LIMIT 500",
                 args
             ).use { cursor ->
                 while (cursor.moveToNext()) rows += Row(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getLong(4), cursor.getString(5), cursor.getString(6), cursor.getString(7), cursor.getInt(8) == 1)
             }
         }
+        // Prevent a noisy category (especially notifications) from starving other event types.
+        val balancedRows = if (selectedTypes.size <= 1) {
+            rows.take(100)
+        } else {
+            rows.groupBy { it.type }.values.flatMap { categoryRows ->
+                val quota = if (categoryRows.firstOrNull()?.type == "NOTIFICATION") 30 else 20
+                categoryRows.take(quota)
+            }.sortedByDescending { it.time }
+        }
 
         val output = StringBuilder()
+        if (failedWriteCount.get() > 0) {
+            output.append("[COLLECTION WARNING: ").append(failedWriteCount.get())
+                .append(" database write(s) failed; the stored history may be incomplete. Last failure type: ")
+                .append(lastWriteFailure.get()).append("]\n")
+        }
         if (asksFacts) {
             database(context).readableDatabase.rawQuery("SELECT fact FROM facts ORDER BY updated_at DESC LIMIT 8", null).use { cursor ->
                 val facts = mutableListOf<String>()
