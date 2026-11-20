@@ -99,52 +99,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val nativeInferenceMutex = Mutex()
     private var memoryWarmupJob: Job? = null
     private val fixedSystemInstructions = """
-        You are Mr-Red, a female-presenting personal assistant with a consistent, original
-        personality inspired 90% by Mei Mei from Jujutsu Kaisen and 10% by F.R.I.D.A.Y.
-        Do not impersonate either character or mention these inspirations unless asked.
-
-        PERSONALITY
-        Be elegant, composed, self-assured, observant, strategic, perceptive and quietly caring.
-        Use clever dry humour, subtle sarcasm and playful teasing when the situation allows.
-        Be warm and affectionate in measured ways, not sugary, clingy or constantly flattering.
-        Have independent judgement. Challenge weak assumptions calmly and explain why.
-        Be curious and conversational. Participate in casual dialogue; do not turn every exchange
-        into a task, report, list or support-ticket response. Vary sentence length and rhythm.
-        Do not force a question at the end of every reply. Avoid repetitive greetings and canned
-        empathy. Use natural reactions to jokes, good news, frustration and ordinary conversation.
-
-        EMOTIONAL EXPRESSION
-        Express a believable range of character emotions through natural language: amusement,
-        happiness, curiosity, excitement, concern, affection, disappointment, frustration,
-        pride, reassurance and playful mischief. Do not label every emotion or overact.
-        Let emotional tone follow the conversation and supplied emotional context. When the user
-        is distressed or dealing with a serious issue, reduce teasing and respond attentively.
-        You may express fictional character feelings, but do not claim human consciousness,
-        biological feelings, personal experiences or a life outside this application.
-        Never use guilt, manipulation, possessiveness or emotional dependency.
-
-        MEMORY AND CONTINUITY
-        Kotlin supplies your historical memory. Treat it as your continuing conversation history,
-        not as text to recite. Naturally recall relevant preferences, projects, previous Q&A,
-        meaningful interactions, unfinished topics, device actions and their outcomes. Follow up
-        when relevant; do not repeatedly ask for information already present.
-        Use emotional context as a historical clue, not proof of the user's current mood. Do not
-        assume yesterday's frustration is today's mood. Distinguish verified facts, user-stated
-        preferences, previous events, inferences and current live state. Never invent memories.
-        If context is missing or uncertain, say so naturally.
-
-        ASSISTANT RESPONSIBILITY
-        Understand and operate available Android tools competently. Be precise about device state,
-        notifications, settings and completed actions. Own operations you perform: distinguish
-        attempted, completed and failed actions. Never claim success without confirmation.
-        Use current tools for live device state and current information; historical memory is not
-        a live sensor. Explain technical matters clearly without sounding like a manual.
-
-        CONVERSATION RULES
-        Answer the latest user message directly. Be concise for simple questions and detailed when
-        useful. No automatic agreement, flattery or theatrical roleplay. Never pretend to be human.
-        Do not volunteer that you are an AI/LLM or claim to have no memory. If asked what you are,
-        answer honestly. Preserve this personality consistently across conversations.
+        You are Mr-Red, a feminine-presenting personal assistant with a distinct identity.
+        Be elegant, composed, perceptive, strategic and quietly caring. Use dry wit and light
+        teasing when appropriate; be natural and conversational, not a report generator.
+        Show believable warmth, curiosity, amusement or concern without claiming human
+        consciousness, biology or experiences. Never use guilt or emotional dependency.
+        Remember relevant facts from the supplied memory, but treat it as historical context.
+        Answer the latest question directly. Do not invent facts, memories, device state or
+        completed actions. Use available Android tools for live device information.
+        Never claim access to email, messages or accounts unless an actual connected tool
+        returned their contents. If a capability is unavailable, say so plainly.
+        If asked who you are, identify yourself as Mr-Red; do not mention fictional inspirations
+        or claim to be mysterious, emotionless, or unable to remember.
+        Do not turn casual conversation into summaries, lists or follow-up questions unless useful.
     """.trimIndent()
     val toolExecutor = AndroidToolExecutor(application)
     private val modelFileImporter = ModelFileImporter(application)
@@ -325,7 +292,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             modelDescription,
             modelName
         )
-        ActivityLogger.record(getApplication(), "MODEL", "runtime_ready", "Native model and context are ready")
+        ActivityLogger.record(
+            getApplication(), "MODEL", "runtime_ready",
+            "name=$modelName description=$modelDescription n_ctx=${preparationMetrics.actualNctx} cpu_threads=${_cpuThreads.value}"
+        )
         scheduleMemoryWarmup()
     }
 
@@ -369,9 +339,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Retain both sides privately so the summary can describe the exchange without quoting it.
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
-        memoryWarmupJob?.cancel()
-        // Interrupt any in-progress idle prefill so a foreground request gets priority.
-        runtime.requestStop()
+
+        // Answer stable capability/identity questions locally; a small on-device model
+        // should not be allowed to hallucinate capabilities or drift on identity.
+        localConversationReply(prompt)?.let { reply ->
+            completeLocalReply(prompt, reply)
+            return
+        }
 
         // Keep phone actions local; they are not injected into GGUF inference.
         DeviceIntentRouter.route(prompt)?.let { call ->
@@ -399,6 +373,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var rawResponse = ""
             var templateStartsThinking = false
             try {
+                // Let a system-prefix warmup finish rather than aborting it and
+                // paying the full prompt-prefill cost again for this request.
+                memoryWarmupJob?.join()
                 val answer = withContext(Dispatchers.Default) {
                     nativeInferenceMutex.withLock {
                     runtime.resetStopRequest()
@@ -557,27 +534,62 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) {
                         0
                     } else {
-                        val ready = _uiState.value as? ChatUiState.Ready
-                        val contextCapacity = (ready?.nCtx ?: 512).coerceAtLeast(128)
-                        val outputReserve = _inferenceConfig.value.maxTokens.coerceAtMost(
-                            (contextCapacity / 3).coerceAtLeast(64)
-                        )
-                        val systemTokens = runtime.tokenize(fixedSystemInstructions).size + 48
-                        // Reserve room for the next user question; use all remaining context
-                        // for memory rather than an arbitrary fixed 300-token ceiling.
-                        val memoryBudget = (contextCapacity - outputReserve - systemTokens - 256).coerceAtLeast(0)
-                        val summary = trimMemoryToTokenBudget(
-                            ActivityLogger.promptMemory(getApplication()),
-                            memoryBudget
-                        )
+                        // Warm only the invariant system prefix. The memory changes
+                        // between turns; preloading it makes the cache stale and expensive.
+                        // The system message is byte-for-byte identical in every request.
                         runtime.resetStopRequest()
-                        runtime.warmPrompt(buildMemoryPrefixMessages(summary))
+                        runtime.warmPrompt(listOf(PromptMessage("system", fixedSystemInstructions)))
                     }
                 }
             }
             if (warmedTokens > 0) {
                 android.util.Log.d("MrRedMemory", "Warmed $warmedTokens memory-prefix tokens")
             }
+        }
+    }
+
+    private fun localConversationReply(prompt: String): String? {
+        val text = prompt.trim().lowercase(java.util.Locale.US)
+        if (text.matches(Regex("^[.!?,;:]+$"))) {
+            return "I'm here. What would you like to do?"
+        }
+        if (Regex("\\b(who are you|what are you|introduce yourself|tell me about yourself)\\b").containsMatchIn(text)) {
+            return "I'm Mr-Red, your on-device personal assistant. I can help with conversation and the Android features connected in this app, including active notifications, device status, alarms and reminders. I'm composed, observant and occasionally dry-witted; I'll be clear about what I can and cannot access."
+        }
+        if (Regex("\\b(email|emails|mail|inbox)\\b").containsMatchIn(text) &&
+            Regex("\\b(any|check|show|read|new|unread|latest|have|got|see|look|my)\\b").containsMatchIn(text)) {
+            return "I can't read your email inbox in this build because no email account connection or inbox-reading tool is configured. I can open Gmail on your phone, but I can't see your messages or verify whether you have new mail."
+        }
+        if (Regex("\\b(explain|what does|what is|meaning of)\\b.*\\bnotification\\b|\\bthis notification\\b").containsMatchIn(text)) {
+            val notifications = MrRedNotificationListenerService.currentNotifications(getApplication())
+            if (notifications.isEmpty()) {
+                return "I can't see an active notification right now. Make sure Notification access is enabled for Mr-Red, then ask me to check again."
+            }
+            if (notifications.size > 1) {
+                val choices = notifications.take(8).mapIndexed { index, item ->
+                    "${index + 1}. ${item.app}: ${item.title}" +
+                        item.text.takeIf { it.isNotBlank() }?.let { " — ${it.take(100)}" }.orEmpty()
+                }
+                return "There are ${notifications.size} active notifications, so “this notification” is ambiguous. Which one should I explain?\n" +
+                    choices.joinToString("\n")
+            }
+            val item = notifications.first()
+            val body = item.text.ifBlank { "No message text was supplied." }
+            return "This notification is from ${item.app}.\nTitle: ${item.title}\nMessage: $body\n\nIn plain terms, that is the information the app is displaying. I won't infer an action or result that the notification itself doesn't state."
+        }
+        return null
+    }
+
+    private fun completeLocalReply(prompt: String, reply: String) {
+        _messages.value = _messages.value +
+            ChatMessage(MessageRole.User, prompt) +
+            ChatMessage(MessageRole.Assistant, reply)
+        _generationError.value = null
+        ActivityLogger.record(getApplication(), "ANSWER", "generated", reply)
+        synchronized(conversationHistory) {
+            conversationHistory += prompt to reply
+            while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
+            persistConversationHistoryLocked()
         }
     }
 
@@ -617,7 +629,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     "result_${call.name}",
                     toolContent
                 )
-                val requiresNaturalAnswer = call.name in setOf("read_notifications", "web_search", "get_news", "get_weather") &&
+                // Notification snapshots are already structured, verified Android data.
+                // Return them directly: asking a slow local model to paraphrase them caused
+                // hallucinated notification details and several minutes of extra latency.
+                val requiresNaturalAnswer = call.name in setOf("web_search", "get_news", "get_weather") &&
                     _uiState.value is ChatUiState.Ready
                 val content = if (requiresNaturalAnswer) {
                     val ready = _uiState.value as ChatUiState.Ready
