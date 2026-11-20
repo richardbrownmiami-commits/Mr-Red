@@ -252,20 +252,26 @@ object EventMemoryStore {
             factDb.rawQuery("SELECT fact FROM facts ORDER BY updated_at DESC LIMIT 8", null).use { cursor ->
                 val facts = mutableListOf<String>()
                 while (cursor.moveToNext()) facts += cursor.getString(0)
-                if (facts.isNotEmpty()) output.append("[VERIFIED LONG-TERM FACTS]\\n").append(facts.joinToString("\\n") { "- $it" }).append("\\n")
+                if (facts.isNotEmpty()) output.append("[VERIFIED LONG-TERM FACTS]\n").append(facts.joinToString("\n") { "- $it" }).append("\n")
             }
         }
         if (selectedTypes.isNotEmpty()) {
-            output.append("[RETRIEVED MEMORY — ").append(rangeLabel).append("]\\n")
+            output.append("[RETRIEVED MEMORY — ").append(rangeLabel).append("]\n")
+            if (rows.isNotEmpty()) {
+                val counts = rows.groupingBy { it.type }.eachCount()
+                output.append("Event totals: ")
+                    .append(counts.entries.joinToString(", ") { "${it.key.lowercase(java.util.Locale.US)}=${it.value}" })
+                    .append(".\\n")
+            }
             val ordered = rows.sortedBy { it.time }
             val conversationRows = ordered.filter { it.type == "QUESTION" || it.type == "ANSWER" }
             if (asksConversation && conversationRows.isNotEmpty()) {
-                output.append("[CONVERSATION EXCHANGES]\\n")
+                output.append("[CONVERSATION EXCHANGES]\n")
                 var pending: String? = null
                 conversationRows.forEach { row ->
                     if (row.type == "QUESTION") pending = row.detail
                     else if (row.type == "ANSWER" && pending != null) {
-                        output.append("User: ").append(pending!!.take(500)).append("\\nMr-Red: ").append(row.detail.take(700)).append("\\n")
+                        output.append("User: ").append(pending!!.take(500)).append("\nMr-Red: ").append(row.detail.take(700)).append("\n")
                         pending = null
                     }
                 }
@@ -277,9 +283,9 @@ object EventMemoryStore {
                     "app=${row.source}; title=${row.title}; content=${content}; importance=${row.importance}; status=${if (row.active) "active" else "removed"}"
                 } else row.detail.replace(Regex("\\s+"), " ").take(260)
                 output.append(stamp).append(" | ").append(row.type).append(" | ").append(row.action)
-                    .append(" | ").append(row.source).append(" | ").append(detail).append("\\n")
+                    .append(" | ").append(row.source).append(" | ").append(detail).append("\n")
             }
-            if (rows.isEmpty()) output.append("No matching stored events in this time range.\\n")
+            if (rows.isEmpty()) output.append("No matching stored events in this time range.\n")
         }
         return output.toString().trim()
     }
