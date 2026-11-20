@@ -167,104 +167,18 @@ object EventMemoryStore {
      * Selects only memory relevant to the current question. This runs on a background
      * dispatcher; pending asynchronous writes are drained first so completed turns are visible.
      */
-    fun relevantContext(context: Context, question: String, nowMillis: Long = System.currentTimeMillis()): String {
         runCatching { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
-        val q = question.lowercase(java.util.Locale.ROOT)
-        val asksNotifications = listOf("notification", "notifications", "message", "sms", "missed call", "anything important").any(q::contains)
-        val asksConversation = listOf("conversation", "discuss", "what did we talk", "what did you say", "what you said", "previous answer", "remember our chat").any(q::contains)
-        val asksFacts = listOf("remember me", "remember about me", "what do you remember", "what do you know about me", "my preference", "my facts", "long-term memory").any(q::contains)
-        val asksAlarms = listOf("alarm", "alarms").any(q::contains)
-        val asksReminders = listOf("reminder", "reminders").any(q::contains)
-        val asksSettings = listOf("setting", "settings", "configuration").any(q::contains)
-        val asksErrors = listOf("error", "crash", "failed", "failure", "model slow", "performance").any(q::contains)
-        val asksWeb = listOf("web search", "searched online", "search history", "browsing", "website").any(q::contains)
-        val broadActivity = listOf("what happened", "what have i done", "what did i do", "activity", "today", "yesterday", "this morning", "this afternoon", "this evening", "tonight", "last night").any(q::contains) ||
-            Regex("\\b(last|past)\\s+(\\d+|one|five|seven)\\s+(hours?|days?)\\b").containsMatchIn(q)
-
-        val cal = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
-        fun midnight(c: java.util.Calendar) {
-            c.set(java.util.Calendar.HOUR_OF_DAY, 0); c.set(java.util.Calendar.MINUTE, 0)
-            c.set(java.util.Calendar.SECOND, 0); c.set(java.util.Calendar.MILLISECOND, 0)
-        }
-        val start: Long
-        val end: Long
-        val rangeLabel: String
-        val dateMatch = Regex("\\b20\\d{2}-\\d{2}-\\d{2}\\b").find(q)
-        when {
-            dateMatch != null -> {
-                val parsed = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).apply { isLenient = false }.parse(dateMatch.value)
-                    ?: throw IllegalArgumentException("Invalid date in question")
-                val day = java.util.Calendar.getInstance().apply { time = parsed; timeZone = cal.timeZone }
-                midnight(day); start = day.timeInMillis
-                day.add(java.util.Calendar.DAY_OF_YEAR, 1); end = day.timeInMillis - 1
-                rangeLabel = dateMatch.value
-            }
-            q.contains("last night") -> {
-                midnight(cal); cal.add(java.util.Calendar.DAY_OF_YEAR, -1); cal.set(java.util.Calendar.HOUR_OF_DAY, 18)
-                start = cal.timeInMillis
-                cal.add(java.util.Calendar.DAY_OF_YEAR, 1); cal.set(java.util.Calendar.HOUR_OF_DAY, 6)
-                end = minOf(nowMillis, cal.timeInMillis); rangeLabel = "last night (18:00–06:00)"
-            }
-            q.contains("this morning") -> {
-                midnight(cal); cal.set(java.util.Calendar.HOUR_OF_DAY, 5); start = cal.timeInMillis
-                cal.set(java.util.Calendar.HOUR_OF_DAY, 12); end = minOf(nowMillis, cal.timeInMillis - 1)
-                rangeLabel = "this morning (05:00–12:00)"
-            }
-            q.contains("this afternoon") -> {
-                midnight(cal); cal.set(java.util.Calendar.HOUR_OF_DAY, 12); start = cal.timeInMillis
-                cal.set(java.util.Calendar.HOUR_OF_DAY, 17); end = minOf(nowMillis, cal.timeInMillis - 1)
-                rangeLabel = "this afternoon (12:00–17:00)"
-            }
-            q.contains("tonight") || q.contains("this evening") -> {
-                midnight(cal); cal.set(java.util.Calendar.HOUR_OF_DAY, 17); start = cal.timeInMillis
-                end = nowMillis; rangeLabel = "this evening"
-            }
-            q.contains("yesterday") -> {
-                midnight(cal); cal.add(java.util.Calendar.DAY_OF_YEAR, -1); start = cal.timeInMillis
-                cal.add(java.util.Calendar.DAY_OF_YEAR, 1); end = cal.timeInMillis - 1
-                rangeLabel = "yesterday"
-            }
-            q.contains("today") -> {
-                midnight(cal); start = cal.timeInMillis; end = nowMillis; rangeLabel = "today"
-            }
-            Regex("\\b(last|past)\\s+(\\d+|one|five|seven)\\s+days?\\b").containsMatchIn(q) -> {
-                val rawDays = Regex("\\b(last|past)\\s+(\\d+|one|five|seven)\\s+days?\\b").find(q)!!.groupValues[2]
-                val days = (rawDays.toIntOrNull() ?: mapOf("one" to 1, "five" to 5, "seven" to 7)[rawDays]!!).coerceIn(1, 30)
-                start = nowMillis - days * 24L * 60 * 60 * 1000; end = nowMillis; rangeLabel = "last " + days + " days"
-            }
-            Regex("\\b(last|past)\\s+(5|five)\\s+hours?\\b").containsMatchIn(q) -> {
-                start = nowMillis - 5 * 60 * 60 * 1000L; end = nowMillis; rangeLabel = "last 5 hours"
-            }
-            Regex("\\b(last|past)\\s+(1|one)\\s+hours?\\b").containsMatchIn(q) || q.contains("last hour") || q.contains("past hour") || q.contains("recent notification") -> {
-                start = nowMillis - 60 * 60 * 1000L; end = nowMillis; rangeLabel = "last hour"
-            }
-            asksConversation -> {
-                start = nowMillis - 30L * 24 * 60 * 60 * 1000; end = nowMillis; rangeLabel = "recent conversation history"
-            }
-            else -> {
-                start = nowMillis - 24L * 60 * 60 * 1000; end = nowMillis; rangeLabel = "last 24 hours"
-            }
-        }
-
-        // Intents are additive: a notification mention never suppresses other requested categories.
-        val selectedTypes = linkedSetOf<String>()
-        if (asksNotifications) selectedTypes += "NOTIFICATION"
-        if (asksConversation) selectedTypes += listOf("QUESTION", "ANSWER")
-        if (asksAlarms) selectedTypes += "ALARM"
-        if (asksReminders) selectedTypes += "REMINDER"
-        if (asksSettings) selectedTypes += "SETTINGS"
-        if (asksErrors) selectedTypes += listOf("ERROR", "INFERENCE", "MODEL", "FATAL")
-        if (asksWeb) selectedTypes += "WEB"
-        if (broadActivity) selectedTypes += listOf("NOTIFICATION", "QUESTION", "ANSWER", "APP", "UI", "DEVICE", "SETTINGS", "ALARM", "REMINDER", "ERROR", "MODEL", "INFERENCE", "WEB", "FEATURE", "PERMISSION", "FATAL", "FACT")
-        if (asksFacts) selectedTypes += "FACT"
-
+        val plan = EventMemoryQueryPlanner.plan(question, nowMillis)
+        val asksFacts = plan.asksFacts
+        val selectedTypes = plan.eventTypes
+        val rangeLabel = plan.rangeLabel
         data class Row(val type: String, val action: String, val source: String, val detail: String, val time: Long, val title: String, val body: String, val importance: String, val active: Boolean)
         val rows = mutableListOf<Row>()
         if (selectedTypes.isNotEmpty()) {
             val placeholders = selectedTypes.joinToString(",") { "?" }
-            val args = (selectedTypes.toList() + start.toString() + end.toString()).toTypedArray()
+            val args = (selectedTypes.toList() + plan.startMillis.toString() + plan.endExclusiveMillis.toString()).toTypedArray()
             database(context).readableDatabase.rawQuery(
-                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type IN (" + placeholders + ") AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 100",
+                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type IN (" + placeholders + ") AND occurred_at >= ? AND occurred_at < ? ORDER BY occurred_at DESC LIMIT 100",
                 args
             ).use { cursor ->
                 while (cursor.moveToNext()) rows += Row(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getLong(4), cursor.getString(5), cursor.getString(6), cursor.getString(7), cursor.getInt(8) == 1)
@@ -287,7 +201,7 @@ object EventMemoryStore {
             }
             val ordered = rows.sortedBy { it.time }
             val conversationRows = ordered.filter { it.type == "QUESTION" || it.type == "ANSWER" }
-            if ((asksConversation || broadActivity) && conversationRows.isNotEmpty()) {
+            if (plan.includeConversation && conversationRows.isNotEmpty()) {
                 val exchanges = mutableListOf<Pair<String, String>>()
                 var pending: String? = null
                 conversationRows.forEach { row ->
