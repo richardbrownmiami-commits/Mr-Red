@@ -62,9 +62,9 @@ object AlarmScheduler {
             )
 
             ScheduledTasksStore.recordAlarm(context, hour, minute, message, triggerMillis)
-            ActivityLogger.record(context, "ALARM", "scheduled", "message=$message trigger_at=$triggerMillis local_time=$timeFormatted")
 
             val timeFormatted = String.format("%02d:%02d", hour, minute)
+            ActivityLogger.record(context, "ALARM", "scheduled", "message=$message trigger_at=$triggerMillis local_time=$timeFormatted")
             val inTimeStr = if (diffHours > 0) "${diffHours}h ${diffMins}m" else "${diffMins}m"
             ToolResult.Success("Alarm set in Mr-Red for $timeFormatted (rings in $inTimeStr) with audio and spoken announcement.")
         }.getOrElse {
