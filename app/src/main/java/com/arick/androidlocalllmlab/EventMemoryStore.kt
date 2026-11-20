@@ -167,13 +167,9 @@ object EventMemoryStore {
      * Selects only memory relevant to the current question. This runs on a background
      * dispatcher; pending asynchronous writes are drained first so completed turns are visible.
      */
-    fun relevantContext(
-        context: Context,
-        question: String,
-        nowMillis: Long = System.currentTimeMillis()
-    ): String {
+    fun relevantContext(context: Context, question: String, nowMillis: Long = System.currentTimeMillis()): String {
         runCatching { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
-        val q = question.lowercase()
+        val q = question.lowercase(java.util.Locale.ROOT)
         val asksNotifications = listOf("notification", "notifications", "message", "sms", "missed call", "anything important").any(q::contains)
         val asksConversation = listOf("conversation", "discuss", "what did we talk", "what did you say", "what you said", "previous answer", "remember our chat").any(q::contains)
         val asksFacts = listOf("remember me", "remember about me", "what do you remember", "what do you know about me", "my preference", "my facts", "long-term memory").any(q::contains)
@@ -181,34 +177,65 @@ object EventMemoryStore {
         val asksReminders = listOf("reminder", "reminders").any(q::contains)
         val asksSettings = listOf("setting", "settings", "configuration").any(q::contains)
         val asksErrors = listOf("error", "crash", "failed", "failure", "model slow", "performance").any(q::contains)
-        val asksDevice = listOf("device activity", "app activity", "what happened", "activity yesterday", "what did i do").any(q::contains)
-        val hasRecentWindow = Regex("\\b(last|past)\\s+(1|one|5|five)\\s+hours?\\b").containsMatchIn(q) || q.contains("last hour") || q.contains("past hour")
-        val broadActivity = asksDevice || q.contains("yesterday") || q.contains("today") || hasRecentWindow
+        val asksWeb = listOf("web search", "searched online", "search history", "browsing", "website").any(q::contains)
+        val broadActivity = listOf("what happened", "what have i done", "what did i do", "activity", "today", "yesterday", "this morning", "this afternoon", "this evening", "tonight", "last night").any(q::contains) ||
+            Regex("\\b(last|past)\\s+\\d+\\s+(hours?|days?)\\b").containsMatchIn(q)
 
-        val calendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
-        val end: Long
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
+        fun midnight(c: java.util.Calendar) {
+            c.set(java.util.Calendar.HOUR_OF_DAY, 0); c.set(java.util.Calendar.MINUTE, 0)
+            c.set(java.util.Calendar.SECOND, 0); c.set(java.util.Calendar.MILLISECOND, 0)
+        }
         val start: Long
+        val end: Long
         val rangeLabel: String
+        val dateMatch = Regex("\\b20\\d{2}-\\d{2}-\\d{2}\\b").find(q)
         when {
+            dateMatch != null -> {
+                val parsed = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).apply { isLenient = false }.parse(dateMatch.value)
+                    ?: throw IllegalArgumentException("Invalid date in question")
+                val day = java.util.Calendar.getInstance().apply { time = parsed; timeZone = cal.timeZone }
+                midnight(day); start = day.timeInMillis
+                day.add(java.util.Calendar.DAY_OF_YEAR, 1); end = day.timeInMillis - 1
+                rangeLabel = dateMatch.value
+            }
+            q.contains("last night") -> {
+                midnight(cal); cal.add(java.util.Calendar.DAY_OF_YEAR, -1); cal.set(java.util.Calendar.HOUR_OF_DAY, 18)
+                start = cal.timeInMillis
+                cal.add(java.util.Calendar.DAY_OF_YEAR, 1); cal.set(java.util.Calendar.HOUR_OF_DAY, 6)
+                end = minOf(nowMillis, cal.timeInMillis); rangeLabel = "last night (18:00–06:00)"
+            }
+            q.contains("this morning") -> {
+                midnight(cal); cal.set(java.util.Calendar.HOUR_OF_DAY, 5); start = cal.timeInMillis
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 12); end = minOf(nowMillis, cal.timeInMillis - 1)
+                rangeLabel = "this morning (05:00–12:00)"
+            }
+            q.contains("this afternoon") -> {
+                midnight(cal); cal.set(java.util.Calendar.HOUR_OF_DAY, 12); start = cal.timeInMillis
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 17); end = minOf(nowMillis, cal.timeInMillis - 1)
+                rangeLabel = "this afternoon (12:00–17:00)"
+            }
+            q.contains("tonight") || q.contains("this evening") -> {
+                midnight(cal); cal.set(java.util.Calendar.HOUR_OF_DAY, 17); start = cal.timeInMillis
+                end = nowMillis; rangeLabel = "this evening"
+            }
             q.contains("yesterday") -> {
-                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
-                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0); calendar.set(java.util.Calendar.MINUTE, 0)
-                calendar.set(java.util.Calendar.SECOND, 0); calendar.set(java.util.Calendar.MILLISECOND, 0)
-                start = calendar.timeInMillis
-                calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
-                end = calendar.timeInMillis - 1
+                midnight(cal); cal.add(java.util.Calendar.DAY_OF_YEAR, -1); start = cal.timeInMillis
+                cal.add(java.util.Calendar.DAY_OF_YEAR, 1); end = cal.timeInMillis - 1
                 rangeLabel = "yesterday"
+            }
+            q.contains("today") -> {
+                midnight(cal); start = cal.timeInMillis; end = nowMillis; rangeLabel = "today"
+            }
+            Regex("\\b(last|past)\\s+(\\d+)\\s+days?\\b").containsMatchIn(q) -> {
+                val days = Regex("\\b(last|past)\\s+(\\d+)\\s+days?\\b").find(q)!!.groupValues[2].toInt().coerceIn(1, 30)
+                start = nowMillis - days * 24L * 60 * 60 * 1000; end = nowMillis; rangeLabel = "last " + days + " days"
             }
             Regex("\\b(last|past)\\s+(5|five)\\s+hours?\\b").containsMatchIn(q) -> {
                 start = nowMillis - 5 * 60 * 60 * 1000L; end = nowMillis; rangeLabel = "last 5 hours"
             }
             Regex("\\b(last|past)\\s+(1|one)\\s+hours?\\b").containsMatchIn(q) || q.contains("last hour") || q.contains("past hour") || q.contains("recent notification") -> {
                 start = nowMillis - 60 * 60 * 1000L; end = nowMillis; rangeLabel = "last hour"
-            }
-            q.contains("today") -> {
-                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0); calendar.set(java.util.Calendar.MINUTE, 0)
-                calendar.set(java.util.Calendar.SECOND, 0); calendar.set(java.util.Calendar.MILLISECOND, 0)
-                start = calendar.timeInMillis; end = nowMillis; rangeLabel = "today"
             }
             asksConversation -> {
                 start = nowMillis - 30L * 24 * 60 * 60 * 1000; end = nowMillis; rangeLabel = "recent conversation history"
@@ -218,51 +245,44 @@ object EventMemoryStore {
             }
         }
 
+        // Intents are additive: a notification mention never suppresses other requested categories.
         val selectedTypes = linkedSetOf<String>()
-        when {
-            asksNotifications -> selectedTypes += "NOTIFICATION"
-            asksConversation -> { selectedTypes += "QUESTION"; selectedTypes += "ANSWER" }
-            asksAlarms -> selectedTypes += "ALARM"
-            asksReminders -> selectedTypes += "REMINDER"
-            asksSettings -> selectedTypes += "SETTINGS"
-            asksErrors -> { selectedTypes += "ERROR"; selectedTypes += "INFERENCE"; selectedTypes += "MODEL" }
-            broadActivity -> selectedTypes += listOf("NOTIFICATION", "QUESTION", "ANSWER", "APP", "UI", "DEVICE", "SETTINGS", "ALARM", "REMINDER", "ERROR", "MODEL", "INFERENCE")
-            else -> { /* General knowledge questions do not receive unrelated event history. */ }
-        }
+        if (asksNotifications) selectedTypes += "NOTIFICATION"
+        if (asksConversation) selectedTypes += listOf("QUESTION", "ANSWER")
+        if (asksAlarms) selectedTypes += "ALARM"
+        if (asksReminders) selectedTypes += "REMINDER"
+        if (asksSettings) selectedTypes += "SETTINGS"
+        if (asksErrors) selectedTypes += listOf("ERROR", "INFERENCE", "MODEL", "FATAL")
+        if (asksWeb) selectedTypes += "WEB"
+        if (broadActivity) selectedTypes += listOf("NOTIFICATION", "QUESTION", "ANSWER", "APP", "UI", "DEVICE", "SETTINGS", "ALARM", "REMINDER", "ERROR", "MODEL", "INFERENCE", "WEB", "FEATURE", "PERMISSION", "FATAL", "FACT")
+        if (asksFacts) selectedTypes += "FACT"
 
         data class Row(val type: String, val action: String, val source: String, val detail: String, val time: Long, val title: String, val body: String, val importance: String, val active: Boolean)
         val rows = mutableListOf<Row>()
         if (selectedTypes.isNotEmpty()) {
             val placeholders = selectedTypes.joinToString(",") { "?" }
             val args = (selectedTypes.toList() + start.toString() + end.toString()).toTypedArray()
-            val db = database(context).readableDatabase
-            db.rawQuery(
-                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type IN ($placeholders) AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 60",
+            database(context).readableDatabase.rawQuery(
+                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type IN (" + placeholders + ") AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 100",
                 args
             ).use { cursor ->
-                while (cursor.moveToNext()) rows += Row(
-                    cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3),
-                    cursor.getLong(4), cursor.getString(5), cursor.getString(6), cursor.getString(7), cursor.getInt(8) == 1
-                )
+                while (cursor.moveToNext()) rows += Row(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getLong(4), cursor.getString(5), cursor.getString(6), cursor.getString(7), cursor.getInt(8) == 1)
             }
         }
 
         val output = StringBuilder()
         if (asksFacts) {
-            val factDb = database(context).readableDatabase
-            factDb.rawQuery("SELECT fact FROM facts ORDER BY updated_at DESC LIMIT 8", null).use { cursor ->
+            database(context).readableDatabase.rawQuery("SELECT fact FROM facts ORDER BY updated_at DESC LIMIT 8", null).use { cursor ->
                 val facts = mutableListOf<String>()
                 while (cursor.moveToNext()) facts += cursor.getString(0)
-                if (facts.isNotEmpty()) output.append("[VERIFIED LONG-TERM FACTS]\n").append(facts.joinToString("\n") { "- $it" }).append("\n")
+                if (facts.isNotEmpty()) output.append("[VERIFIED LONG-TERM FACTS]\n").append(facts.joinToString("\n") { "- " + it }).append('\n')
             }
         }
         if (selectedTypes.isNotEmpty()) {
             output.append("[RETRIEVED MEMORY — ").append(rangeLabel).append("]\n")
             if (rows.isNotEmpty()) {
                 val counts = rows.groupingBy { it.type }.eachCount()
-                output.append("Event totals: ")
-                    .append(counts.entries.joinToString(", ") { "${it.key.lowercase(java.util.Locale.US)}=${it.value}" })
-                    .append(".\n")
+                output.append("Event totals: ").append(counts.entries.joinToString(", ") { it.key.lowercase(java.util.Locale.US) + "=" + it.value }).append(".\n")
             }
             val ordered = rows.sortedBy { it.time }
             val conversationRows = ordered.filter { it.type == "QUESTION" || it.type == "ANSWER" }
@@ -271,28 +291,22 @@ object EventMemoryStore {
                 var pending: String? = null
                 conversationRows.forEach { row ->
                     if (row.type == "QUESTION") pending = row.detail
-                    else if (row.type == "ANSWER" && pending != null) {
-                        exchanges += pending!! to row.detail
-                        pending = null
-                    }
+                    else if (row.type == "ANSWER" && pending != null) { exchanges += pending!! to row.detail; pending = null }
                 }
                 if (exchanges.isNotEmpty()) {
                     output.append("[RECENT CONVERSATION EXCHANGES — NEWEST FIRST]\n")
-                    exchanges.asReversed().take(6).forEach { (question, answer) ->
-                        output.append("User: ").append(question.take(500))
-                            .append("\nMr-Red: ").append(answer.take(700)).append("\n")
+                    exchanges.asReversed().take(6).forEach { pair ->
+                        output.append("User: ").append(pair.first.take(500)).append("\nMr-Red: ").append(pair.second.take(700)).append('\n')
                     }
                 }
             }
-            rows.filter { it.type != "QUESTION" && it.type != "ANSWER" }
-                .sortedByDescending { it.time }.take(30).forEach { row ->
-                val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(row.time))
-                val detail = if (row.type == "NOTIFICATION") {
+            rows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.sortedByDescending { it.time }.take(50).forEach { row ->
+                val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(row.time))
+                val detail = if (row.type == "NOTIFICATION" && (row.title.isNotBlank() || row.body.isNotBlank())) {
                     val content = if (row.importance == "important") row.body else row.body.take(180)
-                    "app=${row.source}; title=${row.title}; content=${content}; importance=${row.importance}; status=${if (row.active) "active" else "removed"}"
-                } else row.detail.replace(Regex("\\s+"), " ").take(260)
-                output.append(stamp).append(" | ").append(row.type).append(" | ").append(row.action)
-                    .append(" | ").append(row.source).append(" | ").append(detail).append("\n")
+                    "app=" + row.source + "; title=" + row.title + "; content=" + content + "; importance=" + row.importance + "; status=" + if (row.active) "active" else "removed"
+                } else row.detail.replace(Regex("\\s+"), " ").take(320)
+                if (detail.isNotBlank()) output.append(stamp).append(" | ").append(row.type).append(" | ").append(row.action).append(" | ").append(row.source).append(" | ").append(detail).append('\n')
             }
             if (rows.isEmpty()) output.append("No matching stored events in this time range.\n")
         }
