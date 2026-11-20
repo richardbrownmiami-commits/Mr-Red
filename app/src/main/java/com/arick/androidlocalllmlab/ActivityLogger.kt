@@ -35,6 +35,9 @@ object ActivityLogger {
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
             val safeLayer = clean(layer, 32)
             val safeAction = clean(action, 64)
+            // SQLite is the canonical timestamped event store; the text journal remains a diagnostic export.
+            // Pass untruncated details to SQLite so stored conversations are not clipped at 4,000 characters.
+            EventMemoryStore.recordEvent(context, safeLayer, safeAction, detail, source = "activity_logger")
             val limit = if (safeLayer == "QUESTION" || safeLayer == "ANSWER" || safeLayer == "NOTIFICATION") MAX_DETAIL_LENGTH else 500
             val file = File(context.applicationContext.filesDir, FILE_NAME)
             file.appendText("$timestamp | $safeLayer | $safeAction | ${clean(detail, limit)}\n")
