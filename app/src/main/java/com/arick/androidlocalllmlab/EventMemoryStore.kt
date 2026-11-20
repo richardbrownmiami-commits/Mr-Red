@@ -176,7 +176,7 @@ object EventMemoryStore {
         val q = question.lowercase()
         val asksNotifications = listOf("notification", "notifications", "message", "sms", "missed call", "anything important").any(q::contains)
         val asksConversation = listOf("conversation", "discuss", "what did we talk", "what did you say", "what you said", "previous answer", "remember our chat").any(q::contains)
-        val asksFacts = listOf("remember me", "remember about me", "what do you know about me", "my preference", "my facts", "long-term memory").any(q::contains)
+        val asksFacts = listOf("remember me", "remember about me", "what do you remember", "what do you know about me", "my preference", "my facts", "long-term memory").any(q::contains)
         val asksAlarms = listOf("alarm", "alarms").any(q::contains)
         val asksReminders = listOf("reminder", "reminders").any(q::contains)
         val asksSettings = listOf("setting", "settings", "configuration").any(q::contains)
