@@ -216,17 +216,6 @@ object EventMemoryStore {
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
 
-    private fun prune(db: SQLiteDatabase) {
-        db.execSQL(
-            "DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY occurred_at DESC, id DESC LIMIT ?)",
-            arrayOf(MAX_EVENT_ROWS)
-        )
-        db.execSQL(
-            "DELETE FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' AND id NOT IN (SELECT id FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' ORDER BY occurred_at DESC, id DESC LIMIT ?)",
-            arrayOf<Any>(MAX_NOTIFICATION_ROWS)
-        )
-    }
-
     private class MemoryDatabase(context: Context) :
         SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
