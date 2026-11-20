@@ -16,7 +16,7 @@ import java.util.concurrent.Executors
  */
 object EventMemoryStore {
     private const val DATABASE_NAME = "mr_red_memory.db"
-    private const val DATABASE_VERSION = 1
+    private const val DATABASE_VERSION = 2
     private const val MAX_EVENT_ROWS = 50000
     private const val MAX_NOTIFICATION_ROWS = 10000
 
@@ -254,7 +254,7 @@ object EventMemoryStore {
             )
             db.execSQL("CREATE INDEX idx_events_type_time ON events(event_type, occurred_at DESC)")
             db.execSQL("CREATE INDEX idx_events_key ON events(package_name, event_key)")
-            db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at, action)")
+            db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at) WHERE event_type = 'NOTIFICATION' AND action = 'posted'")
             db.execSQL("CREATE INDEX idx_events_active ON events(event_type, is_active, occurred_at DESC)")
             db.execSQL(
                 """CREATE TABLE facts (
@@ -271,7 +271,10 @@ object EventMemoryStore {
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            // Future schema migrations must preserve the original event history.
+            if (oldVersion < 2) {
+                db.execSQL("DROP INDEX IF EXISTS idx_notification_unique")
+                db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at) WHERE event_type = 'NOTIFICATION' AND action = 'posted'")
+            }
         }
     }
 }
