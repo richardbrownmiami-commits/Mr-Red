@@ -189,6 +189,7 @@ class MainActivity : ComponentActivity() {
 
 enum class AppPage(val title: String, val icon: ImageVector) {
     Chat("Chat", Icons.Default.Chat),
+    TemplateSampler("Sampler", Icons.Default.Description),
     Tasks("Tasks", Icons.Default.Alarm),
     Dashboard("Dashboard", Icons.Default.Dashboard),
     Settings("Settings", Icons.Default.Settings)
@@ -222,7 +223,7 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
 
     Scaffold(
         bottomBar = {
-            if (selectedPage != AppPage.Chat || !WindowInsets.isImeVisible) NavigationBar(
+            if ((selectedPage != AppPage.Chat && selectedPage != AppPage.TemplateSampler) || !WindowInsets.isImeVisible) NavigationBar(
                 containerColor = AppColors.PageBackground,
                 contentColor = AppColors.PrimaryAction
             ) {
@@ -252,7 +253,7 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                 .fillMaxSize()
                 .padding(
                     top = innerPadding.calculateTopPadding(),
-                    bottom = if (selectedPage == AppPage.Chat && WindowInsets.isImeVisible) 0.dp else innerPadding.calculateBottomPadding()
+                    bottom = if ((selectedPage == AppPage.Chat || selectedPage == AppPage.TemplateSampler) && WindowInsets.isImeVisible) 0.dp else innerPadding.calculateBottomPadding()
                 )
                 .background(AppColors.PageBackground)
         ) {
@@ -261,6 +262,10 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                     viewModel = viewModel,
                     onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) },
                     onNavigateToSettings = { selectedPage = AppPage.Settings }
+                )
+                AppPage.TemplateSampler -> TemplateSamplerPage(
+                    viewModel = viewModel,
+                    onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) }
                 )
                 AppPage.Tasks -> ScheduledTasksPage(
                     onNavigateToChat = { selectedPage = AppPage.Chat }
@@ -2312,3 +2317,172 @@ private fun formatBytes(bytes: Long): String = when {
 private fun formatKb(kb: Int): String = formatBytes(kb.toLong() * 1024L)
 
 private fun formatTokensPerSecond(value: Double): String = String.format(Locale.US, "%.1f t/s", value)
+
+
+/* =========================================================================================
+ * TEMPLATE SAMPLER — read-only Kotlin retrieval + real GGUF prompt test
+ * ========================================================================================= */
+
+@Composable
+private fun TemplateSamplerPage(
+    viewModel: ChatViewModel,
+    onOpenModelPicker: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val messages by viewModel.samplerMessages.collectAsState()
+    val isGenerating by viewModel.samplerGenerating.collectAsState()
+    val status by viewModel.samplerStatus.collectAsState()
+    val retrievedMemory by viewModel.samplerRetrievedMemory.collectAsState()
+    val formattedPrompt by viewModel.samplerFormattedPrompt.collectAsState()
+    val promptTokenCount by viewModel.samplerPromptTokenCount.collectAsState()
+    val clipboard = LocalClipboardManager.current
+    var showRetrievedMemory by remember { mutableStateOf(false) }
+    var showFormattedPrompt by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .imePadding()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Template Sampler", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                Text("Test Kotlin retrieval and the exact prompt sent to GGUF.", fontSize = 12.sp, color = AppColors.TextSecondary)
+            }
+            TextButton(
+                onClick = { viewModel.clearSamplerSession(); showRetrievedMemory = false; showFormattedPrompt = false },
+                enabled = !isGenerating
+            ) { Text("Clear") }
+        }
+
+        Text(
+            text = when (uiState) {
+                is ChatUiState.Ready -> "Model: ${(uiState as ChatUiState.Ready).modelName}"
+                is ChatUiState.Preparing -> "Loading model…"
+                is ChatUiState.Error -> "Model error"
+                ChatUiState.Idle -> "No model loaded"
+            },
+            fontSize = 12.sp,
+            color = AppColors.PrimaryActionGlow,
+            modifier = Modifier.padding(top = 4.dp, bottom = 3.dp)
+        )
+        Text(status, fontSize = 11.sp, color = AppColors.TextSecondary)
+        HorizontalDivider(color = AppColors.CardBorder, modifier = Modifier.padding(vertical = 8.dp))
+
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (messages.isEmpty()) {
+                item {
+                    Card(colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground)) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                            Text("Ask a database-dependent question", fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                "Examples: “What notifications did I receive in the last hour?”, “What happened yesterday?”, or “What do you remember about my preferences?”",
+                                fontSize = 13.sp,
+                                color = AppColors.TextSecondary
+                            )
+                            Text(
+                                "The sampler reads existing memory records. Test questions and answers are not saved to normal chat history or the memory database.",
+                                fontSize = 12.sp,
+                                color = AppColors.TextSecondary,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            items(messages) { message ->
+                val isUser = message.role == MessageRole.User
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.CardBorder)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                        Text(
+                            if (isUser) "TEST QUESTION" else "MODEL RESPONSE",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.PrimaryActionGlow
+                        )
+                        Text(
+                            message.content.ifBlank { if (isGenerating && !isUser) "Generating…" else " " },
+                            fontSize = 14.sp,
+                            color = AppColors.TextPrimary,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                        if (!isUser && message.reasoningContent.isNotBlank()) {
+                            Text("Reasoning: ${message.reasoningContent}", fontSize = 11.sp, color = AppColors.TextSecondary, modifier = Modifier.padding(top = 6.dp))
+                        }
+                        message.generationMetrics?.let { metrics ->
+                            Text(
+                                "Prompt ${metrics.promptTokenCount} tokens · cached ${metrics.cachedPromptTokens} · prefilled ${metrics.newlyProcessedPromptTokens} · output ${metrics.generatedTokenCount}",
+                                fontSize = 10.sp,
+                                color = AppColors.TextSecondary,
+                                modifier = Modifier.padding(top = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+            border = androidx.compose.foundation.BorderStroke(1.dp, AppColors.CardBorder)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("KOTLIN → MODEL TRACE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppColors.PrimaryActionGlow, modifier = Modifier.weight(1f))
+                    Text("${promptTokenCount} prompt tokens", fontSize = 10.sp, color = AppColors.TextSecondary)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { showRetrievedMemory = !showRetrievedMemory; showFormattedPrompt = false }) {
+                        Text(if (showRetrievedMemory) "Hide retrieved data" else "Retrieved data")
+                    }
+                    TextButton(onClick = { showFormattedPrompt = !showFormattedPrompt; showRetrievedMemory = false }) {
+                        Text(if (showFormattedPrompt) "Hide model prompt" else "Exact model prompt")
+                    }
+                    if (formattedPrompt.isNotBlank()) {
+                        TextButton(onClick = { clipboard.setText(AnnotatedString(formattedPrompt)) }) { Text("Copy") }
+                    }
+                }
+                if (showRetrievedMemory) {
+                    Text(
+                        retrievedMemory.ifBlank { "(Kotlin selected no matching database records for this question.)" },
+                        fontSize = 11.sp,
+                        color = AppColors.TextSecondary,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp).verticalScroll(rememberScrollState())
+                    )
+                }
+                if (showFormattedPrompt) {
+                    Text(
+                        formattedPrompt.ifBlank { "The final formatted prompt appears here when inference starts." },
+                        fontSize = 11.sp,
+                        color = AppColors.TextSecondary,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState())
+                    )
+                }
+            }
+        }
+
+        ChatComposer(
+            enabled = uiState is ChatUiState.Ready,
+            isGenerating = isGenerating,
+            isStopRequested = false,
+            onSend = viewModel::sendSamplerQuestion,
+            onStop = viewModel::stopSamplerGeneration,
+            onOpenModelPicker = onOpenModelPicker
+        )
+    }
+}
