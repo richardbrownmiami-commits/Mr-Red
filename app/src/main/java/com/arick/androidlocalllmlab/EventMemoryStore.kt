@@ -6,6 +6,9 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Persistent, app-private event memory. Collection is asynchronous so notification callbacks
@@ -21,6 +24,35 @@ object EventMemoryStore {
     private val writer = Executors.newSingleThreadExecutor { task ->
         Thread(task, "mr-red-memory-db").apply { isDaemon = true }
     }
+    private val failedWriteCount = AtomicInteger(0)
+    private val lastWriteFailure = AtomicReference("")
+
+    private fun noteWriteFailure(error: Throwable) {
+        failedWriteCount.incrementAndGet()
+        lastWriteFailure.set(error.javaClass.simpleName)
+    }
+
+    private fun runWrite(block: () -> Unit) {
+        runCatching(block).onFailure(::noteWriteFailure)
+    }
+
+    private fun awaitPendingWrites() {
+        try {
+            writer.submit {}.get(5, TimeUnit.SECONDS)
+        } catch (error: Exception) {
+            noteWriteFailure(error)
+            throw IllegalStateException(
+                "Event-memory writes did not drain; refusing to answer from a potentially stale snapshot.",
+                error
+            )
+        }
+    }
+
+    /** Non-sensitive health counters for diagnostics and the sampler. */
+    fun writeDiagnostics(): Map<String, String> = mapOf(
+        "failed_writes" to failedWriteCount.get().toString(),
+        "last_failure_type" to lastWriteFailure.get()
+    )
 
     @Volatile
     private var helper: MemoryDatabase? = null
@@ -40,7 +72,7 @@ object EventMemoryStore {
     ) {
         val appContext = context.applicationContext
         writer.execute {
-            runCatching {
+            runWrite {
                 val values = ContentValues().apply {
                     put("event_type", category.take(48))
                     put("action", action.take(80))
@@ -65,7 +97,7 @@ object EventMemoryStore {
     ) {
         val appContext = context.applicationContext
         writer.execute {
-            runCatching {
+            runWrite {
                 val db = database(appContext).writableDatabase
                 val values = ContentValues().apply {
                     put("event_type", "NOTIFICATION")
@@ -93,7 +125,7 @@ object EventMemoryStore {
     ) {
         val appContext = context.applicationContext
         writer.execute {
-            runCatching {
+            runWrite {
                 val db = database(appContext).writableDatabase
                 db.execSQL(
                     "UPDATE events SET is_active = 0 WHERE event_type = 'NOTIFICATION' AND action = 'posted' AND package_name = ? AND event_key = ?",
@@ -137,7 +169,7 @@ object EventMemoryStore {
 
         val appContext = context.applicationContext
         writer.execute {
-            runCatching {
+            runWrite {
                 val now = System.currentTimeMillis()
                 val values = ContentValues().apply {
                     put("fact", fact)
@@ -168,7 +200,7 @@ object EventMemoryStore {
      * dispatcher; pending asynchronous writes are drained first so completed turns are visible.
      */
     fun relevantContext(context: Context, question: String, nowMillis: Long = System.currentTimeMillis()): String {
-        runCatching { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
+        awaitPendingWrites()
         val plan = EventMemoryQueryPlanner.plan(question, nowMillis)
         val asksFacts = plan.asksFacts
         val selectedTypes = plan.eventTypes
@@ -235,7 +267,7 @@ object EventMemoryStore {
         sinceMillis: Long,
         nowMillis: Long = System.currentTimeMillis()
     ): String {
-        runCatching { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
+        awaitPendingWrites()
         data class Notification(val app: String, val title: String, val body: String, val time: Long, val importance: String, val active: Boolean)
         val records = mutableListOf<Notification>()
         database(context).readableDatabase.rawQuery(
@@ -266,7 +298,7 @@ object EventMemoryStore {
     fun clearEventHistory(context: Context) {
         val appContext = context.applicationContext
         writer.execute {
-            runCatching { database(appContext).writableDatabase.delete("events", null, null) }
+            runWrite { database(appContext).writableDatabase.delete("events", null, null) }
         }
     }
 
