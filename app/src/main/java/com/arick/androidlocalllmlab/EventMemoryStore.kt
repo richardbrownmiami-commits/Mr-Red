@@ -167,6 +167,7 @@ object EventMemoryStore {
      * Selects only memory relevant to the current question. This runs on a background
      * dispatcher; pending asynchronous writes are drained first so completed turns are visible.
      */
+    fun relevantContext(context: Context, question: String, nowMillis: Long = System.currentTimeMillis()): String {
         runCatching { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
         val plan = EventMemoryQueryPlanner.plan(question, nowMillis)
         val asksFacts = plan.asksFacts
