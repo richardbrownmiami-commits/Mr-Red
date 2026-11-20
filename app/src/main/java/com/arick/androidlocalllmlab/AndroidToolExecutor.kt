@@ -520,51 +520,17 @@ class AndroidToolExecutor(private val context: Context) {
         }
         val now = System.currentTimeMillis()
         val hourAgo = now - 60L * 60L * 1000L
-        val records = MrRedNotificationListenerService.recentNotifications(context, hourAgo)
-        if (records.isEmpty()) {
+        val digest = EventMemoryStore.recentNotificationDigest(context, hourAgo, now)
+        if (digest.isBlank()) {
             return if (!MrRedNotificationListenerService.isConnected()) {
                 ToolResult.Success("Notification access is enabled, but Android has not connected the notification listener yet. No notifications from the last hour can be verified.")
             } else {
-                ToolResult.Success("No notifications were posted in the last hour.")
+                ToolResult.Success("No active notifications were recorded in SQLite during the last hour.")
             }
         }
-        val criticalPackage = Regex(
-            "(sms|mms|messag|dialer|phone|telecom|call|gmail|email|outlook|mail|bank|pay|wallet|authenticator)",
-            RegexOption.IGNORE_CASE
-        )
-        val timeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-        val slots = listOf(
-            "LAST 0–15 MINUTES" to (now - 15L * 60L * 1000L),
-            "15–30 MINUTES AGO" to (now - 30L * 60L * 1000L),
-            "30–60 MINUTES AGO" to hourAgo
-        )
-        val payload = buildString {
-            appendLine("ANDROID NOTIFICATION DIGEST — LAST 60 MINUTES")
-            appendLine("Total notifications: ${records.size}. Times are local device time.")
-            slots.forEachIndexed { index, (label, threshold) ->
-                val inSlot = records.filter { it.postedAtMillis >= threshold &&
-                    (index == 0 || it.postedAtMillis < slots[index - 1].second) }
-                if (inSlot.isNotEmpty()) {
-                    appendLine()
-                    appendLine("[$label]")
-                    inSlot.forEach { item ->
-                        val full = criticalPackage.containsMatchIn(item.packageName) ||
-                            criticalPackage.containsMatchIn(item.app)
-                        val content = if (full) {
-                            item.text.ifBlank { item.title }
-                        } else {
-                            (item.title + if (item.text.isNotBlank()) " — " + item.text else "")
-                                .replace(Regex("\\s+"), " ").take(180)
-                        }
-                        appendLine("- ${timeFormat.format(java.util.Date(item.postedAtMillis))} | ${item.app} | ${if (full) "FULL MESSAGE" else "KEY CONTENT"}: $content")
-                    }
-                }
-            }
-            appendLine()
-            append("Analysis rule: prioritise actual personal communication, missed calls, OTP/security, banking/transactions and time-sensitive system alerts. For games, shopping and other apps, use only the short key-content description above. Separate promotions from urgent events. Do not invent missing details.")
-        }
-        return ToolResult.Success(payload)
+        return ToolResult.Success(digest)
     }
+
     private fun getNews(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
         val query = arguments.optString("query").trim().take(120)
         return runCatching {
