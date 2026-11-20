@@ -17,8 +17,6 @@ import java.util.concurrent.Executors
 object EventMemoryStore {
     private const val DATABASE_NAME = "mr_red_memory.db"
     private const val DATABASE_VERSION = 2
-    private const val MAX_EVENT_ROWS = 50000
-    private const val MAX_NOTIFICATION_ROWS = 10000
 
     private val writer = Executors.newSingleThreadExecutor { task ->
         Thread(task, "mr-red-memory-db").apply { isDaemon = true }
@@ -51,8 +49,7 @@ object EventMemoryStore {
                     put("occurred_at", occurredAtMillis)
                 }
                 database(appContext).writableDatabase.insert("events", null, values)
-                prune(database(appContext).writableDatabase)
-            }
+             }
         }
     }
 
@@ -84,8 +81,7 @@ object EventMemoryStore {
                     put("is_active", 1)
                 }
                 db.insertWithOnConflict("events", null, values, SQLiteDatabase.CONFLICT_IGNORE)
-                prune(db)
-            }
+             }
         }
     }
 
@@ -114,8 +110,7 @@ object EventMemoryStore {
                     put("is_active", 0)
                 }
                 db.insert("events", null, values)
-                prune(db)
-            }
+             }
         }
     }
 
