@@ -75,12 +75,19 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         val extras = sbn.notification?.extras ?: return
         val title = (extras.getCharSequence(Notification.EXTRA_TITLE)
             ?: extras.getCharSequence(Notification.EXTRA_TITLE_BIG))?.toString().orEmpty().trim()
-        val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
-            ?: extras.getCharSequence(Notification.EXTRA_TEXT)
-            ?: extras.getCharSequence(Notification.EXTRA_SUB_TEXT))?.toString().orEmpty().trim()
+        val text = buildList {
+            val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty().trim()
+            val normalText = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty().trim()
+            val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString().orEmpty().trim()
+            val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map { it.toString().trim() }.orEmpty()
+            val selected = bigText.ifBlank { normalText }
+            if (selected.isNotBlank()) add(selected)
+            if (subText.isNotBlank() && subText != selected) add(subText)
+            lines.filter { it.isNotBlank() && it !in this }.forEach(::add)
+        }.joinToString("\\n")
         if (title.isBlank() && text.isBlank()) return
         val shortApp = sbn.packageName.substringAfterLast('.')
-        val record = MrRedNotification(shortApp, title.take(160), text.take(400), sbn.key)
+        val record = MrRedNotification(shortApp, title, text, sbn.key)
         activeNotificationRecords.removeAll { it.key == sbn.key }
         activeNotificationRecords.add(0, record)
         notifications.removeAll { (it.app == shortApp || it.app == sbn.packageName) && it.title == title }
@@ -89,7 +96,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
     }
 
     companion object {
-        private const val MAX_NOTIFICATIONS = 30
+        private const val MAX_NOTIFICATIONS = 100
         private val notifications = CopyOnWriteArrayList<MrRedNotification>()
         private val activeNotificationRecords = CopyOnWriteArrayList<MrRedNotification>()
         @Volatile private var instance: MrRedNotificationListenerService? = null
