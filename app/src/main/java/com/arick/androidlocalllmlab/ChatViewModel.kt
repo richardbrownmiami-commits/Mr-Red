@@ -549,7 +549,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (text.matches(Regex("^[.!?,;:]+$"))) {
             return "I'm here. What would you like to do?"
         }
-        if (Regex("\\b(do you have memory|have you got memory|do you remember me|what do you remember)\\b").containsMatchIn(text)) {
+        if (Regex("\\b(do you have memory|have you got memory|do you remember me)\\b").containsMatchIn(text)) {
             val turns = synchronized(conversationHistory) { conversationHistory.size }
             return "Yes. Mr-Red has local memory: up to 40 completed chat exchanges are saved on this device, alongside the app's activity and notification log. I can use that saved context when it is included in the current prompt. It is not human memory, and live notifications still need a fresh Android check. Currently saved chat exchanges: $turns."
         }
