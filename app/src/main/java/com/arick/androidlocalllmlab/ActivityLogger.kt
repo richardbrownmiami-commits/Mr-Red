@@ -6,6 +6,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /** Private on-device journal. Conversation text is retained privately for concise Q&A summaries. */
 object ActivityLogger {
@@ -16,6 +17,10 @@ object ActivityLogger {
     // File journaling is diagnostic-only and must never block a notification callback or UI thread.
     private val journalWriter = Executors.newSingleThreadExecutor { task ->
         Thread(task, "mr-red-activity-journal").apply { isDaemon = true }
+    }
+
+    private fun awaitJournalWrites() {
+        runCatching { journalWriter.submit {}.get(5, TimeUnit.SECONDS) }
     }
 
     @Volatile
@@ -74,6 +79,7 @@ object ActivityLogger {
     }
 
     fun summary(context: Context): String {
+        awaitJournalWrites()
         val lines = runCatching {
             File(context.applicationContext.filesDir, FILE_NAME).takeIf { it.isFile }?.readLines()?.takeLast(240).orEmpty()
         }.getOrDefault(emptyList())
@@ -155,6 +161,7 @@ object ActivityLogger {
      * This deliberately avoids copying raw questions/answers into the model prompt.
      */
     fun promptMemory(context: Context, maxExchanges: Int = 40): String {
+        awaitJournalWrites()
         data class Event(val time: String, val layer: String, val action: String, val detail: String)
         val lines = runCatching {
             File(context.applicationContext.filesDir, FILE_NAME)
@@ -265,6 +272,7 @@ object ActivityLogger {
     }
 
     fun diagnosticReport(context: Context): String = runCatching {
+        awaitJournalWrites()
         val app = context.applicationContext
         val info = app.packageManager.getPackageInfo(app.packageName, 0)
         val activity = File(app.filesDir, FILE_NAME).takeIf { it.isFile }?.readText().orEmpty()
