@@ -10,7 +10,8 @@ object DeviceIntentRouter {
         if (text.isEmpty()) return null
 
         // Exclusions for general knowledge/creative chat (unless explicit web search intent)
-        if (Regex("\\b(explain|how (?:do|does|can|to)|tell me a story|write|why (?:do|does|is|are)|teach me)\\b").containsMatchIn(text)) {
+        if (Regex("\\b(explain|how (?:do|does|can|to)|tell me a story|write|why (?:do|does|is|are)|teach me)\\b").containsMatchIn(text) &&
+            !text.contains("notification")) {
             if (!Regex("\\b(search|research|look up|lookup|find online|web search)\\b").containsMatchIn(text)) {
                 return null
             }
