@@ -162,6 +162,128 @@ object EventMemoryStore {
         }
     }
 
+
+    /**
+     * Selects only memory relevant to the current question. This runs on a background
+     * dispatcher; pending asynchronous writes are drained first so completed turns are visible.
+     */
+    fun relevantContext(
+        context: Context,
+        question: String,
+        nowMillis: Long = System.currentTimeMillis()
+    ): String {
+        runCatching { writer.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS) }
+        val q = question.lowercase()
+        val asksNotifications = listOf("notification", "notifications", "message", "sms", "missed call", "anything important").any(q::contains)
+        val asksConversation = listOf("conversation", "discuss", "what did we talk", "what did you say", "what you said", "previous answer", "remember our chat").any(q::contains)
+        val asksFacts = listOf("remember me", "remember about me", "what do you know about me", "my preference", "my facts", "long-term memory").any(q::contains)
+        val asksAlarms = listOf("alarm", "alarms").any(q::contains)
+        val asksReminders = listOf("reminder", "reminders").any(q::contains)
+        val asksSettings = listOf("setting", "settings", "configuration").any(q::contains)
+        val asksErrors = listOf("error", "crash", "failed", "failure", "model slow", "performance").any(q::contains)
+        val asksDevice = listOf("device activity", "app activity", "what happened", "activity yesterday", "what did i do").any(q::contains)
+        val broadActivity = asksDevice || q.contains("yesterday") || q.contains("today") || q.contains("last hour") || q.contains("last 5 hour")
+
+        val calendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
+        val end: Long
+        val start: Long
+        val rangeLabel: String
+        when {
+            q.contains("yesterday") -> {
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0); calendar.set(java.util.Calendar.MINUTE, 0)
+                calendar.set(java.util.Calendar.SECOND, 0); calendar.set(java.util.Calendar.MILLISECOND, 0)
+                start = calendar.timeInMillis
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                end = calendar.timeInMillis - 1
+                rangeLabel = "yesterday"
+            }
+            q.contains("last 5 hour") || q.contains("past 5 hour") -> {
+                start = nowMillis - 5 * 60 * 60 * 1000L; end = nowMillis; rangeLabel = "last 5 hours"
+            }
+            q.contains("last hour") || q.contains("past hour") || q.contains("recent notification") -> {
+                start = nowMillis - 60 * 60 * 1000L; end = nowMillis; rangeLabel = "last hour"
+            }
+            q.contains("today") -> {
+                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0); calendar.set(java.util.Calendar.MINUTE, 0)
+                calendar.set(java.util.Calendar.SECOND, 0); calendar.set(java.util.Calendar.MILLISECOND, 0)
+                start = calendar.timeInMillis; end = nowMillis; rangeLabel = "today"
+            }
+            asksConversation -> {
+                start = nowMillis - 30L * 24 * 60 * 60 * 1000; end = nowMillis; rangeLabel = "recent conversation history"
+            }
+            else -> {
+                start = nowMillis - 24L * 60 * 60 * 1000; end = nowMillis; rangeLabel = "last 24 hours"
+            }
+        }
+
+        val selectedTypes = linkedSetOf<String>()
+        when {
+            asksNotifications -> selectedTypes += "NOTIFICATION"
+            asksConversation -> { selectedTypes += "QUESTION"; selectedTypes += "ANSWER" }
+            asksAlarms -> selectedTypes += "ALARM"
+            asksReminders -> selectedTypes += "REMINDER"
+            asksSettings -> selectedTypes += "SETTINGS"
+            asksErrors -> { selectedTypes += "ERROR"; selectedTypes += "INFERENCE"; selectedTypes += "MODEL" }
+            broadActivity -> selectedTypes += listOf("NOTIFICATION", "QUESTION", "ANSWER", "APP", "UI", "DEVICE", "SETTINGS", "ALARM", "REMINDER", "ERROR", "MODEL", "INFERENCE")
+            else -> { /* General knowledge questions do not receive unrelated event history. */ }
+        }
+
+        data class Row(val type: String, val action: String, val source: String, val detail: String, val time: Long, val title: String, val body: String, val importance: String, val active: Boolean)
+        val rows = mutableListOf<Row>()
+        if (selectedTypes.isNotEmpty()) {
+            val placeholders = selectedTypes.joinToString(",") { "?" }
+            val args = (selectedTypes.toList() + start.toString() + end.toString()).toTypedArray()
+            val db = database(context).readableDatabase
+            db.rawQuery(
+                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type IN ($placeholders) AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 60",
+                args
+            ).use { cursor ->
+                while (cursor.moveToNext()) rows += Row(
+                    cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3),
+                    cursor.getLong(4), cursor.getString(5), cursor.getString(6), cursor.getString(7), cursor.getInt(8) == 1
+                )
+            }
+        }
+
+        val output = StringBuilder()
+        if (asksFacts || broadActivity || asksConversation) {
+            val factDb = database(context).readableDatabase
+            factDb.rawQuery("SELECT fact FROM facts ORDER BY updated_at DESC LIMIT 8", null).use { cursor ->
+                val facts = mutableListOf<String>()
+                while (cursor.moveToNext()) facts += cursor.getString(0)
+                if (facts.isNotEmpty()) output.append("[VERIFIED LONG-TERM FACTS]\\n").append(facts.joinToString("\\n") { "- $it" }).append("\\n")
+            }
+        }
+        if (selectedTypes.isNotEmpty()) {
+            output.append("[RETRIEVED MEMORY — ").append(rangeLabel).append("]\\n")
+            val ordered = rows.sortedBy { it.time }
+            val conversationRows = ordered.filter { it.type == "QUESTION" || it.type == "ANSWER" }
+            if (asksConversation && conversationRows.isNotEmpty()) {
+                output.append("[CONVERSATION EXCHANGES]\\n")
+                var pending: String? = null
+                conversationRows.forEach { row ->
+                    if (row.type == "QUESTION") pending = row.detail
+                    else if (row.type == "ANSWER" && pending != null) {
+                        output.append("User: ").append(pending!!.take(500)).append("\\nMr-Red: ").append(row.detail.take(700)).append("\\n")
+                        pending = null
+                    }
+                }
+            }
+            rows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.takeLast(30).forEach { row ->
+                val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(row.time))
+                val detail = if (row.type == "NOTIFICATION") {
+                    val content = if (row.importance == "important") row.body else row.body.take(180)
+                    "app=${row.source}; title=${row.title}; content=${content}; importance=${row.importance}; status=${if (row.active) "active" else "removed"}"
+                } else row.detail.replace(Regex("\\s+"), " ").take(260)
+                output.append(stamp).append(" | ").append(row.type).append(" | ").append(row.action)
+                    .append(" | ").append(row.source).append(" | ").append(detail).append("\\n")
+            }
+            if (rows.isEmpty()) output.append("No matching stored events in this time range.\\n")
+        }
+        return output.toString().trim()
+    }
+
     /** Clears event history while preserving explicitly captured long-term facts. */
     fun clearEventHistory(context: Context) {
         val appContext = context.applicationContext
