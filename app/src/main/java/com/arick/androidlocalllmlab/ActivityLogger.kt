@@ -35,7 +35,7 @@ object ActivityLogger {
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
             val safeLayer = clean(layer, 32)
             val safeAction = clean(action, 64)
-            val limit = if (safeLayer == "QUESTION" || safeLayer == "ANSWER") MAX_DETAIL_LENGTH else 500
+            val limit = if (safeLayer == "QUESTION" || safeLayer == "ANSWER" || safeLayer == "NOTIFICATION") MAX_DETAIL_LENGTH else 500
             val file = File(context.applicationContext.filesDir, FILE_NAME)
             file.appendText("$timestamp | $safeLayer | $safeAction | ${clean(detail, limit)}\n")
             val lines = file.readLines()
