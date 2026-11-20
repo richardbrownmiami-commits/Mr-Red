@@ -62,6 +62,7 @@ object AlarmScheduler {
             )
 
             ScheduledTasksStore.recordAlarm(context, hour, minute, message, triggerMillis)
+            ActivityLogger.record(context, "ALARM", "scheduled", "message=$message trigger_at=$triggerMillis local_time=$timeFormatted")
 
             val timeFormatted = String.format("%02d:%02d", hour, minute)
             val inTimeStr = if (diffHours > 0) "${diffHours}h ${diffMins}m" else "${diffMins}m"
@@ -74,6 +75,7 @@ object AlarmScheduler {
     fun dismissAlarm(context: Context): ToolResult {
         MrRedAlarmReceiver.stopRingtone(context)
         ScheduledTasksStore.clearAlarms(context)
+        ActivityLogger.record(context, "ALARM", "dismiss_requested", "Active alarm sound stopped and scheduled alarm records cleared")
         return ToolResult.Success("Alarm dismissed and sound stopped.")
     }
 
@@ -126,6 +128,7 @@ object AlarmScheduler {
                     targetMillis = System.currentTimeMillis() + (effectiveMinutes * 60 * 1000)
                 )
 
+                ActivityLogger.record(context, "REMINDER", "scheduled", "id=$cleanTag message=$message recurring=true interval_minutes=$effectiveMinutes")
                 ToolResult.Success("Recurring reminder set: '$message' every $intervalDisplay$note with audible alarm and voice announcement.")
             } else {
                 val delayMinutes = intervalMinutes.coerceAtLeast(1)
@@ -186,6 +189,7 @@ object AlarmScheduler {
                     targetMillis = triggerMillis
                 )
 
+                ActivityLogger.record(context, "REMINDER", "scheduled", "id=$cleanTag message=$message recurring=false trigger_at=$triggerMillis")
                 ToolResult.Success("Reminder scheduled: '$message' in $delayDisplay with audio ringtone and voice announcement.")
             }
         }.getOrElse {
@@ -212,6 +216,7 @@ object AlarmScheduler {
                 pendingIntent.cancel()
             }
             ScheduledTasksStore.removeReminder(context, id)
+            ActivityLogger.record(context, "REMINDER", "cancelled", "id=$id")
             ToolResult.Success("Reminder cancelled.")
         }.getOrElse {
             ToolResult.Failure("Failed to cancel reminder: ${it.message ?: "error"}")
@@ -224,6 +229,7 @@ object AlarmScheduler {
             wm.cancelAllWorkByTag("mr_red_reminder")
             MrRedAlarmReceiver.stopRingtone(context)
             ScheduledTasksStore.clearReminders(context)
+            ActivityLogger.record(context, "REMINDER", "all_cancelled", "All scheduled reminders cancelled")
             ToolResult.Success("All Mr-Red reminders have been cancelled.")
         }.getOrElse {
             ToolResult.Failure("Failed to cancel reminders: ${it.message ?: "error"}")
