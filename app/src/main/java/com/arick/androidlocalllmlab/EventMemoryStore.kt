@@ -195,9 +195,9 @@ object EventMemoryStore {
                     put("updated_at", now)
                     put("fingerprint", sha256(fact.lowercase()))
                 }
-                database(appContext).writableDatabase.insertWithOnConflict(
+                check(database(appContext).writableDatabase.insertWithOnConflict(
                     "facts", null, values, SQLiteDatabase.CONFLICT_REPLACE
-                )
+                ) != -1L) { "Fact insert returned -1" }
                 val eventValues = ContentValues().apply {
                     put("event_type", "FACT")
                     put("action", "captured")
@@ -307,7 +307,7 @@ object EventMemoryStore {
                 cursor.getLong(3), cursor.getString(4), cursor.getInt(5) == 1
             )
         }
-        if (records.isEmpty()) return ""
+        if (records.isEmpty()) return if (failedWriteCount.get() > 0) "COLLECTION WARNING: " + failedWriteCount.get() + " database write(s) failed; notification history may be incomplete." else ""
         val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
         return buildString {
             appendLine("ANDROID NOTIFICATION DIGEST — SQLITE RECORDS")
@@ -319,7 +319,6 @@ object EventMemoryStore {
                 appendLine("- " + timeFormat.format(java.util.Date(item.time)) + " | " + item.app +
                     " | " + item.importance + " | " + content + " | status=" + if (item.active) "active" else "dismissed")
             }
-            if (failedWriteCount.get() > 0) appendLine("COLLECTION WARNING: " + failedWriteCount.get() + " database write(s) failed; history may be incomplete.")
             append("Prioritise personal communication, missed calls, OTP/security, banking/transactions and time-sensitive alerts. Separate promotions and routine app chatter. Do not infer missing details.")
         }.trim()
     }
