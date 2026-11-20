@@ -51,8 +51,8 @@ jobs:
           gradle-version: "8.10.2"
       - name: Audit and prepare source
         run: python3 tools/prepare_build.py
-      - name: Run unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+      - name: Run unit tests and compile instrumentation tests
+        run: gradle --no-daemon :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --stacktrace
       - name: Build release APK
         run: |
           gradle --no-daemon :app:assembleRelease --stacktrace
