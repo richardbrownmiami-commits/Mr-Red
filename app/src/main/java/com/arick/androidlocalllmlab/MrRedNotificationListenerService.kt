@@ -8,7 +8,7 @@ import android.service.notification.StatusBarNotification
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** Notification contents are held in process memory only; they are not written to SQLite. */
-data class MrRedNotification(val app: String, val title: String, val text: String, val key: String = "")
+data class MrRedNotification(\n    val app: String,\n    val title: String,\n    val text: String,\n    val key: String = "",\n    val packageName: String = "",\n    val postedAtMillis: Long = System.currentTimeMillis()\n)
 
 class MrRedNotificationListenerService : NotificationListenerService() {
 
@@ -87,7 +87,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         }.joinToString("\\n")
         if (title.isBlank() && text.isBlank()) return
         val shortApp = sbn.packageName.substringAfterLast('.')
-        val record = MrRedNotification(shortApp, title, text, sbn.key)
+        val appLabel = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(shortApp)\n        val record = MrRedNotification(appLabel, title, text, sbn.key, sbn.packageName, sbn.postTime)
         activeNotificationRecords.removeAll { it.key == sbn.key }
         activeNotificationRecords.add(0, record)
         notifications.removeAll { (it.app == shortApp || it.app == sbn.packageName) && it.title == title }
@@ -101,12 +101,12 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         private val activeNotificationRecords = CopyOnWriteArrayList<MrRedNotification>()
         @Volatile private var instance: MrRedNotificationListenerService? = null
 
-        fun recentNotifications(context: Context? = null): List<MrRedNotification> {
+        fun recentNotifications(context: Context? = null, sinceMillis: Long = 0L): List<MrRedNotification> {
             instance?.syncActiveNotifications()
             if (instance == null && context != null) {
                 requestRebindService(context)
             }
-            return notifications.toList()
+            return notifications.filter { it.postedAtMillis >= sinceMillis }.sortedByDescending { it.postedAtMillis }
         }
 
         fun requestRebindService(context: Context) {
