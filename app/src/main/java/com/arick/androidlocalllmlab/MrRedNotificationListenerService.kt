@@ -7,7 +7,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** Notification contents are held in process memory only; they are not written to SQLite. */
+/** Active notification snapshot plus a persistent timestamped history in EventMemoryStore. */
 data class MrRedNotification(
     val app: String,
     val title: String,
@@ -42,6 +42,12 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = (extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)
             ?: extras?.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
+        val appLabel = runCatching {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
+        }.getOrDefault(sbn.packageName)
+        EventMemoryStore.recordNotification(
+            applicationContext, appLabel, sbn.packageName, sbn.key, title, text, sbn.postTime
+        )
         ActivityLogger.record(
             applicationContext,
             "NOTIFICATION",
@@ -52,6 +58,7 @@ class MrRedNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         activeNotificationRecords.removeAll { it.key == sbn.key }
+        EventMemoryStore.markNotificationRemoved(applicationContext, sbn.packageName, sbn.key)
         ActivityLogger.record(
             applicationContext,
             "NOTIFICATION",
