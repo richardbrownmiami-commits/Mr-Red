@@ -279,8 +279,9 @@ object EventMemoryStore {
             balancedRows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.sortedByDescending { it.time }.forEach { row ->
                 val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(row.time))
                 val detail = if (row.type == "NOTIFICATION" && (row.title.isNotBlank() || row.body.isNotBlank())) {
-                    val content = if (row.importance == "important") row.body else row.body.take(180)
-                    "app=" + row.source + "; title=" + row.title + "; content=" + content + "; importance=" + row.importance + "; status=" + if (row.active) "active" else "removed"
+                    val content = (row.title + if (row.body.isNotBlank()) " — " + row.body else "")
+                        .replace(Regex("\\s+"), " ").take(if (row.importance == "important") 800 else 180)
+                    "app=" + row.source + "; content=" + content + "; importance=" + row.importance + "; status=" + if (row.active) "active" else "removed"
                 } else row.detail.replace(Regex("\\s+"), " ").take(320)
                 if (detail.isNotBlank()) output.append(stamp).append(" | ").append(row.type).append(" | ").append(row.action).append(" | ").append(row.source).append(" | ").append(detail).append('\n')
             }
