@@ -402,6 +402,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         memorySummary = memorySummary,
                         maxPromptTokens = promptBudget
                     )
+                    ActivityLogger.record(
+                        getApplication(), "INFERENCE", "prompt_composition",
+                        "messages=${promptMessages.size} memory_chars=${memorySummary.length} " +
+                            "memory_tokens=${runtime.tokenize(memorySummary).size} " +
+                            "context=${contextCapacity} prompt_budget=${promptBudget} output_limit=${effectiveMaxTokens}"
+                    )
                     runtime.generate(
                         messages = promptMessages,
                         inferenceConfig = generationConfig,
