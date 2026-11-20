@@ -83,7 +83,7 @@ object EventMemoryStore {
                     put("importance", importance)
                     put("is_active", 1)
                 }
-                db.insert("events", null, values)
+                db.insertWithOnConflict("events", null, values, SQLiteDatabase.CONFLICT_IGNORE)
                 prune(db)
             }
         }
@@ -167,6 +167,14 @@ object EventMemoryStore {
         }
     }
 
+    /** Clears event history while preserving explicitly captured long-term facts. */
+    fun clearEventHistory(context: Context) {
+        val appContext = context.applicationContext
+        writer.execute {
+            runCatching { database(appContext).writableDatabase.delete("events", null, null) }
+        }
+    }
+
     /** Read-only diagnostic counts; useful for validating collection without exposing message text. */
     fun counts(context: Context): Map<String, Int> {
         val db = database(context).readableDatabase
@@ -220,17 +228,12 @@ object EventMemoryStore {
         )
         db.execSQL(
             "DELETE FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' AND id NOT IN (SELECT id FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' ORDER BY occurred_at DESC, id DESC LIMIT ?)",
-            arrayOf(MAX_NOTIFICATION_ROWS)
+            arrayOf<Any>(MAX_NOTIFICATION_ROWS)
         )
     }
 
     private class MemoryDatabase(context: Context) :
         SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
-
-        override fun onConfigure(db: SQLiteDatabase) {
-            super.onConfigure(db)
-            db.setWriteAheadLoggingEnabled(true)
-        }
 
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL(
@@ -251,6 +254,7 @@ object EventMemoryStore {
             )
             db.execSQL("CREATE INDEX idx_events_type_time ON events(event_type, occurred_at DESC)")
             db.execSQL("CREATE INDEX idx_events_key ON events(package_name, event_key)")
+            db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at, action)")
             db.execSQL("CREATE INDEX idx_events_active ON events(event_type, is_active, occurred_at DESC)")
             db.execSQL(
                 """CREATE TABLE facts (
