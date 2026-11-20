@@ -39,15 +39,20 @@ class MrRedNotificationListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         processNotification(sbn)
         val extras = sbn.notification?.extras
-        val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-        val text = (extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)
-            ?: extras?.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
-        val appLabel = runCatching {
-            packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
-        }.getOrDefault(sbn.packageName)
-        EventMemoryStore.recordNotification(
-            applicationContext, appLabel, sbn.packageName, sbn.key, title, text, sbn.postTime
-        )
+        val title = (extras?.getCharSequence(Notification.EXTRA_TITLE)
+            ?: extras?.getCharSequence(Notification.EXTRA_TITLE_BIG))?.toString().orEmpty()
+        val text = extras?.let { bundle ->
+            buildList {
+                val big = bundle.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim().orEmpty()
+                val normal = bundle.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
+                val sub = bundle.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim().orEmpty()
+                val lines = bundle.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map { it.toString().trim() }.orEmpty()
+                val selected = big.ifBlank { normal }
+                if (selected.isNotBlank()) add(selected)
+                if (sub.isNotBlank() && sub != selected) add(sub)
+                lines.filter { it.isNotBlank() && it !in this }.forEach(::add)
+            }.joinToString("\\n")
+        }.orEmpty()
         ActivityLogger.record(
             applicationContext,
             "NOTIFICATION",
@@ -102,6 +107,11 @@ class MrRedNotificationListenerService : NotificationListenerService() {
         if (title.isBlank() && text.isBlank()) return
         val shortApp = sbn.packageName.substringAfterLast('.')
         val appLabel = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(shortApp)
+        // Persist each observed notification once, including notifications already active when
+        // the listener reconnects. The database unique index makes repeated syncs idempotent.
+        EventMemoryStore.recordNotification(
+            applicationContext, appLabel, sbn.packageName, sbn.key, title, text, sbn.postTime
+        )
         val record = MrRedNotification(appLabel, title, text, sbn.key, sbn.packageName, sbn.postTime)
         activeNotificationRecords.removeAll { it.key == sbn.key }
         activeNotificationRecords.add(0, record)
