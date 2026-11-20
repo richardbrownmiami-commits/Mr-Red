@@ -223,25 +223,23 @@ object EventMemoryStore {
         val rangeLabel = plan.rangeLabel
         data class Row(val type: String, val action: String, val source: String, val detail: String, val time: Long, val title: String, val body: String, val importance: String, val active: Boolean)
         val rows = mutableListOf<Row>()
-        if (selectedTypes.isNotEmpty()) {
-            val placeholders = selectedTypes.joinToString(",") { "?" }
-            val args = (selectedTypes.toList() + plan.startMillis.toString() + plan.endExclusiveMillis.toString()).toTypedArray()
+        // Query each selected category independently so a high-volume source cannot fill
+        // one global LIMIT and starve quieter categories such as WEB or PERMISSION.
+        selectedTypes.forEach { eventType ->
+            val limit = if (selectedTypes.size <= 1) 100 else if (eventType == "NOTIFICATION") 30 else 20
+            val args = arrayOf(eventType, plan.startMillis.toString(), plan.endExclusiveMillis.toString())
             database(context).readableDatabase.rawQuery(
-                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type IN (" + placeholders + ") AND occurred_at >= ? AND occurred_at < ? ORDER BY occurred_at DESC LIMIT 500",
+                "SELECT event_type, action, source, detail, occurred_at, title, body, importance, is_active FROM events WHERE event_type = ? AND occurred_at >= ? AND occurred_at < ? ORDER BY occurred_at DESC LIMIT " + limit,
                 args
             ).use { cursor ->
-                while (cursor.moveToNext()) rows += Row(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3), cursor.getLong(4), cursor.getString(5), cursor.getString(6), cursor.getString(7), cursor.getInt(8) == 1)
+                while (cursor.moveToNext()) rows += Row(
+                    cursor.getString(0), cursor.getString(1), cursor.getString(2),
+                    cursor.getString(3), cursor.getLong(4), cursor.getString(5),
+                    cursor.getString(6), cursor.getString(7), cursor.getInt(8) == 1
+                )
             }
         }
-        // Prevent a noisy category (especially notifications) from starving other event types.
-        val balancedRows = if (selectedTypes.size <= 1) {
-            rows.take(100)
-        } else {
-            rows.groupBy { it.type }.values.flatMap { categoryRows ->
-                val quota = if (categoryRows.firstOrNull()?.type == "NOTIFICATION") 30 else 20
-                categoryRows.take(quota)
-            }.sortedByDescending { it.time }
-        }
+        val balancedRows = rows.sortedByDescending { it.time }
 
         val output = StringBuilder()
         if (failedWriteCount.get() > 0) {
