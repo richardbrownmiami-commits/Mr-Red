@@ -682,7 +682,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         exchanges.forEach { (question, answer) ->
             val key = question.replace(Regex("[^\\p{L}\\p{N}]+"), " ")
                 .trim().lowercase(java.util.Locale.ROOT)
-            if (key.isNotBlank() && answer.isNotBlank()) unique[key] = question to answer
+            if (key.isNotBlank() && answer.isNotBlank()) { unique.remove(key); unique[key] = question to answer }
         }
         val compactTurns = unique.values.map { (question, answer) ->
             compactExchange(question, answer, expanded)
