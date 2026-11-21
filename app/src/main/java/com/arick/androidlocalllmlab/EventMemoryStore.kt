@@ -476,6 +476,253 @@ object EventMemoryStore {
         return output.toString().trim()
     }
 
+    /**
+     * Question-driven notification retrieval for the Kotlin action path.
+     * Reads existing rows without changing collection or database schema, compacts matching
+     * evidence, and persistently tracks rows already supplied to GGUF.
+     */
+    fun notificationContextForQuestion(
+        context: Context,
+        question: String,
+        nowMillis: Long = System.currentTimeMillis()
+    ): String {
+        awaitPendingWrites()
+        val appContext = context.applicationContext
+        val q = question.lowercase(java.util.Locale.ROOT)
+        val asksUnread = Regex("\\b(unread|not yet shared|not shown to you|new since you checked)\\b").containsMatchIn(q)
+        val asksCount = Regex("\\b(how many|count|counts|total|number of)\\b").containsMatchIn(q)
+        val asksExactTime = Regex("\\b(when|what time|timestamp|exact time|date and time)\\b").containsMatchIn(q)
+        val asksImportant = Regex("\\b(important|urgent|attention|missed|anything i need to act on)\\b").containsMatchIn(q)
+
+        val dayMillis = 24L * 60 * 60 * 1000
+        var startMillis = nowMillis - dayMillis
+        var rangeLabel = "last 24 hours"
+        val duration = Regex("\\b(?:last|past)\\s+(\\d+)\\s+(minutes?|mins?|hours?|days?)\\b").find(q)
+        val explicitDate = Regex("\\b(20\\d{2}-\\d{2}-\\d{2})\\b").find(q)?.groupValues?.get(1)
+        when {
+            explicitDate != null -> {
+                val formatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).apply {
+                    isLenient = false
+                    timeZone = java.util.TimeZone.getDefault()
+                }
+                val parsed = runCatching { formatter.parse(explicitDate)?.time }.getOrNull()
+                if (parsed != null) {
+                    val calendar = java.util.Calendar.getInstance().apply { timeInMillis = parsed }
+                    calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                    calendar.set(java.util.Calendar.MINUTE, 0)
+                    calendar.set(java.util.Calendar.SECOND, 0)
+                    calendar.set(java.util.Calendar.MILLISECOND, 0)
+                    startMillis = calendar.timeInMillis
+                    rangeLabel = explicitDate
+                }
+            }
+            duration != null -> {
+                val amount = duration.groupValues[1].toLongOrNull()?.coerceIn(1, 24L * 90) ?: 1L
+                val unit = duration.groupValues[2]
+                val span = when {
+                    unit.startsWith("min") -> amount * 60_000L
+                    unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60L * 60 * 1000
+                    else -> amount * dayMillis
+                }
+                startMillis = nowMillis - span
+                rangeLabel = "last " + amount + " " + unit
+            }
+            Regex("\\b(last|past)\\s+hour\\b").containsMatchIn(q) -> {
+                startMillis = nowMillis - 60L * 60 * 1000
+                rangeLabel = "last hour"
+            }
+            q.contains("yesterday") -> {
+                val calendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
+                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                calendar.set(java.util.Calendar.MINUTE, 0)
+                calendar.set(java.util.Calendar.SECOND, 0)
+                calendar.set(java.util.Calendar.MILLISECOND, 0)
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+                startMillis = calendar.timeInMillis
+                rangeLabel = "yesterday"
+            }
+            q.contains("today") -> {
+                val calendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
+                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                calendar.set(java.util.Calendar.MINUTE, 0)
+                calendar.set(java.util.Calendar.SECOND, 0)
+                calendar.set(java.util.Calendar.MILLISECOND, 0)
+                startMillis = calendar.timeInMillis
+                rangeLabel = "today"
+            }
+            asksUnread || asksCount || q.contains("all notifications") || q.contains("notification history") -> {
+                startMillis = nowMillis - 90L * dayMillis
+                rangeLabel = "retained history (up to 90 days)"
+            }
+        }
+        val endExclusive = nowMillis + 1L
+
+        data class NotificationRow(
+            val id: Long, val app: String, val packageName: String, val title: String,
+            val body: String, val time: Long, val importance: String, val active: Boolean
+        )
+        val records = mutableListOf<NotificationRow>()
+        database(appContext).readableDatabase.rawQuery(
+            """SELECT id, source, package_name, title, body, occurred_at, importance, is_active
+               FROM events
+               WHERE event_type = 'NOTIFICATION' AND action = 'posted'
+                 AND occurred_at >= ? AND occurred_at < ?
+               ORDER BY occurred_at DESC LIMIT 5000""".trimIndent(),
+            arrayOf(startMillis.toString(), endExclusive.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) records += NotificationRow(
+                cursor.getLong(0), cursor.getString(1), cursor.getString(2),
+                cursor.getString(3), cursor.getString(4), cursor.getLong(5),
+                cursor.getString(6), cursor.getInt(7) == 1
+            )
+        }
+
+        val sharePrefs = appContext.getSharedPreferences("notification_model_context", Context.MODE_PRIVATE)
+        val previouslyShared = sharePrefs.getStringSet("shared_notification_ids", emptySet()).orEmpty()
+        val unreadRecords = if (asksUnread) records.filterNot { it.id.toString() in previouslyShared } else records
+
+        val appAliases = linkedMapOf(
+            "whatsapp" to listOf("whatsapp", "what's app", "what app"),
+            "telegram" to listOf("telegram"), "signal" to listOf("signal"),
+            "sms" to listOf("sms", "text message", "text messages", "messages app"),
+            "gmail" to listOf("gmail"), "outlook" to listOf("outlook"),
+            "instagram" to listOf("instagram"), "facebook" to listOf("facebook", "messenger"),
+            "youtube" to listOf("youtube", "youtube music"), "spotify" to listOf("spotify"),
+            "amazon" to listOf("amazon"), "flipkart" to listOf("flipkart")
+        )
+        val requestedApps = appAliases.filterValues { aliases -> aliases.any(q::contains) }.keys
+        val requestedCategories = buildSet {
+            if (Regex("\\b(message|messages|sms|text|whatsapp|telegram|chat)\\b").containsMatchIn(q)) add("messages")
+            if (Regex("\\b(shopping|shop|order|product|price|discount|deal|offer|purchase)\\b").containsMatchIn(q)) add("shopping")
+            if (Regex("\\b(game|games|gaming|play|player|invite)\\b").containsMatchIn(q)) add("games")
+            if (Regex("\\b(music|song|track|artist|playlist)\\b").containsMatchIn(q)) add("music")
+        }
+        val sender = Regex("\\bfrom\\s+([\\p{L}][\\p{L}0-9._-]*(?:\\s+[\\p{L}][\\p{L}0-9._-]*){0,2})")
+            .find(q)?.groupValues?.get(1)?.takeIf {
+                it !in setOf("the last hour", "last hour", "the app", "my phone", "today", "yesterday")
+            }
+        val ignoredTerms = setOf(
+            "notification", "notifications", "message", "messages", "unread", "important", "urgent",
+            "attention", "last", "past", "hour", "hours", "minute", "minutes", "mins", "days",
+            "today", "yesterday", "from", "with", "what", "which", "when", "time", "show", "check",
+            "read", "list", "see", "view", "get", "have", "has", "any", "all", "the", "and", "for",
+            "you", "your", "me", "my", "are", "was", "were", "did", "does", "do", "arrive", "arrived",
+            "count", "counts", "total", "many", "number", "please", "about", "there", "that", "this",
+            "app", "apps", "text", "sms", "whatsapp", "telegram", "signal", "gmail", "outlook",
+            "instagram", "facebook", "messenger", "spotify", "youtube", "amazon", "flipkart",
+            "shopping", "shop", "game", "games", "gaming", "music", "song", "track", "artist",
+            "product", "price", "discount", "deal", "offer", "purchase", "order"
+        )
+        val contentTerms = Regex("[\\p{L}\\p{N}]{3,}").findAll(q).map { it.value }
+            .filterNot { it in ignoredTerms }.distinct().toList()
+
+        fun compactText(value: String, maxChars: Int): String = value
+            .replace(Regex("\\s+"), " ")
+            .replace(Regex("^(new message|new notification|you have a notification|notification):?\\s*", RegexOption.IGNORE_CASE), "")
+            .trim().take(maxChars).trimEnd(',', ';', ':', '-', '—')
+
+        fun rowCategory(row: NotificationRow): Set<String> {
+            val combined = (row.app + " " + row.packageName + " " + row.title + " " + row.body).lowercase(java.util.Locale.ROOT)
+            return buildSet {
+                if (Regex("\\b(whatsapp|telegram|signal|sms|mms|message|messenger|chat)\\b").containsMatchIn(combined)) add("messages")
+                if (Regex("\\b(shop|shopping|order|product|price|discount|deal|offer|cart|purchase|delivery)\\b").containsMatchIn(combined)) add("shopping")
+                if (Regex("\\b(game|gaming|player|play|level|match|clan|guild|invite)\\b").containsMatchIn(combined)) add("games")
+                if (Regex("\\b(music|song|track|artist|album|playlist|spotify)\\b").containsMatchIn(combined)) add("music")
+            }
+        }
+        fun isAttentionWorthy(row: NotificationRow): Boolean {
+            val combined = (row.title + " " + row.body + " " + row.app).lowercase(java.util.Locale.ROOT)
+            return row.importance.equals("important", true) ||
+                Regex("\\b(otp|verification code|security alert|fraud|missed call|payment due|payment failed|meeting|appointment|delivery today|account locked)\\b")
+                    .containsMatchIn(combined)
+        }
+        val filtered = unreadRecords.filter { row ->
+            val combined = (row.app + " " + row.packageName + " " + row.title + " " + row.body).lowercase(java.util.Locale.ROOT)
+            val appMatch = requestedApps.isEmpty() || requestedApps.any { app ->
+                when (app) {
+                    "sms" -> combined.contains("sms") || combined.contains("message") || combined.contains("mms")
+                    "facebook" -> combined.contains("facebook") || combined.contains("messenger")
+                    "youtube" -> combined.contains("youtube")
+                    else -> combined.contains(app)
+                }
+            } || (requestedApps.isNotEmpty() && records.any { candidate ->
+                val appName = candidate.app.lowercase(java.util.Locale.ROOT).trim()
+                appName.length >= 3 && q.contains(appName) && row.app.equals(candidate.app, true)
+            })
+            val categoryMatch = requestedCategories.isEmpty() || requestedCategories.any { it in rowCategory(row) }
+            val senderMatch = sender == null || combined.contains(sender)
+            val termsMatch = contentTerms.isEmpty() || sender != null || contentTerms.any(combined::contains)
+            val importantMatch = !asksImportant || isAttentionWorthy(row)
+            appMatch && categoryMatch && senderMatch && termsMatch && importantMatch
+        }.sortedByDescending { it.time }
+
+        if (filtered.isEmpty()) {
+            return when {
+                asksUnread && records.isNotEmpty() ->
+                    "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo notifications remain unshared with the model. All matching stored notifications were already supplied in earlier model context."
+                asksUnread -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo unshared notifications were found in the stored notification history."
+                else -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo stored notifications matched this request."
+            }
+        }
+
+        // The question's evidence is now being passed to GGUF. Persist this state so a later
+        // "unread" request means records not previously supplied to the model, not Android read state.
+        val sharedIds = previouslyShared.toMutableSet()
+        filtered.forEach { sharedIds += it.id.toString() }
+        sharePrefs.edit().putStringSet(
+            "shared_notification_ids",
+            sharedIds.sortedByDescending { it.toLongOrNull() ?: 0L }.take(10000).toSet()
+        ).apply()
+
+        val appCounts = filtered.groupingBy { it.app.ifBlank { "Unknown app" } }.eachCount()
+            .entries.sortedByDescending { it.value }
+        val exactFormatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+        return buildString {
+            append("NOTIFICATION EVIDENCE | ").append(rangeLabel)
+                .append(" | total=").append(filtered.size).appendLine()
+            if (asksUnread) appendLine("Unread means not previously supplied to the model; Android read/unread state is not available.")
+            if (asksCount || requestedApps.isEmpty()) {
+                append("By app: ").append(appCounts.take(12).joinToString(", ") { it.key + "=" + it.value }).appendLine()
+            }
+            val countOnly = asksCount && contentTerms.isEmpty() && sender == null &&
+                requestedCategories.isEmpty() && !asksImportant
+            if (!countOnly) {
+                filtered.take(20).forEach { row ->
+                    val app = row.app.ifBlank { "Unknown app" }.take(32)
+                    val title = compactText(row.title, 64)
+                    val bodyLimit = if ("shopping" in rowCategory(row)) 180 else 150
+                    val body = compactText(row.body, bodyLimit)
+                    val isMessage = "messages" in rowCategory(row)
+                    val description = when {
+                        isMessage && title.isNotBlank() && body.isNotBlank() -> title + ": " + body
+                        title.isNotBlank() && body.isNotBlank() && !title.equals(body, true) -> title + ": " + body
+                        title.isNotBlank() -> title
+                        else -> body
+                    }
+                    append("- ").append(app)
+                    if (description.isNotBlank()) append(" | ").append(description)
+                    if (asksExactTime) {
+                        append(" | ").append(exactFormatter.format(java.util.Date(row.time)))
+                    } else {
+                        val age = (nowMillis - row.time).coerceAtLeast(0L)
+                        val ageLabel = when {
+                            age < 60_000L -> "just now"
+                            age < 60L * 60 * 1000 -> (age / 60_000L).toString() + "m ago"
+                            age < dayMillis -> (age / (60L * 60 * 1000)).toString() + "h ago"
+                            else -> (age / dayMillis).toString() + "d ago"
+                        }
+                        append(" | ").append(ageLabel)
+                    }
+                    if (row.active) append(" | active")
+                    appendLine()
+                }
+                if (filtered.size > 20) appendLine("Additional matching notifications omitted from the compact prompt.")
+            }
+            if (asksImportant) appendLine("Only records with stored important classification or explicit attention cues are included.")
+            append("Use only these records. Do not infer missing prices, discounts, message text, sender identity, or priority.")
+        }
+    }
+
     /** Compact recent notification snapshot read directly from SQLite; no exact timestamps are exposed. */
     fun recentNotificationDigest(
         context: Context,
