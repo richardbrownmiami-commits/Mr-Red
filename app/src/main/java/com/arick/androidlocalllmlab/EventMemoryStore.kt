@@ -491,7 +491,8 @@ object EventMemoryStore {
         val q = question.lowercase(java.util.Locale.ROOT)
         val asksUnread = Regex("\\b(unread|not yet shared|not shared|not shown to you|not included yet|new since you checked)\\b").containsMatchIn(q)
         val asksCount = Regex("\\b(how many|count|counts|total|number of)\\b").containsMatchIn(q)
-        val asksExactTime = Regex("\\b(when|what time|timestamp|exact time|date and time)\\b").containsMatchIn(q)
+        val asksExactTime = Regex("\\b(when|what time|timestamp|exact time|date and time|what date|which date)\\b").containsMatchIn(q)
+        val asksExactText = Regex("\\b(exact|exactly|verbatim|full|complete|entire|word for word|quote)\\b").containsMatchIn(q)
         val asksImportant = Regex("\\b(important|urgent|attention|missed|anything i need to act on)\\b").containsMatchIn(q)
 
         val dayMillis = 24L * 60 * 60 * 1000
@@ -621,7 +622,7 @@ object EventMemoryStore {
             "today", "yesterday", "from", "with", "what", "which", "when", "time", "show", "check",
             "read", "list", "see", "view", "get", "have", "has", "any", "all", "the", "and", "for",
             "you", "your", "me", "my", "are", "was", "were", "did", "does", "do", "arrive", "arrived",
-            "count", "counts", "total", "many", "number", "how", "other", "others", "please", "about", "there", "that", "this",
+            "count", "counts", "total", "many", "number", "how", "other", "others", "exact", "exactly", "verbatim", "full", "complete", "entire", "word", "quote", "please", "about", "there", "that", "this",
             "app", "apps", "text", "sms", "whatsapp", "telegram", "signal", "gmail", "outlook",
             "instagram", "facebook", "messenger", "spotify", "youtube", "amazon", "flipkart",
             "shopping", "shop", "game", "games", "gaming", "music", "song", "track", "artist",
@@ -674,9 +675,12 @@ object EventMemoryStore {
         if (filtered.isEmpty()) {
             return when {
                 asksUnread && unreadRecords.isEmpty() ->
-                    "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo notifications remain unshared with the model. All matching stored notifications were already supplied in earlier model context."
-                asksUnread -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo unshared notifications matched the requested filters."
-                else -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo stored notifications matched this request."
+                    "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo notifications remain unshared with the model. All matching stored notifications were already supplied in earlier model context." +
+                        if (failedWriteCount.get() > 0) "\nCollection warning: stored history may be incomplete." else ""
+                asksUnread -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo unshared notifications matched the requested filters." +
+                    if (failedWriteCount.get() > 0) "\nCollection warning: stored history may be incomplete." else ""
+                else -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo stored notifications matched this request." +
+                    if (failedWriteCount.get() > 0) "\nCollection warning: stored history may be incomplete." else ""
             }
         }
 
@@ -696,6 +700,9 @@ object EventMemoryStore {
         return buildString {
             append("NOTIFICATION EVIDENCE | ").append(rangeLabel)
                 .append(" | total=").append(filtered.size).appendLine()
+            if (failedWriteCount.get() > 0) {
+                appendLine("Collection warning: " + failedWriteCount.get() + " event write(s) failed; stored history may be incomplete.")
+            }
             if (asksUnread) appendLine("Unread means not previously supplied to the model; Android read/unread state is not available.")
             if (asksCount || requestedApps.isEmpty()) {
                 append("By app: ").append(appCounts.take(12).joinToString(", ") { it.key + "=" + it.value }).appendLine()
@@ -703,9 +710,9 @@ object EventMemoryStore {
             if (!countOnly) {
                 filtered.take(20).forEach { row ->
                     val app = row.app.ifBlank { "Unknown app" }.take(32)
-                    val title = compactText(row.title, 64)
-                    val bodyLimit = if ("shopping" in rowCategory(row)) 180 else 150
-                    val body = compactText(row.body, bodyLimit)
+                    val title = if (asksExactText) row.title.trim().take(128) else compactText(row.title, 64)
+                    val bodyLimit = if (asksExactText) 1200 else if ("shopping" in rowCategory(row)) 180 else 150
+                    val body = if (asksExactText) row.body.trim().take(bodyLimit) else compactText(row.body, bodyLimit)
                     val isMessage = "messages" in rowCategory(row)
                     val description = when {
                         isMessage && title.isNotBlank() && body.isNotBlank() -> title + ": " + body
