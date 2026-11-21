@@ -54,7 +54,7 @@ class EventMemoryStoreInstrumentedTest {
         val now = System.currentTimeMillis()
         val suffix = now.toString()
         val title = "Alice $suffix"
-        val body = "Are you available for the meeting? $suffix"
+        val body = "Are you available for the meeting? " + "Agenda details ".repeat(18) + suffix
         EventMemoryStore.recordNotification(
             context = context,
             appLabel = "Integration test app $suffix",
@@ -71,8 +71,14 @@ class EventMemoryStoreInstrumentedTest {
             "What notification from Integration test app $now arrived in the last hour?"
         )
         assertTrue("Action context must contain the matching title", first.contains(title))
-        assertTrue("Action context must preserve the message text", first.contains(body))
+        assertTrue("Default action context must keep message evidence compact", first.contains(body.take(100)))
         assertTrue("Action context must be compact evidence", first.contains("NOTIFICATION EVIDENCE"))
+
+        val exact = EventMemoryStore.notificationContextForQuestion(
+            context,
+            "What exact message from Integration test app $suffix?"
+        )
+        assertTrue("An explicit exact-text request must receive the full stored wording", exact.contains(body))
 
         val unread = EventMemoryStore.notificationContextForQuestion(
             context,
