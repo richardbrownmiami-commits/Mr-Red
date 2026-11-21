@@ -498,7 +498,7 @@ object EventMemoryStore {
         var startMillis = nowMillis - dayMillis
         var endExclusive = nowMillis + 1L
         var rangeLabel = "last 24 hours"
-        val duration = Regex("\\b(?:last|past)\\s+(\\d+)\\s+(minutes?|mins?|hours?|days?)\\b").find(q)
+        val duration = Regex("\\b(?:last|past)\\s+(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\s+(minutes?|mins?|hours?|days?|weeks?)\\b").find(q)
         val explicitDate = Regex("\\b(20\\d{2}-\\d{2}-\\d{2})\\b").find(q)?.groupValues?.get(1)
         when {
             explicitDate != null -> {
@@ -520,11 +520,16 @@ object EventMemoryStore {
                 }
             }
             duration != null -> {
-                val amount = duration.groupValues[1].toLongOrNull()?.coerceIn(1, 24L * 90) ?: 1L
+                val amount = (duration.groupValues[1].toLongOrNull() ?: mapOf(
+                    "one" to 1L, "two" to 2L, "three" to 3L, "four" to 4L, "five" to 5L,
+                    "six" to 6L, "seven" to 7L, "eight" to 8L, "nine" to 9L, "ten" to 10L,
+                    "eleven" to 11L, "twelve" to 12L
+                )[duration.groupValues[1]] ?: 1L).coerceIn(1, 24L * 90)
                 val unit = duration.groupValues[2]
                 val span = when {
                     unit.startsWith("min") -> amount * 60_000L
                     unit.startsWith("hour") || unit.startsWith("hr") -> amount * 60L * 60 * 1000
+                    unit.startsWith("week") -> amount * 7L * dayMillis
                     else -> amount * dayMillis
                 }
                 startMillis = nowMillis - span
@@ -605,8 +610,9 @@ object EventMemoryStore {
             .find(q)?.groupValues?.get(1)?.takeIf {
                 it !in setOf(
                     "the last hour", "last hour", "last", "past", "hour", "hours", "day", "days",
-                    "week", "weeks", "month", "months", "the app", "my phone", "today", "yesterday",
-                    "whatsapp", "telegram", "signal", "sms", "text", "messages", "gmail", "outlook"
+                    "week", "weeks", "month", "months", "the app", "my", "mobile", "operator", "sim",
+                    "today", "yesterday", "whatsapp", "telegram", "signal", "sms", "text", "messages",
+                    "gmail", "outlook"
                 )
             }
         val ignoredTerms = setOf(
@@ -619,7 +625,7 @@ object EventMemoryStore {
             "app", "apps", "text", "sms", "whatsapp", "telegram", "signal", "gmail", "outlook",
             "instagram", "facebook", "messenger", "spotify", "youtube", "amazon", "flipkart",
             "shopping", "shop", "game", "games", "gaming", "music", "song", "track", "artist",
-            "product", "products", "price", "prices", "discount", "discounts", "deal", "deals", "offer", "offers", "purchase", "purchases", "order", "orders", "games", "songs", "tracks", "artists", "playlists"
+            "product", "products", "price", "prices", "discount", "discounts", "deal", "deals", "offer", "offers", "purchase", "purchases", "order", "orders", "games", "songs", "tracks", "artists", "playlists", "play", "playing", "player", "invite", "level", "match", "clan", "guild", "mobile", "operator", "sim", "my"
         )
         val contentTerms = Regex("[\\p{L}\\p{N}]{3,}").findAll(q).map { it.value }
             .filterNot { it in ignoredTerms }.distinct().toList()
@@ -668,7 +674,7 @@ object EventMemoryStore {
             return when {
                 asksUnread && unreadRecords.isEmpty() ->
                     "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo notifications remain unshared with the model. All matching stored notifications were already supplied in earlier model context."
-                asksUnread -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo unshared notifications were found in the stored notification history."
+                asksUnread -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo unshared notifications matched the requested filters."
                 else -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo stored notifications matched this request."
             }
         }
