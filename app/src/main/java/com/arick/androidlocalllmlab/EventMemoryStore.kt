@@ -239,7 +239,7 @@ object EventMemoryStore {
                     put("created_at", occurredAtMillis)
                     put("fingerprint", fingerprint)
                 }
-                db.insertWithOnConflict("conversation_turns", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+                db.insertWithOnConflict("conversation_turns", null, values, SQLiteDatabase.CONFLICT_REPLACE)
                 db.execSQL(
                     "DELETE FROM conversation_turns WHERE id NOT IN (SELECT id FROM conversation_turns ORDER BY created_at DESC, id DESC LIMIT 200)"
                 )
