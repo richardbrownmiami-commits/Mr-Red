@@ -221,7 +221,7 @@ class AndroidToolExecutor(private val context: Context) {
             },
             object : ToolDefinition {
                 override val name = "read_notifications"
-                override val description = "Read recent notifications after the user grants Android notification access"
+                override val description = "Read compact, request-focused recent notification evidence from SQLite after the user grants Android notification access"
                 override val parameterSchema = listOf(
                     ToolParameterSchema(
                         "focus",
