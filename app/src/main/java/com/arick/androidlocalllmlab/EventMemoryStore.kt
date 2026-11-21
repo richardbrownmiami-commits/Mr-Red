@@ -489,7 +489,7 @@ object EventMemoryStore {
         awaitPendingWrites()
         val appContext = context.applicationContext
         val q = question.lowercase(java.util.Locale.ROOT)
-        val asksUnread = Regex("\\b(unread|not yet shared|not shown to you|new since you checked)\\b").containsMatchIn(q)
+        val asksUnread = Regex("\\b(unread|not yet shared|not shared|not shown to you|not included yet|new since you checked)\\b").containsMatchIn(q)
         val asksCount = Regex("\\b(how many|count|counts|total|number of)\\b").containsMatchIn(q)
         val asksExactTime = Regex("\\b(when|what time|timestamp|exact time|date and time)\\b").containsMatchIn(q)
         val asksImportant = Regex("\\b(important|urgent|attention|missed|anything i need to act on)\\b").containsMatchIn(q)
@@ -603,7 +603,11 @@ object EventMemoryStore {
         }
         val sender = Regex("\\bfrom\\s+([\\p{L}][\\p{L}0-9._-]*)")
             .find(q)?.groupValues?.get(1)?.takeIf {
-                it !in setOf("the last hour", "last hour", "the app", "my phone", "today", "yesterday")
+                it !in setOf(
+                    "the last hour", "last hour", "last", "past", "hour", "hours", "day", "days",
+                    "week", "weeks", "month", "months", "the app", "my phone", "today", "yesterday",
+                    "whatsapp", "telegram", "signal", "sms", "text", "messages", "gmail", "outlook"
+                )
             }
         val ignoredTerms = setOf(
             "notification", "notifications", "message", "messages", "unread", "important", "urgent",
