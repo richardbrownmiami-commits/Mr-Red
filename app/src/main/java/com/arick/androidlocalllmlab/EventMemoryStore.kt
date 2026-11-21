@@ -498,7 +498,7 @@ object EventMemoryStore {
         val dayMillis = 24L * 60 * 60 * 1000
         var startMillis = nowMillis - dayMillis
         var endExclusive = nowMillis + 1L
-        var rangeLabel = "last 24 hours"
+        var rangeLabel = "active + last 24 hours"
         var explicitTimeFilter = false
         val duration = Regex("\\b(?:last|past)\\s+(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\s+(minutes?|mins?|hours?|days?|weeks?)\\b").find(q)
         val explicitDate = Regex("\\b(20\\d{2}-\\d{2}-\\d{2})\\b").find(q)?.groupValues?.get(1)
@@ -569,7 +569,7 @@ object EventMemoryStore {
             }
             asksUnread || asksCount || q.contains("all notifications") || q.contains("notification history") -> {
                 startMillis = nowMillis - 90L * dayMillis
-                rangeLabel = "retained history (up to 90 days)"
+                rangeLabel = "active + retained history (up to 90 days)"
             }
         }
         data class NotificationRow(
