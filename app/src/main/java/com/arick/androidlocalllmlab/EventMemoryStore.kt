@@ -499,6 +499,7 @@ object EventMemoryStore {
         var startMillis = nowMillis - dayMillis
         var endExclusive = nowMillis + 1L
         var rangeLabel = "last 24 hours"
+        var explicitTimeFilter = false
         val duration = Regex("\\b(?:last|past)\\s+(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\s+(minutes?|mins?|hours?|days?|weeks?)\\b").find(q)
         val explicitDate = Regex("\\b(20\\d{2}-\\d{2}-\\d{2})\\b").find(q)?.groupValues?.get(1)
         when {
@@ -509,6 +510,7 @@ object EventMemoryStore {
                 }
                 val parsed = runCatching { formatter.parse(explicitDate)?.time }.getOrNull()
                 if (parsed != null) {
+                    explicitTimeFilter = true
                     val calendar = java.util.Calendar.getInstance().apply { timeInMillis = parsed }
                     calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
                     calendar.set(java.util.Calendar.MINUTE, 0)
@@ -521,6 +523,7 @@ object EventMemoryStore {
                 }
             }
             duration != null -> {
+                explicitTimeFilter = true
                 val amount = (duration.groupValues[1].toLongOrNull() ?: mapOf(
                     "one" to 1L, "two" to 2L, "three" to 3L, "four" to 4L, "five" to 5L,
                     "six" to 6L, "seven" to 7L, "eight" to 8L, "nine" to 9L, "ten" to 10L,
@@ -537,10 +540,12 @@ object EventMemoryStore {
                 rangeLabel = "last " + amount + " " + unit
             }
             Regex("\\b(last|past)\\s+hour\\b").containsMatchIn(q) -> {
+                explicitTimeFilter = true
                 startMillis = nowMillis - 60L * 60 * 1000
                 rangeLabel = "last hour"
             }
             q.contains("yesterday") -> {
+                explicitTimeFilter = true
                 val calendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
                 calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
                 calendar.set(java.util.Calendar.MINUTE, 0)
@@ -553,6 +558,7 @@ object EventMemoryStore {
                 rangeLabel = "yesterday"
             }
             q.contains("today") -> {
+                explicitTimeFilter = true
                 val calendar = java.util.Calendar.getInstance().apply { timeInMillis = nowMillis }
                 calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
                 calendar.set(java.util.Calendar.MINUTE, 0)
@@ -575,9 +581,9 @@ object EventMemoryStore {
             """SELECT id, source, package_name, title, body, occurred_at, is_active
                FROM events
                WHERE event_type = 'NOTIFICATION' AND action = 'posted'
-                 AND occurred_at >= ? AND occurred_at < ?
+                 AND ((? = 1 AND is_active = 1) OR (occurred_at >= ? AND occurred_at < ?))
                ORDER BY occurred_at DESC""".trimIndent(),
-            arrayOf(startMillis.toString(), endExclusive.toString())
+            arrayOf(if (explicitTimeFilter) "0" else "1", startMillis.toString(), endExclusive.toString())
         ).use { cursor ->
             while (cursor.moveToNext()) records += NotificationRow(
                 cursor.getLong(0), cursor.getString(1), cursor.getString(2),
