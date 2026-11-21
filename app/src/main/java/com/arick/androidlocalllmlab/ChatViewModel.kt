@@ -391,7 +391,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         val promptMessages = buildPromptMessages(
                             currentQuestion = prompt,
                             memorySummary = retrievedMemory,
-                            maxPromptTokens = promptBudget
+                            maxPromptTokens = promptBudget,
+                            includeConversationHistory = false
                         )
                         _samplerStatus.value = "Prompt built; running GGUF inference…"
 
@@ -626,17 +627,82 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val conversationOnlySystemInstructions = """
+        You are Mr-Red. Reply naturally and directly.
+        Use the recent conversation included before the current question to understand context and follow-ups.
+        Keep answers concise. Do not invent details; ask briefly if context is unclear.
+    """.trimIndent()
+
     private fun buildPromptMessages(
         currentQuestion: String,
         memorySummary: String,
-        maxPromptTokens: Int
-    ): List<PromptMessage> = PromptBudgetPlanner.build(
-        systemInstructions = fixedSystemInstructions,
-        currentQuestion = currentQuestion,
-        memorySummary = memorySummary,
-        maxPromptTokens = maxPromptTokens
-    ) { messages ->
-        runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
+        maxPromptTokens: Int,
+        includeConversationHistory: Boolean = true
+    ): List<PromptMessage> {
+        val hasMatchingMemoryKeywords =
+            EventMemoryQueryPlanner.plan(currentQuestion).eventTypes.isNotEmpty()
+        if (hasMatchingMemoryKeywords) {
+            return PromptBudgetPlanner.build(
+                systemInstructions = fixedSystemInstructions,
+                currentQuestion = currentQuestion,
+                memorySummary = memorySummary,
+                maxPromptTokens = maxPromptTokens
+            ) { messages ->
+                runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
+            }
+        }
+
+        // No keyword match: use the lightweight prompt and recent chat transcript only.
+        // Keep the complete model input (including template allowance) at or below 500 tokens.
+        val budget = minOf(maxPromptTokens, 500).coerceAtLeast(1)
+        val system = PromptMessage("system", conversationOnlySystemInstructions)
+        fun count(messages: List<PromptMessage>): Int =
+            runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
+
+        var question = currentQuestion
+        var base = listOf(system, PromptMessage("user", question))
+        if (count(base) > budget) {
+            // Preserve the end of an oversized question, where the actual request often appears.
+            var low = 0
+            var high = question.length
+            var best = ""
+            while (low <= high) {
+                val middle = (low + high) ushr 1
+                val candidate = question.takeLast(middle)
+                if (count(listOf(system, PromptMessage("user", candidate))) <= budget) {
+                    best = candidate
+                    low = middle + 1
+                } else {
+                    high = middle - 1
+                }
+            }
+            question = best
+            base = listOf(system, PromptMessage("user", question))
+        }
+        if (!includeConversationHistory || question.isBlank()) return base
+
+        val history = synchronized(conversationHistory) { conversationHistory.toList() }
+        val selected = mutableListOf<Pair<String, String>>()
+        for (turn in history.asReversed()) {
+            val candidateTurns = listOf(turn) + selected
+            val messages = buildList {
+                add(system)
+                candidateTurns.forEach { (user, assistant) ->
+                    add(PromptMessage("user", user))
+                    add(PromptMessage("assistant", assistant))
+                }
+                add(PromptMessage("user", question))
+            }
+            if (count(messages) <= budget) selected.add(0, turn) else break
+        }
+        return buildList {
+            add(system)
+            selected.forEach { (user, assistant) ->
+                add(PromptMessage("user", user))
+                add(PromptMessage("assistant", assistant))
+            }
+            add(PromptMessage("user", question))
+        }
     }
 
     /** Debounced idle-time prefill. This fills KV cache without sampling response tokens. */
@@ -792,7 +858,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         nativeInferenceMutex.withLock {
                         runtime.resetStopRequest()
                         runtime.generate(
-                            messages = buildPromptMessages(synthesisRequest, "", promptBudget),
+                            messages = buildPromptMessages(synthesisRequest, "", promptBudget, includeConversationHistory = false),
                             inferenceConfig = _inferenceConfig.value.copy(maxTokens = maxOutput),
                             contextWindowTokens = ready.nCtx,
                             onPrompt = { formatted, tokens ->
