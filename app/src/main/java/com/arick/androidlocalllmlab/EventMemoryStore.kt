@@ -371,30 +371,133 @@ object EventMemoryStore {
                     }
                 }
             }
-            balancedRows.filter { it.type != "QUESTION" && it.type != "ANSWER" }.sortedByDescending { it.time }.forEach { row ->
-                val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(row.time))
-                val detail = if (row.type == "NOTIFICATION" && (row.title.isNotBlank() || row.body.isNotBlank())) {
-                    val content = (row.title + if (row.body.isNotBlank()) " — " + row.body else "")
-                        .replace(Regex("\\s+"), " ").take(if (row.importance == "important") 800 else 180)
-                    "app=" + row.source + "; content=" + content + "; importance=" + row.importance + "; status=" + if (row.active) "active" else "removed"
-                } else row.detail.replace(Regex("\\s+"), " ").take(320)
-                if (detail.isNotBlank()) output.append(stamp).append(" | ").append(row.type).append(" | ").append(row.action).append(" | ").append(row.source).append(" | ").append(detail).append('\n')
+            val notificationRows = balancedRows.filter { it.type == "NOTIFICATION" && it.action == "posted" }
+            if (notificationRows.isNotEmpty()) {
+                val query = question.lowercase(java.util.Locale.ROOT)
+                val appNames = listOf(
+                    "whatsapp", "telegram", "signal", "gmail", "outlook", "messenger",
+                    "instagram", "facebook", "messages", "sms", "phone", "dialer",
+                    "bank", "wallet", "paypal", "calendar"
+                ).filter(query::contains)
+                val categorySlots = linkedMapOf(
+                    "security/verification" to listOf("otp", "verification", "security", "login code", "passcode", "fraud"),
+                    "banking/transactions" to listOf("bank", "payment", "transaction", "transfer", "credited", "debited", "card"),
+                    "missed calls" to listOf("missed call", "missed calls"),
+                    "personal messages" to listOf("message", "messages", "sms", "chat", "replied", "messaged"),
+                    "delivery/orders" to listOf("delivery", "delivered", "shipment", "parcel", "order"),
+                    "calendar/events" to listOf("calendar", "meeting", "appointment", "event")
+                )
+                val requestedCategories = categorySlots.filter { (_, terms) -> terms.any(query::contains) }
+                val senderSlot = Regex("\\bfrom\\s+([\\p{L}][\\p{L}0-9._-]*(?:\\s+[\\p{L}][\\p{L}0-9._-]*){0,2})")
+                    .find(query)?.groupValues?.get(1)?.takeIf { it !in setOf("the app", "my phone", "today") }
+                val activeOnly = when {
+                    listOf("active notification", "currently showing", "still showing", "in notification shade").any(query::contains) -> true
+                    listOf("dismissed", "cleared", "removed notification").any(query::contains) -> false
+                    else -> null
+                }
+                val importantOnly = listOf("important", "urgent", "priority", "need attention").any(query::contains)
+                val hasSpecificSlots = appNames.isNotEmpty() || requestedCategories.isNotEmpty() ||
+                    senderSlot != null || activeOnly != null || importantOnly
+
+                fun compactNotificationText(value: String, maxChars: Int): String {
+                    var text = value.replace(Regex("\\s+"), " ").trim()
+                    text = text.replace(
+                        Regex("^(new message|new notification|you have a notification|notification):?\\s*", RegexOption.IGNORE_CASE),
+                        ""
+                    )
+                    return text.take(maxChars).trim().trimEnd(',', ';', ':', '-', '—')
+                }
+                fun relativeBucket(time: Long): String {
+                    val age = (nowMillis - time).coerceAtLeast(0L)
+                    return when {
+                        age < 5L * 60 * 1000 -> "just now"
+                        age < 60L * 60 * 1000 -> "recently"
+                        age < 6L * 60 * 60 * 1000 -> "earlier today"
+                        age < 24L * 60 * 60 * 1000 -> "today"
+                        else -> "earlier in this period"
+                    }
+                }
+                val matchedNotifications = notificationRows.filter { row ->
+                    val combined = (row.source + " " + row.title + " " + row.body).lowercase(java.util.Locale.ROOT)
+                    val appMatch = appNames.isEmpty() || appNames.any { app ->
+                        row.source.contains(app, ignoreCase = true) || row.title.contains(app, ignoreCase = true) ||
+                            (app == "messages" && combined.contains("message"))
+                    }
+                    val categoryMatch = requestedCategories.isEmpty() || requestedCategories.values.any { terms ->
+                        terms.any(combined::contains)
+                    }
+                    val senderMatch = senderSlot == null || combined.contains(senderSlot)
+                    val statusMatch = activeOnly == null || row.active == activeOnly
+                    val priorityMatch = !importantOnly || row.importance == "important"
+                    appMatch && categoryMatch && senderMatch && statusMatch && priorityMatch
+                }.sortedWith(compareByDescending<Row> { it.importance == "important" }.thenByDescending { it.time })
+
+                output.append("[COMPACT NOTIFICATION CONTEXT — ").append(rangeLabel).append("]\n")
+                output.append("Requested slots: ")
+                val slotLabels = buildList {
+                    if (appNames.isNotEmpty()) add("app=" + appNames.joinToString("/"))
+                    if (requestedCategories.isNotEmpty()) add("type=" + requestedCategories.keys.joinToString("/"))
+                    if (senderSlot != null) add("sender contains=" + senderSlot)
+                    if (activeOnly != null) add("status=" + if (activeOnly) "active" else "dismissed")
+                    if (importantOnly) add("priority=important")
+                }
+                output.append(if (slotLabels.isEmpty()) "general notification overview" else slotLabels.joinToString("; "))
+                    .append(".\n")
+                output.append("Matching notifications: ").append(matchedNotifications.size)
+                    .append(" of ").append(notificationRows.size).append(" stored notification(s).\n")
+                matchedNotifications.take(12).forEachIndexed { index, row ->
+                    val title = compactNotificationText(row.title, 70)
+                    val body = compactNotificationText(row.body, if (row.importance == "important") 150 else 90)
+                    val cue = listOf(title, body).filter { it.isNotBlank() }.distinct().joinToString(" — ")
+                    output.append("- ")
+                        .append(row.source.ifBlank { "Unknown app" }.take(45))
+                        .append(if (cue.isNotBlank()) ": " + cue else "")
+                        .append("; priority=").append(row.importance.ifBlank { "unspecified" })
+                        .append("; status=").append(if (row.active) "active" else "dismissed")
+                        .append("; recency=").append(relativeBucket(row.time))
+                        .append(if (index == 0) " (most recent match)" else "")
+                        .append('\n')
+                }
+                if (matchedNotifications.isEmpty()) {
+                    output.append("No stored notification matched the requested slots. Do not infer missing items.\n")
+                }
+                if (hasSpecificSlots && matchedNotifications.size < notificationRows.size) {
+                    output.append("Other stored notifications were excluded because they did not match the requested slots.\n")
+                }
             }
+            balancedRows.filter { it.type != "QUESTION" && it.type != "ANSWER" && it.type != "NOTIFICATION" }
+                .sortedByDescending { it.time }.forEach { row ->
+                    val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+                        .format(java.util.Date(row.time))
+                    val detail = row.detail.replace(Regex("\\s+"), " ").take(320)
+                    if (detail.isNotBlank()) {
+                        output.append(stamp).append(" | ").append(row.type).append(" | ")
+                            .append(row.action).append(" | ").append(row.source).append(" | ")
+                            .append(detail).append('\n')
+                    }
+                }
             if (balancedRows.isEmpty()) output.append("No matching stored events in this time range.\n")
         }
         return output.toString().trim()
     }
 
-    /** Canonical recent notification snapshot read directly from SQLite. */
+    /** Compact recent notification snapshot read directly from SQLite; no exact timestamps are exposed. */
     fun recentNotificationDigest(
         context: Context,
         sinceMillis: Long,
         nowMillis: Long = System.currentTimeMillis()
     ): String {
         awaitPendingWrites()
-        data class Notification(val app: String, val title: String, val body: String, val time: Long, val importance: String, val active: Boolean)
+        data class Notification(
+            val app: String,
+            val title: String,
+            val body: String,
+            val time: Long,
+            val importance: String,
+            val active: Boolean
+        )
         val records = mutableListOf<Notification>()
-        database(context).readableDatabase.rawQuery(
+        database(context.applicationContext).readableDatabase.rawQuery(
             "SELECT source, title, body, occurred_at, importance, is_active FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 100",
             arrayOf(sinceMillis.toString(), nowMillis.toString())
         ).use { cursor ->
@@ -403,19 +506,51 @@ object EventMemoryStore {
                 cursor.getLong(3), cursor.getString(4), cursor.getInt(5) == 1
             )
         }
-        if (records.isEmpty()) return if (failedWriteCount.get() > 0) "COLLECTION WARNING: " + failedWriteCount.get() + " database write(s) failed; notification history may be incomplete." else ""
-        val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-        return buildString {
-            appendLine("ANDROID NOTIFICATION DIGEST — SQLITE RECORDS")
-            if (failedWriteCount.get() > 0) appendLine("COLLECTION WARNING: " + failedWriteCount.get() + " database write(s) failed; history may be incomplete.")
-            appendLine("Notifications posted in selected window: " + records.size + ". Times are local device time.")
-            records.sortedBy { it.time }.forEach { item ->
-                val content = (item.title + if (item.body.isNotBlank()) " — " + item.body else "")
-                    .replace(Regex("\\s+"), " ").take(if (item.importance == "important") 800 else 180)
-                appendLine("- " + timeFormat.format(java.util.Date(item.time)) + " | " + item.app +
-                    " | " + item.importance + " | " + content + " | status=" + if (item.active) "active" else "dismissed")
+        if (records.isEmpty()) {
+            return if (failedWriteCount.get() > 0) {
+                "COLLECTION WARNING: " + failedWriteCount.get() +
+                    " database write(s) failed; notification history may be incomplete."
+            } else ""
+        }
+        fun compact(value: String, limit: Int): String {
+            return value.replace(Regex("\\s+"), " ")
+                .replace(
+                    Regex("^(new message|new notification|you have a notification|notification):?\\s*", RegexOption.IGNORE_CASE),
+                    ""
+                )
+                .trim().take(limit).trimEnd(',', ';', ':', '-', '—')
+        }
+        fun recency(time: Long): String {
+            val age = (nowMillis - time).coerceAtLeast(0L)
+            return when {
+                age < 5L * 60 * 1000 -> "just now"
+                age < 60L * 60 * 1000 -> "recently"
+                else -> "earlier in the last hour"
             }
-            append("Prioritise personal communication, missed calls, OTP/security, banking/transactions and time-sensitive alerts. Separate promotions and routine app chatter. Do not infer missing details.")
+        }
+        val ordered = records.sortedWith(
+            compareByDescending<Notification> { it.importance == "important" }
+                .thenByDescending { it.time }
+        )
+        return buildString {
+            appendLine("COMPACT ANDROID NOTIFICATION SNAPSHOT FROM SQLITE")
+            if (failedWriteCount.get() > 0) {
+                appendLine("Collection warning: " + failedWriteCount.get() + " database write(s) failed; history may be incomplete.")
+            }
+            appendLine("Stored notifications in the last hour: " + records.size + ".")
+            appendLine("Prioritise personal communication, missed calls, verification/security, banking and time-sensitive updates.")
+            ordered.take(15).forEach { item ->
+                val title = compact(item.title, 65)
+                val body = compact(item.body, if (item.importance == "important") 130 else 75)
+                val cue = listOf(title, body).filter { it.isNotBlank() }.distinct().joinToString(" — ")
+                append("- ").append(item.app.ifBlank { "Unknown app" }.take(40))
+                if (cue.isNotBlank()) append(": ").append(cue)
+                append("; ").append(item.importance.ifBlank { "priority unknown" })
+                append("; ").append(if (item.active) "active" else "dismissed")
+                append("; ").append(recency(item.time)).appendLine()
+            }
+            if (records.size > 15) appendLine("Additional lower-priority/recent records omitted from this compact view.")
+            append("These are compact content cues, not verbatim notification transcripts; recency is approximate and exact timestamps are intentionally omitted. Do not infer missing details.")
         }.trim()
     }
 
