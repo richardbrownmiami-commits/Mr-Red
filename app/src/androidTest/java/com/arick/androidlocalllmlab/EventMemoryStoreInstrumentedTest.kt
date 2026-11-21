@@ -44,6 +44,41 @@ class EventMemoryStoreInstrumentedTest {
     }
 
     @Test
+    fun actionNotificationContextIsCompactAndTracksPreviouslySharedRows() {
+        val now = System.currentTimeMillis()
+        val suffix = now.toString()
+        val title = "Alice $suffix"
+        val body = "Are you available for the meeting? $suffix"
+        EventMemoryStore.recordNotification(
+            context = context,
+            appLabel = "Integration test app",
+            packageName = "com.example.notificationactiontest",
+            notificationKey = "notification-action-$suffix",
+            title = title,
+            body = body,
+            postedAtMillis = now,
+            importance = "important"
+        )
+
+        val first = EventMemoryStore.notificationContextForQuestion(
+            context,
+            "What notification from Integration test app arrived in the last hour?"
+        )
+        assertTrue("Action context must contain the matching title", first.contains(title))
+        assertTrue("Action context must preserve the message text", first.contains(body))
+        assertTrue("Action context must be compact evidence", first.contains("NOTIFICATION EVIDENCE"))
+
+        val unread = EventMemoryStore.notificationContextForQuestion(
+            context,
+            "Any unread notifications from Integration test app?"
+        )
+        assertTrue(
+            "A record already supplied to the model must not be returned as unread",
+            unread.contains("No notifications remain unshared with the model")
+        )
+    }
+
+    @Test
     fun broadTodayRetrievalIncludesDifferentRecordedCategories() {
         val now = System.currentTimeMillis()
         val suffix = now.toString()
