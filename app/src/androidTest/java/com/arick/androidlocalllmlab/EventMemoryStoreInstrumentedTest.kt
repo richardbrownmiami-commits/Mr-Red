@@ -91,6 +91,28 @@ class EventMemoryStoreInstrumentedTest {
     }
 
     @Test
+    fun broadNotificationQueryIncludesOlderStillActiveNotifications() {
+        val now = System.currentTimeMillis()
+        val oldPostedAt = now - 3L * 24 * 60 * 60 * 1000
+        val title = "Still active notification $now"
+        EventMemoryStore.recordNotification(
+            context = context,
+            appLabel = "Active history test",
+            packageName = "com.example.activehistory",
+            notificationKey = "active-history-$now",
+            title = title,
+            body = "This notification remains in the shade",
+            postedAtMillis = oldPostedAt
+        )
+
+        val broad = EventMemoryStore.notificationContextForQuestion(context, "any notification i have", now)
+        assertTrue("Broad queries must include older notifications still active in Android", broad.contains(title))
+
+        val recent = EventMemoryStore.notificationContextForQuestion(context, "notifications in the last 24 hours", now)
+        assertTrue("Explicit time ranges must not include older active notifications", !recent.contains(title))
+    }
+
+    @Test
     fun broadTodayRetrievalIncludesDifferentRecordedCategories() {
         val now = System.currentTimeMillis()
         val suffix = now.toString()
