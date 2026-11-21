@@ -577,13 +577,14 @@ object EventMemoryStore {
             val body: String, val time: Long, val active: Boolean
         )
         val records = mutableListOf<NotificationRow>()
+        val activeRowsClause = if (explicitTimeFilter) "0" else "is_active = 1"
         database(appContext).readableDatabase.rawQuery(
             """SELECT id, source, package_name, title, body, occurred_at, is_active
                FROM events
                WHERE event_type = 'NOTIFICATION' AND action = 'posted'
-                 AND ((? = 1 AND is_active = 1) OR (occurred_at >= ? AND occurred_at < ?))
+                 AND ($activeRowsClause OR (occurred_at >= ? AND occurred_at < ?))
                ORDER BY occurred_at DESC""".trimIndent(),
-            arrayOf(if (explicitTimeFilter) "0" else "1", startMillis.toString(), endExclusive.toString())
+            arrayOf(startMillis.toString(), endExclusive.toString())
         ).use { cursor ->
             while (cursor.moveToNext()) records += NotificationRow(
                 cursor.getLong(0), cursor.getString(1), cursor.getString(2),
