@@ -247,7 +247,8 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                     )
                 }
             }
-        }    ) { innerPadding ->
+        }
+    ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -497,7 +498,8 @@ private fun ChatHeader(
                 is ChatUiState.Preparing -> uiState.message
                 is ChatUiState.Ready -> "${uiState.modelName} · n_ctx ${uiState.nCtx} · ${cpuThreads}T"
                 is ChatUiState.Error -> "Model error: ${uiState.message}"
-            }            Text(
+            }
+            Text(
                 text = subtitle,
                 fontSize = 12.sp,
                 color = if (uiState is ChatUiState.Error) AppColors.Error else AppColors.TextSecondary,
@@ -746,7 +748,8 @@ private fun ChatMessageItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(AppColors.PageBackground, RoundedCornerShape(16.dp))
-                    .padding(14.dp)            ) {
+                    .padding(14.dp)
+            ) {
                 // Exact formatted input captured from llama.cpp immediately before inference.
                 if (message.modelInputPrompt.isNotBlank()) {
                     Column(
@@ -995,7 +998,8 @@ private fun ChatComposer(
                         )
                 ) {
                     Icon(
-                        imageVector = Icons.Default.ArrowUpward,                        contentDescription = "Send",
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Send",
                         tint = Color.White
                     )
                 }
@@ -1244,7 +1248,8 @@ private fun DashboardPage(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0x33212126)),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("Wi-Fi", fontSize = 12.sp, color = AppColors.PrimaryAction)                    }
+                        Text("Wi-Fi", fontSize = 12.sp, color = AppColors.PrimaryAction)
+                    }
                     Button(
                         onClick = { viewModel.toolExecutor.openApp(JSONObject().put("app_name", "whatsapp")) },
                         modifier = Modifier.weight(1f),
@@ -1493,7 +1498,8 @@ private fun SettingsPage(
                 TextButton(onClick = { showContextWindowDialog = false }) {
                     Text("Cancel")
                 }
-            }        )
+            }
+        )
     }
 
     // CPU Threads Selector Dialog
@@ -1742,7 +1748,8 @@ private fun SettingsSwitchRow(
 }
 
 @Composable
-private fun <T> SamplingSlider(    name: String,
+private fun <T> SamplingSlider(
+    name: String,
     presets: List<Pair<String, T>>,
     current: T,
     onSelect: (T) -> Unit
@@ -1991,7 +1998,8 @@ private fun ScheduledTasksPage(
                                 Text(
                                     text = item.title,
                                     fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,                                    color = AppColors.TextPrimary
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.TextPrimary
                                 )
                             }
                             IconButton(onClick = {
@@ -2240,7 +2248,8 @@ private fun ScheduledTasksPage(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showReminderDialog = false }) {                    Text("Cancel", color = AppColors.TextSecondary)
+                TextButton(onClick = { showReminderDialog = false }) {
+                    Text("Cancel", color = AppColors.TextSecondary)
                 }
             },
             containerColor = AppColors.CardBackground
