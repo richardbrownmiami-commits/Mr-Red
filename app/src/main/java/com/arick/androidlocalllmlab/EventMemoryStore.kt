@@ -523,7 +523,7 @@ object EventMemoryStore {
             "security/verification" to listOf("otp", "verification", "security", "login code", "passcode", "fraud"),
             "banking/transactions" to listOf("bank", "payment", "transaction", "transfer", "credited", "debited", "card"),
             "missed calls" to listOf("missed call", "missed calls"),
-            "personal messages" to listOf("message", "messages", "sms", "chat", "replied", "messaged"),
+            "personal messages" to listOf("message", "messages", "sms", "chat", "replied", "messaged", "whatsapp", "telegram", "signal", "messenger"),
             "delivery/orders" to listOf("delivery", "delivered", "shipment", "parcel", "order"),
             "calendar/events" to listOf("calendar", "meeting", "appointment", "event")
         ).filter { (_, terms) -> terms.any(query::contains) }
@@ -584,7 +584,7 @@ object EventMemoryStore {
             }
             if (filteredRecords.isEmpty()) appendLine("No stored notification matched the requested focus slots.")
             if (filteredRecords.size > 15) appendLine("Additional lower-priority/recent matches omitted from this compact view.")
-            append("These are compact content cues, not verbatim notification transcripts; recency is approximate and exact timestamps are intentionally omitted. Do not infer missing details.")
+            append("These are shortened notification excerpts; recency is approximate and exact timestamps are intentionally omitted. Do not infer missing details.")
         }.trim()
     }
 
