@@ -332,6 +332,17 @@ object EventMemoryStore {
         }
     }
 
+    /** Returns recently learned explicit facts for on-device display in the Memory Hub. */
+    fun recentFacts(context: Context, limit: Int = 20): List<String> = runCatching {
+        database(context.applicationContext).readableDatabase.rawQuery(
+            "SELECT fact FROM facts ORDER BY updated_at DESC LIMIT " + limit, null
+        ).use { cursor ->
+            val list = mutableListOf<String>()
+            while (cursor.moveToNext()) list += cursor.getString(0)
+            list
+        }
+    }.getOrDefault(emptyList())
+
     /** Read-only diagnostic counts; useful for validating collection without exposing message text. */
     fun counts(context: Context): Map<String, Int> {
         val db = database(context).readableDatabase

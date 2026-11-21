@@ -131,6 +131,43 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Locale
 import kotlin.math.roundToInt
+import android.content.ComponentName
+import android.provider.Settings as AndroidSettings
+import android.app.AlarmManager
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import java.text.SimpleDateFormat
+import java.util.Date
+
+private fun isNotificationListenerEnabled(context: Context): Boolean {
+    val enabledListeners = AndroidSettings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+    val myComponent = ComponentName(context, MrRedNotificationListenerService::class.java).flattenToString()
+    return enabledListeners?.contains(myComponent) == true || enabledListeners?.contains(context.packageName) == true
+}
+
+private fun canScheduleExactAlarms(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        alarmManager?.canScheduleExactAlarms() ?: true
+    } else {
+        true
+    }
+}
+
+private fun isPostNotificationsGranted(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= 33) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    } else {
+        true
+    }
+}
 
 class MainActivity : ComponentActivity() {
     private val chatViewModel by viewModels<ChatViewModel>()
@@ -189,7 +226,7 @@ class MainActivity : ComponentActivity() {
 
 enum class AppPage(val title: String, val icon: ImageVector) {
     Chat("Chat", Icons.Default.Chat),
-    TemplateSampler("Sampler", Icons.Default.Description),
+    Notifications("Alerts", Icons.Default.Notifications),
     Tasks("Tasks", Icons.Default.Alarm),
     Dashboard("Dashboard", Icons.Default.Dashboard),
     Settings("Settings", Icons.Default.Settings)
@@ -224,7 +261,7 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
 
     Scaffold(
         bottomBar = {
-            if ((selectedPage != AppPage.Chat && selectedPage != AppPage.TemplateSampler) || !WindowInsets.isImeVisible) NavigationBar(
+            if (selectedPage != AppPage.Chat || !WindowInsets.isImeVisible) NavigationBar(
                 containerColor = AppColors.PageBackground,
                 contentColor = AppColors.PrimaryAction
             ) {
@@ -254,7 +291,7 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                 .fillMaxSize()
                 .padding(
                     top = innerPadding.calculateTopPadding(),
-                    bottom = if ((selectedPage == AppPage.Chat || selectedPage == AppPage.TemplateSampler) && WindowInsets.isImeVisible) 0.dp else innerPadding.calculateBottomPadding()
+                    bottom = if (selectedPage == AppPage.Chat && WindowInsets.isImeVisible) 0.dp else innerPadding.calculateBottomPadding()
                 )
                 .background(AppColors.PageBackground)
         ) {
@@ -264,16 +301,22 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                     onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) },
                     onNavigateToSettings = { selectedPage = AppPage.Settings }
                 )
-                AppPage.TemplateSampler -> TemplateSamplerPage(
+                AppPage.Notifications -> NotificationsPage(
                     viewModel = viewModel,
-                    onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) }
+                    onNavigateToChat = { prompt ->
+                        selectedPage = AppPage.Chat
+                        if (!prompt.isNullOrBlank()) {
+                            viewModel.send(prompt)
+                        }
+                    }
                 )
                 AppPage.Tasks -> ScheduledTasksPage(
                     onNavigateToChat = { selectedPage = AppPage.Chat }
                 )
                 AppPage.Dashboard -> DashboardPage(
                     viewModel = viewModel,
-                    onNavigateToChat = { selectedPage = AppPage.Chat }
+                    onNavigateToChat = { selectedPage = AppPage.Chat },
+                    onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) }
                 )
                 AppPage.Settings -> SettingsPage(
                     viewModel = viewModel,
@@ -680,8 +723,14 @@ private fun ChatMessagesList(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = AppColors.PrimaryAction
+                    )
                     val statusText = if (isStopRequested) "Stopping…" else generationProgress ?: "Generating…"
                     Text(
                         text = statusText,
@@ -901,14 +950,49 @@ private fun ChatMessageItem(
                 }
 
                 // Per-answer generation telemetry: full formatted input and actual sampled output.
-                message.generationMetrics?.let { metrics ->
+                if (message.generationMetrics != null) {
+                    val metrics = message.generationMetrics
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Generated in ${formatDuration(metrics.totalMillis)}  ·  Input ${metrics.promptTokenCount} tokens  ·  Output ${metrics.generatedTokenCount} tokens  ·  ${formatTokensPerSecond(metrics.decodeTokensPerSecond)}",
-                        fontSize = 11.sp,
-                        color = AppColors.TextSecondary,
-                        lineHeight = 15.sp
-                    )
+                    Surface(
+                        color = Color(0xFF141C26),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, Color(0xFF223042))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(text = "⚡", fontSize = 11.sp)
+                            Text(
+                                text = "Gen ${formatDuration(metrics.totalMillis)}  ·  In: ${metrics.promptTokenCount}t  ·  Out: ${metrics.generatedTokenCount}t  ·  ${formatTokensPerSecond(metrics.decodeTokensPerSecond)}",
+                                fontSize = 11.sp,
+                                color = AppColors.TextSecondary,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                } else if (message.agentDurationMillis != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        color = Color(0xFF141C26),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, Color(0xFF223042))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(text = "⚙️", fontSize = 11.sp)
+                            Text(
+                                text = "Executed in ${formatDuration(message.agentDurationMillis)}  ·  Kotlin Local Engine",
+                                fontSize = 11.sp,
+                                color = AppColors.TextSecondary,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
                 }
 
                 // Source Links
@@ -1022,11 +1106,610 @@ private fun ChatComposer(
 }
 
 /* =========================================================================================
- * 2. DASHBOARD PAGE
+ * 2. NOTIFICATIONS HUB PAGE
+ * ========================================================================================= */
+
+@Composable
+private fun NotificationsPage(
+    viewModel: ChatViewModel,
+    onNavigateToChat: (String?) -> Unit
+) {
+    val context = LocalContext.current
+    var isEnabled by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
+    var isConnected by remember { mutableStateOf(MrRedNotificationListenerService.isConnected()) }
+    var notifications by remember { mutableStateOf(MrRedNotificationListenerService.currentNotifications(context)) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    fun refresh() {
+        isEnabled = isNotificationListenerEnabled(context)
+        isConnected = MrRedNotificationListenerService.isConnected()
+        notifications = MrRedNotificationListenerService.currentNotifications(context)
+    }
+
+    LaunchedEffect(Unit) {
+        refresh()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Notification Hub",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Text(
+                    text = "Live status bar alerts captured for on-device reasoning",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary
+                )
+            }
+            IconButton(onClick = {
+                MrRedNotificationListenerService.requestRebindService(context)
+                refresh()
+                statusMessage = "Refreshed and rebound listener service"
+            }) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = AppColors.TextSecondary)
+            }
+        }
+
+        statusMessage?.let { msg ->
+            Text(
+                text = msg,
+                fontSize = 12.sp,
+                color = AppColors.PrimaryActionGlow
+            )
+        }
+
+        // Connection / Permission Card
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (isEnabled && isConnected) Color(0xFF14241B) else Color(0xFF2B1C1C)
+            ),
+            border = BorderStroke(1.dp, if (isEnabled && isConnected) Color(0xFF254B33) else Color(0xFF5E2B2B))
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(
+                        imageVector = if (isEnabled && isConnected) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = if (isEnabled && isConnected) Color(0xFF4CAF50) else Color(0xFFFF6B6B),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = when {
+                            !isEnabled -> "Notification Access Not Granted"
+                            !isConnected -> "Listener Service Rebinding"
+                            else -> "Notification Listener Active"
+                        },
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AppColors.TextPrimary
+                    )
+                }
+
+                Text(
+                    text = when {
+                        !isEnabled -> "Android requires explicit permission for Mr-Red to read status bar alerts. Enable Mr-Red in Android Settings to let the model see incoming alerts."
+                        !isConnected -> "Listener is enabled in Android Settings, but Android has not bound the background service yet. Tap Rebind or toggle access in Settings if needed."
+                        else -> "Mr-Red is capturing incoming status bar notifications into private local memory for verified on-device reasoning."
+                    },
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary,
+                    lineHeight = 16.sp
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isEnabled) {
+                        Button(
+                            onClick = {
+                                runCatching {
+                                    val intent = Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                        ) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Grant Access in Settings", fontSize = 12.sp)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = {
+                                MrRedNotificationListenerService.requestRebindService(context)
+                                refresh()
+                            }
+                        ) {
+                            Text("Rebind Service", fontSize = 12.sp, color = AppColors.TextPrimary)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Quick AI Action
+        Button(
+            onClick = {
+                onNavigateToChat("What notifications do I have right now? Summarize any important alerts.")
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+        ) {
+            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Ask Mr-Red to Summarize Alerts in Chat", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+
+        // Active Notifications Section
+        Text(
+            text = "Active Notifications (${notifications.size})",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = AppColors.TextPrimary,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        if (notifications.isEmpty()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+                border = BorderStroke(1.dp, AppColors.CardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = null,
+                        tint = AppColors.TextSecondary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Text(
+                        text = if (!isEnabled) "No notifications accessible" else "No active notifications",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AppColors.TextPrimary
+                    )
+                    Text(
+                        text = if (!isEnabled) "Enable Notification Access above to see alerts here." else "You're all caught up! Incoming notifications from your apps will appear here in real time.",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        } else {
+            notifications.forEach { notif ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+                    border = BorderStroke(1.dp, AppColors.CardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                color = AppColors.PrimaryAction.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = notif.app.ifBlank { notif.packageName },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AppColors.PrimaryActionGlow,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            val timeStr = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(notif.postedAtMillis))
+                            Text(text = timeStr, fontSize = 11.sp, color = AppColors.TextSecondary)
+                        }
+
+                        if (notif.title.isNotBlank()) {
+                            Text(
+                                text = notif.title,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AppColors.TextPrimary
+                            )
+                        }
+
+                        if (notif.text.isNotBlank()) {
+                            Text(
+                                text = notif.text,
+                                fontSize = 12.sp,
+                                color = AppColors.TextSecondary,
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(
+                                onClick = {
+                                    onNavigateToChat("Tell me about this notification from ${notif.app}: '${notif.title}' - ${notif.text}")
+                                }
+                            ) {
+                                Text("Ask Mr-Red", fontSize = 11.sp, color = AppColors.PrimaryActionGlow)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* =========================================================================================
+ * 3. MEMORY & DIAGNOSTICS HUB COMPOSABLE
+ * ========================================================================================= */
+
+@Composable
+private fun MemoryHubContent(
+    context: Context
+) {
+    var counts by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var facts by remember { mutableStateOf<List<String>>(emptyList()) }
+    var activityLogs by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selectedFilter by remember { mutableStateOf("All") }
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var feedbackMessage by remember { mutableStateOf<String?>(null) }
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+
+    fun refreshMemory() {
+        scope.launch {
+            counts = withContext(Dispatchers.IO) { EventMemoryStore.counts(context) }
+            facts = withContext(Dispatchers.IO) { EventMemoryStore.recentFacts(context) }
+            val rawLogs = withContext(Dispatchers.IO) { ActivityLogger.recentText(context) }
+            activityLogs = rawLogs.lines().filter { it.isNotBlank() }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshMemory()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Section header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Event Memory & Knowledge",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary
+                )
+                Text(
+                    text = "Private on-device SQLite database and diagnostic journal",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary
+                )
+            }
+            IconButton(onClick = {
+                refreshMemory()
+                feedbackMessage = "Refreshed memory database"
+            }) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = AppColors.TextSecondary)
+            }
+        }
+
+        feedbackMessage?.let { msg ->
+            Text(text = msg, fontSize = 12.sp, color = AppColors.PrimaryActionGlow)
+        }
+
+        // Database Statistics Cards
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+                border = BorderStroke(1.dp, AppColors.CardBorder),
+                modifier = Modifier.weight(1f)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(text = "Total Events", fontSize = 11.sp, color = AppColors.TextSecondary)
+                    Text(
+                        text = counts["events"]?.toString() ?: "0",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary
+                    )
+                }
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+                border = BorderStroke(1.dp, AppColors.CardBorder),
+                modifier = Modifier.weight(1f)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(text = "Learned Facts", fontSize = 11.sp, color = AppColors.TextSecondary)
+                    Text(
+                        text = counts["facts"]?.toString() ?: "0",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.PrimaryActionGlow
+                    )
+                }
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+                border = BorderStroke(1.dp, AppColors.CardBorder),
+                modifier = Modifier.weight(1f)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(text = "Alerts Stored", fontSize = 11.sp, color = AppColors.TextSecondary)
+                    Text(
+                        text = counts["notifications"]?.toString() ?: "0",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary
+                    )
+                }
+            }
+        }
+
+        // Verified Long-Term Facts Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+            border = BorderStroke(1.dp, AppColors.CardBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Verified Long-Term Facts (${facts.size})",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AppColors.TextPrimary
+                    )
+                    Icon(Icons.Default.Storage, contentDescription = null, tint = AppColors.PrimaryActionGlow, modifier = Modifier.size(16.dp))
+                }
+
+                if (facts.isEmpty()) {
+                    Text(
+                        text = "No explicit facts stored yet. Say 'Remember that I prefer dark mode' or 'My name is Richard' in Chat to record facts.",
+                        fontSize = 12.sp,
+                        color = AppColors.TextSecondary,
+                        lineHeight = 16.sp
+                    )
+                } else {
+                    facts.forEach { fact ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text(text = "•", fontSize = 12.sp, color = AppColors.PrimaryActionGlow)
+                            Text(
+                                text = fact,
+                                fontSize = 12.sp,
+                                color = AppColors.TextPrimary,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Activity Logger Diagnostics Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = AppColors.CardBackground),
+            border = BorderStroke(1.dp, AppColors.CardBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Activity Logger · Diagnostic Journal",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppColors.TextPrimary
+                )
+
+                // Filter chips
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val filters = listOf("All", "INFERENCE", "NOTIFICATION", "DEVICE", "ERROR")
+                    items(filters) { f ->
+                        AssistChip(
+                            onClick = { selectedFilter = f },
+                            label = { Text(f, fontSize = 11.sp) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = if (selectedFilter == f) AppColors.PrimaryAction.copy(alpha = 0.3f) else Color.Transparent,
+                                labelColor = if (selectedFilter == f) AppColors.PrimaryActionGlow else AppColors.TextSecondary
+                            )
+                        )
+                    }
+                }
+
+                val filteredLogs = if (selectedFilter == "All") {
+                    activityLogs
+                } else {
+                    activityLogs.filter { it.contains(selectedFilter, ignoreCase = true) }
+                }
+
+                Surface(
+                    color = Color(0xFF10141D),
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, Color(0xFF1E2633)),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)
+                ) {
+                    if (filteredLogs.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                            Text(text = "No log entries matching filter", fontSize = 11.sp, color = AppColors.TextSecondary)
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            items(filteredLogs.takeLast(50).reversed()) { line ->
+                                Text(
+                                    text = line,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = if (line.contains("ERROR", ignoreCase = true)) Color(0xFFFF6B6B) else AppColors.TextSecondary,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Action buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                val report = withContext(Dispatchers.IO) { ActivityLogger.diagnosticReport(context) }
+                                clipboard.setText(AnnotatedString(report))
+                                Toast.makeText(context, "Full diagnostic report copied", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Copy Report", fontSize = 11.sp)
+                    }
+
+                    Button(
+                        onClick = { showClearConfirmDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A1E1E)),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFFF6B6B))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Clear DB", fontSize = 11.sp, color = Color(0xFFFF6B6B))
+                    }
+                }
+            }
+        }
+    }
+
+    if (showClearConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmDialog = false },
+            title = { Text("Clear Event Database?", fontSize = 16.sp) },
+            text = {
+                Text(
+                    text = "This deletes all recorded event history and notification rows from SQLite. Learned long-term facts will be kept.",
+                    fontSize = 13.sp,
+                    color = AppColors.TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { EventMemoryStore.clearEventHistory(context) }
+                            refreshMemory()
+                            showClearConfirmDialog = false
+                            Toast.makeText(context, "Event database cleared", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFBA1A1A))
+                ) {
+                    Text("Clear", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmDialog = false }) {
+                    Text("Cancel", color = AppColors.TextSecondary)
+                }
+            }
+        )
+    }
+}
+
+/* =========================================================================================
+ * 4. DASHBOARD PAGE (WITH TABS FOR VITALS, MEMORY & SAMPLER)
  * ========================================================================================= */
 
 @Composable
 private fun DashboardPage(
+    viewModel: ChatViewModel,
+    onNavigateToChat: () -> Unit,
+    onOpenModelPicker: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val tabTitles = listOf("Vitals & Hardware", "Memory & Knowledge", "Prompt Sampler")
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+    ) {
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = AppColors.CardBackground,
+            contentColor = AppColors.PrimaryActionGlow,
+            divider = { HorizontalDivider(color = AppColors.CardBorder) }
+        ) {
+            tabTitles.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = {
+                        Text(
+                            text = title,
+                            fontSize = 12.sp,
+                            fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1
+                        )
+                    }
+                )
+            }
+        }
+
+        when (selectedTab) {
+            0 -> DashboardVitalsContent(viewModel, onNavigateToChat)
+            1 -> MemoryHubContent(context)
+            2 -> TemplateSamplerPage(viewModel, onOpenModelPicker)
+        }
+    }
+}
+
+@Composable
+private fun DashboardVitalsContent(
     viewModel: ChatViewModel,
     onNavigateToChat: () -> Unit
 ) {
@@ -1072,7 +1755,6 @@ private fun DashboardPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1385,6 +2067,58 @@ private fun SettingsPage(
                 title = "Reset KV Cache / Context",
                 summary = "Clear cached tokens",
                 onClick = { showResetConfirm = true }
+            )
+        }
+
+        // System Permissions & Access Section
+        SettingsSection(title = "System Permissions & Access") {
+            val isListenerGranted = isNotificationListenerEnabled(settingsContext)
+            val isExactAlarmGranted = canScheduleExactAlarms(settingsContext)
+            val isPostGranted = isPostNotificationsGranted(settingsContext)
+
+            SettingsRow(
+                title = "Notification Listener Access",
+                summary = if (isListenerGranted) "Active · Mr-Red can read alerts for reasoning" else "Disabled · Tap to open Notification Access settings",
+                onClick = {
+                    runCatching {
+                        val intent = Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        settingsContext.startActivity(intent)
+                    }
+                }
+            )
+
+            SettingsRow(
+                title = "Exact Alarm Scheduling",
+                summary = if (isExactAlarmGranted) "Allowed · Alarms fire reliably" else "Restricted · Tap to grant exact alarm scheduling",
+                onClick = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        runCatching {
+                            val intent = Intent(AndroidSettings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.parse("package:${settingsContext.packageName}")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            settingsContext.startActivity(intent)
+                        }
+                    } else {
+                        Toast.makeText(settingsContext, "Exact alarms are allowed on this Android version", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+
+            SettingsRow(
+                title = "Post Notifications Permission",
+                summary = if (isPostGranted) "Granted · Status bar alerts & reminders active" else "Denied · Tap to open App Notification Settings",
+                onClick = {
+                    runCatching {
+                        val intent = Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            putExtra(AndroidSettings.EXTRA_APP_PACKAGE, settingsContext.packageName)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        settingsContext.startActivity(intent)
+                    }
+                }
             )
         }
 
@@ -1897,6 +2631,47 @@ private fun ScheduledTasksPage(
                 color = AppColors.PrimaryActionGlow,
                 modifier = Modifier.padding(vertical = 2.dp)
             )
+        }
+
+        val hasExactAlarmPermission = canScheduleExactAlarms(context)
+        if (!hasExactAlarmPermission) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF2B1C1C)),
+                border = BorderStroke(1.dp, Color(0xFF5E2B2B)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(20.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Exact Alarms Restricted", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                        Text(
+                            "Android requires permission for alarms and reminders to fire on time.",
+                            fontSize = 11.sp,
+                            color = AppColors.TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                runCatching {
+                                    val intent = Intent(AndroidSettings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryAction)
+                    ) {
+                        Text("Allow", fontSize = 11.sp)
+                    }
+                }
+            }
         }
 
         Row(
