@@ -567,11 +567,11 @@ object EventMemoryStore {
         }
         data class NotificationRow(
             val id: Long, val app: String, val packageName: String, val title: String,
-            val body: String, val time: Long, val importance: String, val active: Boolean
+            val body: String, val time: Long, val active: Boolean
         )
         val records = mutableListOf<NotificationRow>()
         database(appContext).readableDatabase.rawQuery(
-            """SELECT id, source, package_name, title, body, occurred_at, importance, is_active
+            """SELECT id, source, package_name, title, body, occurred_at, is_active
                FROM events
                WHERE event_type = 'NOTIFICATION' AND action = 'posted'
                  AND occurred_at >= ? AND occurred_at < ?
@@ -581,7 +581,7 @@ object EventMemoryStore {
             while (cursor.moveToNext()) records += NotificationRow(
                 cursor.getLong(0), cursor.getString(1), cursor.getString(2),
                 cursor.getString(3), cursor.getString(4), cursor.getLong(5),
-                cursor.getString(6), cursor.getInt(7) == 1
+                cursor.getInt(6) == 1
             )
         }
 
@@ -646,9 +646,10 @@ object EventMemoryStore {
         }
         fun isAttentionWorthy(row: NotificationRow): Boolean {
             val combined = (row.title + " " + row.body + " " + row.app).lowercase(java.util.Locale.ROOT)
-            return row.importance.equals("important", true) ||
-                Regex("\\b(otp|verification code|security alert|fraud|missed call|payment due|payment failed|meeting|appointment|delivery today|account locked)\\b")
-                    .containsMatchIn(combined)
+            // Do not treat the app-level heuristic stored in the legacy "importance" column
+            // as a real priority signal. Filter only on explicit, answer-relevant content cues.
+            Regex("\\b(otp|verification code|security alert|fraud|missed call|payment due|payment failed|transaction failed|card blocked|meeting|appointment|delivery today|account locked|action required|due today|expires today|renewal required)\\b")
+                .containsMatchIn(combined)
         }
         val filtered = unreadRecords.filter { row ->
             val combined = (row.app + " " + row.packageName + " " + row.title + " " + row.body).lowercase(java.util.Locale.ROOT)
@@ -731,7 +732,7 @@ object EventMemoryStore {
                 }
                 if (filtered.size > 20) appendLine("Additional matching notifications omitted from the compact prompt.")
             }
-            if (asksImportant) appendLine("Only records with stored important classification or explicit attention cues are included.")
+            if (asksImportant) appendLine("Only records with explicit attention cues in their stored content are included.")
             append("Use only these records. Do not infer missing prices, discounts, message text, sender identity, or priority.")
         }
     }
