@@ -28,10 +28,13 @@ class EventMemoryStoreInstrumentedTest {
             postedAtMillis = now,
             importance = "important"
         )
-        val posted = EventMemoryStore.recentNotificationDigest(context, now - 1, now + 1)
+        val posted = EventMemoryStore.notificationContextForQuestion(
+            context,
+            "What notification from Integration test app arrived in the last hour?"
+        )
         assertTrue("Notification title must come from SQLite", posted.contains(title))
         assertTrue(posted.contains(body))
-        assertTrue(posted.contains("status=active"))
+        assertTrue(posted.contains("| active"))
 
         EventMemoryStore.markNotificationRemoved(
             context = context,
@@ -39,8 +42,11 @@ class EventMemoryStoreInstrumentedTest {
             notificationKey = key,
             removedAtMillis = now + 2
         )
-        val dismissed = EventMemoryStore.recentNotificationDigest(context, now - 1, now + 1)
-        assertTrue("Dismissal must update the stored notification row", dismissed.contains("status=dismissed"))
+        val dismissed = EventMemoryStore.notificationContextForQuestion(
+            context,
+            "What notification from Integration test app arrived in the last hour?"
+        )
+        assertTrue("Dismissal must update the stored notification row", dismissed.contains("| dismissed"))
     }
 
     @Test
