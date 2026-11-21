@@ -327,6 +327,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     listOf(ChatMessage(MessageRole.User, question), ChatMessage(MessageRole.Assistant, answer))
                 }
             }
+            // SQLite becomes the prompt-context source of truth; import legacy saved turns idempotently.
+            EventMemoryStore.importLegacyConversationHistory(getApplication(), restored.takeLast(maxStoredTurns))
         }.onFailure {
             ActivityLogger.record(getApplication(), "ERROR", "chat_history_restore_failed", it.javaClass.simpleName)
         }
@@ -577,6 +579,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
                     persistConversationHistoryLocked()
                 }
+                EventMemoryStore.recordConversationExchange(getApplication(), prompt, finalAnswer)
                 ActivityLogger.record(getApplication(), "INFERENCE", "request_completed", "Model generation completed")
             } catch (error: Throwable) {
                 val failureMessage = error.message ?: "Mr-Red could not complete the response."
@@ -629,9 +632,90 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val conversationOnlySystemInstructions = """
         You are Mr-Red. Reply naturally and directly.
-        Use the recent conversation included before the current question to understand context and follow-ups.
-        Keep answers concise. Do not invent details; ask briefly if context is unclear.
+        Use the compact conversation context only to resolve references and follow-ups.
+        Keep answers concise unless the user asks for more explanation.
+        Do not invent details; ask briefly if context is unclear.
     """.trimIndent()
+
+    private fun isExpandedConversationRequest(question: String): Boolean {
+        val q = question.lowercase(java.util.Locale.ROOT)
+        return listOf(
+            "explain more", "explain further", "elaborate", "more detail", "more details",
+            "tell me more", "in more depth", "go deeper", "expand on", "break it down",
+            "why exactly", "how exactly", "give me details", "provide more context"
+        ).any(q::contains)
+    }
+
+    private fun compactExchange(question: String, answer: String, expanded: Boolean): String {
+        fun clean(value: String): String = value
+            .replace(Regex("\\s+"), " ")
+            .replace(Regex("^(okay|ok|sure|certainly|of course)[,!. ]+", RegexOption.IGNORE_CASE), "")
+            .trim()
+        val q = clean(question).trimEnd('?', '.', '!')
+        val a = clean(answer)
+        val answerLimit = if (expanded) 420 else 220
+        val compactAnswer = if (expanded) {
+            Regex("(?<=[.!?])\\s+").split(a).filter { it.isNotBlank() }.take(3).joinToString(" ")
+        } else {
+            Regex("(?<=[.!?])\\s+").split(a).filter { it.isNotBlank() }.take(2).joinToString(" ")
+        }
+        return "Q: ${q.take(if (expanded) 150 else 110)} | A: ${compactAnswer.take(answerLimit)}"
+    }
+
+    /**
+     * Conversation-only context is sourced from SQLite. The raw transcript remains intact;
+     * this deterministic view removes duplicate turns and compresses wording for the prompt.
+     */
+    private fun buildCompactConversationContext(
+        currentQuestion: String,
+        maxTokens: Int = 300
+    ): String {
+        val expanded = isExpandedConversationRequest(currentQuestion)
+        val exchanges = EventMemoryStore.recentConversationExchanges(
+            getApplication(),
+            limit = if (expanded) 16 else 8
+        )
+        if (exchanges.isEmpty()) return ""
+
+        // A repeated exact question is represented by its latest completed answer.
+        val unique = linkedMapOf<String, Pair<String, String>>()
+        exchanges.forEach { (question, answer) ->
+            val key = question.replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+                .trim().lowercase(java.util.Locale.ROOT)
+            if (key.isNotBlank() && answer.isNotBlank()) unique[key] = question to answer
+        }
+        val compactTurns = unique.values.map { (question, answer) ->
+            compactExchange(question, answer, expanded)
+        }
+        val selected = mutableListOf<String>()
+        for (turn in compactTurns.asReversed()) {
+            val candidate = (listOf(turn) + selected).joinToString("\\n")
+            if (runtime.tokenize(candidate).size <= maxTokens) {
+                selected.add(0, turn)
+            } else {
+                break
+            }
+        }
+        if (selected.isEmpty() && compactTurns.isNotEmpty()) {
+            // Keep the newest exchange, shortening its answer rather than dropping it outright.
+            val newest = compactTurns.last()
+            var low = 0
+            var high = newest.length
+            var best = ""
+            while (low <= high) {
+                val middle = (low + high) ushr 1
+                val candidate = newest.take(middle)
+                if (runtime.tokenize(candidate).size <= maxTokens) {
+                    best = candidate
+                    low = middle + 1
+                } else {
+                    high = middle - 1
+                }
+            }
+            return best
+        }
+        return selected.joinToString("\\n")
+    }
 
     private fun buildPromptMessages(
         currentQuestion: String,
@@ -648,61 +732,48 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 memorySummary = memorySummary,
                 maxPromptTokens = maxPromptTokens
             ) { messages ->
-                runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
+                runtime.tokenize(messages.joinToString("\\n") { it.role + "\\n" + it.content }).size + 32
             }
         }
 
-        // No keyword match: use the lightweight prompt and recent chat transcript only.
-        // Keep the complete model input (including template allowance) at or below 500 tokens.
+        // This branch is exclusively for the normal conversation template.
+        // Compact conversation memory is capped at 300 tokens; the complete prompt targets 500.
         val budget = minOf(maxPromptTokens, 500).coerceAtLeast(1)
         val system = PromptMessage("system", conversationOnlySystemInstructions)
         fun count(messages: List<PromptMessage>): Int =
-            runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
+            runtime.tokenize(messages.joinToString("\\n") { it.role + "\\n" + it.content }).size + 32
 
-        var question = currentQuestion
-        var base = listOf(system, PromptMessage("user", question))
-        if (count(base) > budget) {
-            // Preserve the end of an oversized question, where the actual request often appears.
+        val questionMessage = PromptMessage("user", currentQuestion)
+        if (!includeConversationHistory) return listOf(system, questionMessage)
+
+        var compactContext = buildCompactConversationContext(currentQuestion, 300)
+        fun messagesFor(context: String): List<PromptMessage> = buildList {
+            add(system)
+            if (context.isNotBlank()) add(PromptMessage("user", "COMPACT RECENT CONVERSATION (historical context):\\n$context"))
+            add(questionMessage)
+        }
+        var messages = messagesFor(compactContext)
+        if (count(messages) > budget && compactContext.isNotBlank()) {
+            // Shrink only the context; never silently cut words from the current question.
+            val words = compactContext.split(Regex("\\s+"))
             var low = 0
-            var high = question.length
+            var high = words.size
             var best = ""
             while (low <= high) {
                 val middle = (low + high) ushr 1
-                val candidate = question.takeLast(middle)
-                if (count(listOf(system, PromptMessage("user", candidate))) <= budget) {
+                val candidate = words.take(middle).joinToString(" ")
+                if (count(messagesFor(candidate)) <= budget) {
                     best = candidate
                     low = middle + 1
                 } else {
                     high = middle - 1
                 }
             }
-            question = best
-            base = listOf(system, PromptMessage("user", question))
+            compactContext = best
+            messages = messagesFor(compactContext)
         }
-        if (!includeConversationHistory || question.isBlank()) return base
-
-        val history = synchronized(conversationHistory) { conversationHistory.toList() }
-        val selected = mutableListOf<Pair<String, String>>()
-        for (turn in history.asReversed()) {
-            val candidateTurns = listOf(turn) + selected
-            val messages = buildList {
-                add(system)
-                candidateTurns.forEach { (user, assistant) ->
-                    add(PromptMessage("user", user))
-                    add(PromptMessage("assistant", assistant))
-                }
-                add(PromptMessage("user", question))
-            }
-            if (count(messages) <= budget) selected.add(0, turn) else break
-        }
-        return buildList {
-            add(system)
-            selected.forEach { (user, assistant) ->
-                add(PromptMessage("user", user))
-                add(PromptMessage("assistant", assistant))
-            }
-            add(PromptMessage("user", question))
-        }
+        // Preserve the full current question even in the exceptional case where it alone exceeds budget.
+        return messages
     }
 
     /** Debounced idle-time prefill. This fills KV cache without sampling response tokens. */
@@ -764,6 +835,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
             persistConversationHistoryLocked()
         }
+        EventMemoryStore.recordConversationExchange(getApplication(), prompt, reply)
     }
 
     private fun executeRoutedDeviceRequest(prompt: String, call: ToolCall) {
@@ -902,6 +974,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
                     persistConversationHistoryLocked()
                 }
+                EventMemoryStore.recordConversationExchange(getApplication(), prompt, content)
                 ActivityLogger.record(getApplication(), "DEVICE", "action_completed", "Local Android action finished: ${call.name}")
             } catch (error: Throwable) {
                 ActivityLogger.record(getApplication(), "ERROR", "device_action_failed", "${call.name}: ${error.javaClass.simpleName}")
@@ -1210,6 +1283,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         memoryWarmupJob?.cancel()
         _messages.value = emptyList()
         synchronized(conversationHistory) { conversationHistory.clear(); persistConversationHistoryLocked() }
+        EventMemoryStore.clearConversationHistory(getApplication())
         viewModelScope.launch {
             withContext(Dispatchers.Default) {
                 nativeInferenceMutex.withLock { runtime.resetContext() }
@@ -1237,6 +1311,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 conversationHistory.clear()
                 persistConversationHistoryLocked()
             }
+            EventMemoryStore.clearConversationHistory(getApplication())
             _messages.value = emptyList()
             ActivityLogger.record(getApplication(), "INFERENCE", "context_reset", "Native inference context reset")
             clearLastPromptState()
