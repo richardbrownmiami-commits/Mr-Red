@@ -570,7 +570,7 @@ object EventMemoryStore {
                FROM events
                WHERE event_type = 'NOTIFICATION' AND action = 'posted'
                  AND occurred_at >= ? AND occurred_at < ?
-               ORDER BY occurred_at DESC LIMIT 5000""".trimIndent(),
+               ORDER BY occurred_at DESC""".trimIndent(),
             arrayOf(startMillis.toString(), endExclusive.toString())
         ).use { cursor ->
             while (cursor.moveToNext()) records += NotificationRow(
@@ -615,11 +615,11 @@ object EventMemoryStore {
             "today", "yesterday", "from", "with", "what", "which", "when", "time", "show", "check",
             "read", "list", "see", "view", "get", "have", "has", "any", "all", "the", "and", "for",
             "you", "your", "me", "my", "are", "was", "were", "did", "does", "do", "arrive", "arrived",
-            "count", "counts", "total", "many", "number", "please", "about", "there", "that", "this",
+            "count", "counts", "total", "many", "number", "how", "other", "others", "please", "about", "there", "that", "this",
             "app", "apps", "text", "sms", "whatsapp", "telegram", "signal", "gmail", "outlook",
             "instagram", "facebook", "messenger", "spotify", "youtube", "amazon", "flipkart",
             "shopping", "shop", "game", "games", "gaming", "music", "song", "track", "artist",
-            "product", "price", "discount", "deal", "offer", "purchase", "order"
+            "product", "products", "price", "prices", "discount", "discounts", "deal", "deals", "offer", "offers", "purchase", "purchases", "order", "orders", "games", "songs", "tracks", "artists", "playlists"
         )
         val contentTerms = Regex("[\\p{L}\\p{N}]{3,}").findAll(q).map { it.value }
             .filterNot { it in ignoredTerms }.distinct().toList()
@@ -634,7 +634,7 @@ object EventMemoryStore {
             return buildSet {
                 if (Regex("\\b(whatsapp|telegram|signal|sms|mms|message|messenger|chat)\\b").containsMatchIn(combined)) add("messages")
                 if (Regex("\\b(shop|shopping|order|product|price|discount|deal|offer|cart|purchase|delivery)\\b").containsMatchIn(combined)) add("shopping")
-                if (Regex("\\b(game|gaming|player|play|level|match|clan|guild|invite)\\b").containsMatchIn(combined)) add("games")
+                if (Regex("\\b(game|games|gaming|player|play|level|match|clan|guild|invite)\\b").containsMatchIn(combined)) add("games")
                 if (Regex("\\b(music|song|track|artist|album|playlist|spotify)\\b").containsMatchIn(combined)) add("music")
             }
         }
@@ -673,10 +673,10 @@ object EventMemoryStore {
             }
         }
 
-        // The question's evidence is now being passed to GGUF. Persist this state so a later
-        // "unread" request means records not previously supplied to the model, not Android read state.
+        // Only records whose compact detail lines are actually included are marked shared.
+        // Aggregate-only count requests do not mark every underlying notification as seen by GGUF.
         val sharedIds = previouslyShared.toMutableSet()
-        filtered.forEach { sharedIds += it.id.toString() }
+        filtered.take(20).forEach { sharedIds += it.id.toString() }
         sharePrefs.edit().putStringSet(
             "shared_notification_ids",
             sharedIds.sortedByDescending { it.toLongOrNull() ?: 0L }.take(10000).toSet()
