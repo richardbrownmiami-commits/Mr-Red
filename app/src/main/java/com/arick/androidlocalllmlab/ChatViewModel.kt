@@ -689,7 +689,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         val selected = mutableListOf<String>()
         for (turn in compactTurns.asReversed()) {
-            val candidate = (listOf(turn) + selected).joinToString("\\n")
+            val candidate = (listOf(turn) + selected).joinToString("\n")
             if (runtime.tokenize(candidate).size <= maxTokens) {
                 selected.add(0, turn)
             } else {
@@ -714,7 +714,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             return best
         }
-        return selected.joinToString("\\n")
+        return selected.joinToString("\n")
     }
 
     private fun buildPromptMessages(
@@ -732,7 +732,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 memorySummary = memorySummary,
                 maxPromptTokens = maxPromptTokens
             ) { messages ->
-                runtime.tokenize(messages.joinToString("\\n") { it.role + "\\n" + it.content }).size + 32
+                runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
             }
         }
 
@@ -741,7 +741,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val budget = minOf(maxPromptTokens, 500).coerceAtLeast(1)
         val system = PromptMessage("system", conversationOnlySystemInstructions)
         fun count(messages: List<PromptMessage>): Int =
-            runtime.tokenize(messages.joinToString("\\n") { it.role + "\\n" + it.content }).size + 32
+            runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
 
         val questionMessage = PromptMessage("user", currentQuestion)
         if (!includeConversationHistory) return listOf(system, questionMessage)
