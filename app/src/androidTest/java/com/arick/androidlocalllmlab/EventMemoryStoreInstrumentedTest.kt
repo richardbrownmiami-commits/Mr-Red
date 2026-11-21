@@ -20,7 +20,7 @@ class EventMemoryStoreInstrumentedTest {
 
         EventMemoryStore.recordNotification(
             context = context,
-            appLabel = "Integration test app",
+            appLabel = "Integration test app $now",
             packageName = "com.example.mrredtest",
             notificationKey = key,
             title = title,
@@ -30,7 +30,7 @@ class EventMemoryStoreInstrumentedTest {
         )
         val posted = EventMemoryStore.notificationContextForQuestion(
             context,
-            "What notification from Integration test app arrived in the last hour?"
+            "What notification from Integration test app $now arrived in the last hour?"
         )
         assertTrue("Notification title must come from SQLite", posted.contains(title))
         assertTrue(posted.contains(body))
@@ -44,7 +44,7 @@ class EventMemoryStoreInstrumentedTest {
         )
         val dismissed = EventMemoryStore.notificationContextForQuestion(
             context,
-            "What notification from Integration test app arrived in the last hour?"
+            "What notification from Integration test app $now arrived in the last hour?"
         )
         assertTrue("Dismissal must update the stored notification row", dismissed.contains("| dismissed"))
     }
@@ -57,7 +57,7 @@ class EventMemoryStoreInstrumentedTest {
         val body = "Are you available for the meeting? $suffix"
         EventMemoryStore.recordNotification(
             context = context,
-            appLabel = "Integration test app",
+            appLabel = "Integration test app $suffix",
             packageName = "com.example.notificationactiontest",
             notificationKey = "notification-action-$suffix",
             title = title,
@@ -68,7 +68,7 @@ class EventMemoryStoreInstrumentedTest {
 
         val first = EventMemoryStore.notificationContextForQuestion(
             context,
-            "What notification from Integration test app arrived in the last hour?"
+            "What notification from Integration test app $now arrived in the last hour?"
         )
         assertTrue("Action context must contain the matching title", first.contains(title))
         assertTrue("Action context must preserve the message text", first.contains(body))
@@ -76,7 +76,7 @@ class EventMemoryStoreInstrumentedTest {
 
         val unread = EventMemoryStore.notificationContextForQuestion(
             context,
-            "Any unread notifications from Integration test app?"
+            "Any unread notifications from Integration test app $suffix?"
         )
         assertTrue(
             "A record already supplied to the model must not be returned as unread",
