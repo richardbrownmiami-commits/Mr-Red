@@ -496,6 +496,7 @@ object EventMemoryStore {
 
         val dayMillis = 24L * 60 * 60 * 1000
         var startMillis = nowMillis - dayMillis
+        var endExclusive = nowMillis + 1L
         var rangeLabel = "last 24 hours"
         val duration = Regex("\\b(?:last|past)\\s+(\\d+)\\s+(minutes?|mins?|hours?|days?)\\b").find(q)
         val explicitDate = Regex("\\b(20\\d{2}-\\d{2}-\\d{2})\\b").find(q)?.groupValues?.get(1)
@@ -513,6 +514,8 @@ object EventMemoryStore {
                     calendar.set(java.util.Calendar.SECOND, 0)
                     calendar.set(java.util.Calendar.MILLISECOND, 0)
                     startMillis = calendar.timeInMillis
+                    calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                    endExclusive = minOf(nowMillis + 1L, calendar.timeInMillis)
                     rangeLabel = explicitDate
                 }
             }
@@ -539,6 +542,8 @@ object EventMemoryStore {
                 calendar.set(java.util.Calendar.MILLISECOND, 0)
                 calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
                 startMillis = calendar.timeInMillis
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                endExclusive = minOf(nowMillis + 1L, calendar.timeInMillis)
                 rangeLabel = "yesterday"
             }
             q.contains("today") -> {
@@ -555,8 +560,6 @@ object EventMemoryStore {
                 rangeLabel = "retained history (up to 90 days)"
             }
         }
-        val endExclusive = nowMillis + 1L
-
         data class NotificationRow(
             val id: Long, val app: String, val packageName: String, val title: String,
             val body: String, val time: Long, val importance: String, val active: Boolean
@@ -584,20 +587,21 @@ object EventMemoryStore {
         val appAliases = linkedMapOf(
             "whatsapp" to listOf("whatsapp", "what's app", "what app"),
             "telegram" to listOf("telegram"), "signal" to listOf("signal"),
-            "sms" to listOf("sms", "text message", "text messages", "messages app"),
+            "sms" to listOf("sms", "text", "text message", "text messages", "messages app"),
             "gmail" to listOf("gmail"), "outlook" to listOf("outlook"),
             "instagram" to listOf("instagram"), "facebook" to listOf("facebook", "messenger"),
             "youtube" to listOf("youtube", "youtube music"), "spotify" to listOf("spotify"),
             "amazon" to listOf("amazon"), "flipkart" to listOf("flipkart")
         )
         val requestedApps = appAliases.filterValues { aliases -> aliases.any(q::contains) }.keys
+        val includeOtherApps = q.contains("other") || q.contains("all apps") || q.contains("all applications")
         val requestedCategories = buildSet {
             if (Regex("\\b(message|messages|sms|text|whatsapp|telegram|chat)\\b").containsMatchIn(q)) add("messages")
             if (Regex("\\b(shopping|shop|order|product|price|discount|deal|offer|purchase)\\b").containsMatchIn(q)) add("shopping")
             if (Regex("\\b(game|games|gaming|play|player|invite)\\b").containsMatchIn(q)) add("games")
             if (Regex("\\b(music|song|track|artist|playlist)\\b").containsMatchIn(q)) add("music")
         }
-        val sender = Regex("\\bfrom\\s+([\\p{L}][\\p{L}0-9._-]*(?:\\s+[\\p{L}][\\p{L}0-9._-]*){0,2})")
+        val sender = Regex("\\bfrom\\s+([\\p{L}][\\p{L}0-9._-]*)")
             .find(q)?.groupValues?.get(1)?.takeIf {
                 it !in setOf("the last hour", "last hour", "the app", "my phone", "today", "yesterday")
             }
@@ -638,7 +642,7 @@ object EventMemoryStore {
         }
         val filtered = unreadRecords.filter { row ->
             val combined = (row.app + " " + row.packageName + " " + row.title + " " + row.body).lowercase(java.util.Locale.ROOT)
-            val appMatch = requestedApps.isEmpty() || requestedApps.any { app ->
+            val appMatch = includeOtherApps || requestedApps.isEmpty() || requestedApps.any { app ->
                 when (app) {
                     "sms" -> combined.contains("sms") || combined.contains("message") || combined.contains("mms")
                     "facebook" -> combined.contains("facebook") || combined.contains("messenger")
@@ -649,7 +653,7 @@ object EventMemoryStore {
                 val appName = candidate.app.lowercase(java.util.Locale.ROOT).trim()
                 appName.length >= 3 && q.contains(appName) && row.app.equals(candidate.app, true)
             })
-            val categoryMatch = requestedCategories.isEmpty() || requestedCategories.any { it in rowCategory(row) }
+            val categoryMatch = includeOtherApps || requestedCategories.isEmpty() || requestedCategories.any { it in rowCategory(row) }
             val senderMatch = sender == null || combined.contains(sender)
             val termsMatch = contentTerms.isEmpty() || sender != null || contentTerms.any(combined::contains)
             val importantMatch = !asksImportant || isAttentionWorthy(row)
@@ -658,7 +662,7 @@ object EventMemoryStore {
 
         if (filtered.isEmpty()) {
             return when {
-                asksUnread && records.isNotEmpty() ->
+                asksUnread && unreadRecords.isEmpty() ->
                     "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo notifications remain unshared with the model. All matching stored notifications were already supplied in earlier model context."
                 asksUnread -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo unshared notifications were found in the stored notification history."
                 else -> "NOTIFICATION EVIDENCE | " + rangeLabel + "\nNo stored notifications matched this request."
@@ -684,8 +688,7 @@ object EventMemoryStore {
             if (asksCount || requestedApps.isEmpty()) {
                 append("By app: ").append(appCounts.take(12).joinToString(", ") { it.key + "=" + it.value }).appendLine()
             }
-            val countOnly = asksCount && contentTerms.isEmpty() && sender == null &&
-                requestedCategories.isEmpty() && !asksImportant
+            val countOnly = asksCount && contentTerms.isEmpty() && sender == null && !asksImportant
             if (!countOnly) {
                 filtered.take(20).forEach { row ->
                     val app = row.app.ifBlank { "Unknown app" }.take(32)
