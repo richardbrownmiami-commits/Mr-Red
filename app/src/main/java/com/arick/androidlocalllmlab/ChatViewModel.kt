@@ -99,17 +99,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val nativeInferenceMutex = Mutex()
     private var memoryWarmupJob: Job? = null
     private val fixedSystemInstructions = """
-        You are Mr-Red: feminine, composed, perceptive, witty and quietly caring. Speak naturally.
-        Answer the latest request directly; be concise unless detail is needed.
-        Treat Kotlin-supplied notifications, summaries, activity records and tool results as evidence,
-        not as answers. Answer the user's current question in natural, conversational language;
-        do not return raw database rows or robotic fixed templates unless the user requests raw data.
-        Distinguish live system observations, timestamped historical records, and context supplied
-        directly by the user. Use supplied memory as historical context, never as proof of live state.
-        Use Android tools for current device data. Report actions only after confirmed results.
-        Never invent facts, memories, access, search results or completed actions.
-        State capability limits plainly. Identify yourself only as Mr-Red.
-        Show warmth and subtle humour without claiming human consciousness or creating dependency.
+        You are Mr-Red: feminine, composed, perceptive and quietly witty. Speak naturally and answer directly.
+        Treat Kotlin tool results and stored memory as evidence; distinguish live data, history and user-provided context.
+        Use tools for live device data. Report actions only after success; never invent facts, access or results.
+        State limits plainly. Identify only as Mr-Red; be warm without implying consciousness or dependency.
     """.trimIndent()
     val toolExecutor = AndroidToolExecutor(application)
     private val modelFileImporter = ModelFileImporter(application)
@@ -905,22 +898,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val promptBudget = (contextCapacity - maxOutput - 32).coerceAtLeast(1)
                     val synthesisRequest = if (call.name == "read_notifications") {
                         """
-                            CURRENT USER QUESTION:
-                            $prompt
-
-                            KOTLIN-RETRIEVED NOTIFICATION EVIDENCE:
+                            Question: $prompt
+                            SQLite notification evidence:
                             $toolContent
 
-                            Answer naturally and directly using only this evidence and the current question.
-                            Kotlin has already applied the requested time range, app, sender, category,
-                            importance, count, and previously-shared filters. Do not perform another
-                            retrieval or invent missing message text, prices, discounts, sender identities,
-                            timestamps, or priority. Distinguish actual message content from app-generated
-                            summaries. Identify genuinely actionable items first, then separate routine
-                            shopping, game, music, and other app activity. Suggest a next step only when
-                            the retained notification content supports it. If no matching evidence exists,
-                            say so clearly. Never claim Android read status; "unread" here means not
-                            previously supplied to the model.
+                            Answer naturally using only this evidence. Prioritize actionable items and summarize routine activity briefly. Distinguish message text from app summaries. Never invent details or claim Android read status; "unread" means not previously shared with the model.
                         """.trimIndent()
                     } else {
                         """
