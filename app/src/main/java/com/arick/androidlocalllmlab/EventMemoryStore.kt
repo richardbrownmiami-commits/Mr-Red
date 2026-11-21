@@ -383,7 +383,7 @@ object EventMemoryStore {
                     "security/verification" to listOf("otp", "verification", "security", "login code", "passcode", "fraud"),
                     "banking/transactions" to listOf("bank", "payment", "transaction", "transfer", "credited", "debited", "card"),
                     "missed calls" to listOf("missed call", "missed calls"),
-                    "personal messages" to listOf("message", "messages", "sms", "chat", "replied", "messaged"),
+                    "personal messages" to listOf("message", "messages", "sms", "chat", "replied", "messaged", "whatsapp", "telegram", "signal", "messenger"),
                     "delivery/orders" to listOf("delivery", "delivered", "shipment", "parcel", "order"),
                     "calendar/events" to listOf("calendar", "meeting", "appointment", "event")
                 )
