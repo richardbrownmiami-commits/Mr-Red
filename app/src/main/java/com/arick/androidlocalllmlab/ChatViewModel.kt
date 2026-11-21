@@ -478,6 +478,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Keep phone actions local; they are not injected into GGUF inference.
         DeviceIntentRouter.route(prompt)?.let { call ->
+            // Pass the complete question to the Kotlin notification action for query planning.
+            if (call.name == "read_notifications") call.arguments.put("focus", prompt)
             executeRoutedDeviceRequest(prompt, call)
             return
         }
@@ -888,44 +890,54 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     appendLatestAssistantAgentTrace("Passing verified system data and your question to the local GGUF model")
                     appendLatestAssistantSources(sources)
                     _generationProgress.value = "Writing a natural-language answer…"
-                    // The live snapshot is primary evidence; SQLite contributes relevant
-                    // timestamped history. The current user message remains in synthesisRequest.
-                    val memory = withContext(Dispatchers.IO) {
-                        if (call.name == "read_notifications") {
-                            EventMemoryStore.relevantContext(getApplication(), prompt)
-                        } else {
-                            ActivityLogger.promptMemory(getApplication())
-                        }
+                    // Notification actions have one authoritative retrieval path:
+                    // the Kotlin action tool queried SQLite and compacted its results already.
+                    // Do not query EventMemoryStore again or inject duplicate notification context.
+                    val memory = if (call.name == "read_notifications") {
+                        ""
+                    } else {
+                        withContext(Dispatchers.IO) { ActivityLogger.promptMemory(getApplication()) }
                     }
                     val contextCapacity = ready.nCtx.coerceAtLeast(128)
                     val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
                     val promptBudget = (contextCapacity - maxOutput - 32).coerceAtLeast(1)
-                    val synthesisRequest = """
-                        CURRENT USER MESSAGE (including any extra context the user supplied):
-                        $prompt
+                    val synthesisRequest = if (call.name == "read_notifications") {
+                        """
+                            CURRENT USER QUESTION:
+                            $prompt
 
-                        LIVE SYSTEM DATA collected by Kotlin tool '${call.name}':
-                        $toolContent
+                            KOTLIN-RETRIEVED NOTIFICATION EVIDENCE:
+                            $toolContent
 
-                        STORED SYSTEM HISTORY selected from SQLite:
-                        ${memory.ifBlank { "No additional matching stored history was selected." }}
+                            Answer naturally and directly using only this evidence and the current question.
+                            Kotlin has already applied the requested time range, app, sender, category,
+                            importance, count, and previously-shared filters. Do not perform another
+                            retrieval or invent missing message text, prices, discounts, sender identities,
+                            timestamps, or priority. Distinguish actual message content from app-generated
+                            summaries. Identify genuinely actionable items first, then separate routine
+                            shopping, game, music, and other app activity. Suggest a next step only when
+                            the retained notification content supports it. If no matching evidence exists,
+                            say so clearly. Never claim Android read status; "unread" here means not
+                            previously supplied to the model.
+                        """.trimIndent()
+                    } else {
+                        """
+                            CURRENT USER MESSAGE (including any extra context the user supplied):
+                            $prompt
 
-                        Answer the current user message naturally and directly. Use the live system data,
-                        relevant stored history, and any context the user supplied in the current message.
-                        Keep their origins distinct: live tool output is current observed data; SQLite
-                        records are historical observations; user-provided text is user-supplied context.
-                        For notification requests, analyse the compact SQLite notification snapshot and
-                        question-specific stored notification slots supplied below. Identify actionable or
-                        time-sensitive items first: missed calls, personal messages, account/security/bank
-                        alerts, reminders, deliveries and transaction updates. Separate those from promotions,
-                        games and routine app chatter. Explain what needs attention using only retained content
-                        cues. Recency labels are approximate; never invent or reconstruct exact timestamps or
-                        missing notification wording. Do not label marketing as important merely because it
-                        uses urgent wording. If nothing appears urgent, say so.
-                        Treat the tool result as the only source of current facts. Never invent details.
-                        If access failed or no data is available, explain that clearly.
-                        Do not mention internal tool names unless useful to explain a limitation.
-                    """.trimIndent()
+                            LIVE SYSTEM DATA collected by Kotlin tool '${call.name}':
+                            $toolContent
+
+                            STORED SYSTEM HISTORY:
+                            ${memory.ifBlank { "No additional stored history was selected." }}
+
+                            Answer the current user message naturally and directly. Use the live system data,
+                            relevant stored history, and any context the user supplied in the current message.
+                            Keep their origins distinct. Treat the tool result as the only source of current facts.
+                            Never invent details. If access failed or no data is available, explain that clearly.
+                            Do not mention internal tool names unless useful to explain a limitation.
+                        """.trimIndent()
+                    }
                     var rawAnswer = ""
                     var startsThinking = false
                     val generated = withContext(Dispatchers.Default) {
