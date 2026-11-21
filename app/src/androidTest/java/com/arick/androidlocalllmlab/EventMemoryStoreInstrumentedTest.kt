@@ -57,7 +57,7 @@ class EventMemoryStoreInstrumentedTest {
         val body = "Are you available for the meeting? " + "Agenda details ".repeat(18) + suffix
         EventMemoryStore.recordNotification(
             context = context,
-            appLabel = "Integration test app $suffix",
+            appLabel = "WhatsApp Integration test app $suffix",
             packageName = "com.example.notificationactiontest",
             notificationKey = "notification-action-$suffix",
             title = title,
@@ -76,13 +76,13 @@ class EventMemoryStoreInstrumentedTest {
 
         val exact = EventMemoryStore.notificationContextForQuestion(
             context,
-            "What exact message from Integration test app $suffix?"
+            "What exact message from WhatsApp Integration test app $suffix?"
         )
         assertTrue("An explicit exact-text request must receive the full stored wording", exact.contains(body))
 
         val unread = EventMemoryStore.notificationContextForQuestion(
             context,
-            "Any unread notifications from Integration test app $suffix?"
+            "Any unread notifications from WhatsApp Integration test app $suffix?"
         )
         assertTrue(
             "A record already supplied to the model must not be returned as unread",
