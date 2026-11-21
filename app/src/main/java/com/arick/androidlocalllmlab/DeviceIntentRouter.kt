@@ -10,8 +10,9 @@ object DeviceIntentRouter {
         if (text.isEmpty()) return null
 
         // Exclusions for general knowledge/creative chat (unless explicit web search intent)
+        val mentionsMessagingApp = Regex("\\b(whatsapp|telegram|signal|sms|text messages?|messages app|gmail|outlook|instagram|messenger)\\b").containsMatchIn(text)
         if (Regex("\\b(explain|how (?:do|does|can|to)|tell me a story|write|why (?:do|does|is|are)|teach me)\\b").containsMatchIn(text) &&
-            !text.contains("notification")) {
+            !text.contains("notification") && !mentionsMessagingApp) {
             if (!Regex("\\b(search|research|look up|lookup|find online|web search)\\b").containsMatchIn(text)) {
                 return null
             }
@@ -35,12 +36,14 @@ object DeviceIntentRouter {
         // 2. Notifications, including intent-based "anything important I missed?" requests.
         val notificationIntent = (
             Regex(
-                "\\b(read|show|sho|check|what|any|get|list|see|view|my|recent|unread|latest|important|miss|missed)\\b.*\\bnotifications?\\b|\\bnotifications?\\b.*\\b(read|show|sho|check|get|list|see|view|important|miss|missed)\\b|\\b(anything important|anything i missed|anything i miss|what did i miss|what have i missed|tell me anything important)\\b",
+                "\\b(read|show|sho|check|what|any|get|list|see|view|my|recent|unread|latest|important|miss|missed|count|total)\\b.*\\bnotifications?\\b|\\bnotifications?\\b.*\\b(read|show|sho|check|get|list|see|view|important|miss|missed|count|total)\\b|\\b(how many|number of)\\b.*\\bnotifications?\\b|\\b(anything important|anything i missed|anything i miss|what did i miss|what have i missed|tell me anything important)\\b",
                 RegexOption.IGNORE_CASE
             ).containsMatchIn(text) ||
             (Regex("\\b(important|miss|missed)\\b").containsMatchIn(text) &&
                 Regex("\\b(anything|anything i|tell me|show me|check)\\b").containsMatchIn(text)) ||
-            text in setOf("notifications", "notification", "check notification", "check notifications")
+            text in setOf("notifications", "notification", "check notification", "check notifications") ||
+            (mentionsMessagingApp && Regex("\\b(what|show|check|read|list|any|unread|latest|recent|from|received|arrived|count|total|how many|important|missed|explain)\\b").containsMatchIn(text)) ||
+            Regex("\\b(what did|who sent|show me|check|read|list|any|unread|latest|recent|how many|count|total)\\b.*\\b(messages?|sms|texts?)\\b|\\b(messages?|sms|texts?)\\b.*\\b(from|received|arrived|unread|latest|recent)\\b").containsMatchIn(text)
         )
         if (notificationIntent) {
             return ToolCall("read_notifications", JSONObject())
