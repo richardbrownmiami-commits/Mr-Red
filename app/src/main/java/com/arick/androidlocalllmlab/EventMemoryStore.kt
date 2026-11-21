@@ -485,7 +485,8 @@ object EventMemoryStore {
     fun recentNotificationDigest(
         context: Context,
         sinceMillis: Long,
-        nowMillis: Long = System.currentTimeMillis()
+        nowMillis: Long = System.currentTimeMillis(),
+        focus: String = ""
     ): String {
         awaitPendingWrites()
         data class Notification(
@@ -512,6 +513,37 @@ object EventMemoryStore {
                     " database write(s) failed; notification history may be incomplete."
             } else ""
         }
+        val query = focus.lowercase(java.util.Locale.ROOT)
+        val appSlots = listOf(
+            "whatsapp", "telegram", "signal", "gmail", "outlook", "messenger",
+            "instagram", "facebook", "messages", "sms", "phone", "dialer",
+            "bank", "wallet", "paypal", "calendar"
+        ).filter(query::contains)
+        val categorySlots = mapOf(
+            "security/verification" to listOf("otp", "verification", "security", "login code", "passcode", "fraud"),
+            "banking/transactions" to listOf("bank", "payment", "transaction", "transfer", "credited", "debited", "card"),
+            "missed calls" to listOf("missed call", "missed calls"),
+            "personal messages" to listOf("message", "messages", "sms", "chat", "replied", "messaged"),
+            "delivery/orders" to listOf("delivery", "delivered", "shipment", "parcel", "order"),
+            "calendar/events" to listOf("calendar", "meeting", "appointment", "event")
+        ).filter { (_, terms) -> terms.any(query::contains) }
+        val senderSlot = Regex("\\bfrom\\s+([\\p{L}][\\p{L}0-9._-]*)")
+            .find(query)?.groupValues?.get(1)
+        val activeOnly = when {
+            listOf("active notification", "currently showing", "still showing", "in notification shade").any(query::contains) -> true
+            listOf("dismissed", "cleared", "removed notification").any(query::contains) -> false
+            else -> null
+        }
+        val importantOnly = listOf("important", "urgent", "priority", "need attention").any(query::contains)
+        val filteredRecords = records.filter { item ->
+            val combined = (item.app + " " + item.title + " " + item.body).lowercase(java.util.Locale.ROOT)
+            val appMatch = appSlots.isEmpty() || appSlots.any { item.app.contains(it, true) || item.title.contains(it, true) }
+            val categoryMatch = categorySlots.isEmpty() || categorySlots.values.any { terms -> terms.any(combined::contains) }
+            val senderMatch = senderSlot == null || combined.contains(senderSlot)
+            val statusMatch = activeOnly == null || item.active == activeOnly
+            val priorityMatch = !importantOnly || item.importance == "important"
+            appMatch && categoryMatch && senderMatch && statusMatch && priorityMatch
+        }
         fun compact(value: String, limit: Int): String {
             return value.replace(Regex("\\s+"), " ")
                 .replace(
@@ -528,7 +560,7 @@ object EventMemoryStore {
                 else -> "earlier in the last hour"
             }
         }
-        val ordered = records.sortedWith(
+        val ordered = filteredRecords.sortedWith(
             compareByDescending<Notification> { it.importance == "important" }
                 .thenByDescending { it.time }
         )
@@ -537,7 +569,8 @@ object EventMemoryStore {
             if (failedWriteCount.get() > 0) {
                 appendLine("Collection warning: " + failedWriteCount.get() + " database write(s) failed; history may be incomplete.")
             }
-            appendLine("Stored notifications in the last hour: " + records.size + ".")
+            appendLine("Matching notifications in the last hour: " + filteredRecords.size + " of " + records.size + ".")
+            if (focus.isNotBlank()) appendLine("Requested focus: " + focus.replace(Regex("\\s+"), " ").take(100) + ".")
             appendLine("Prioritise personal communication, missed calls, verification/security, banking and time-sensitive updates.")
             ordered.take(15).forEach { item ->
                 val title = compact(item.title, 65)
@@ -549,7 +582,8 @@ object EventMemoryStore {
                 append("; ").append(if (item.active) "active" else "dismissed")
                 append("; ").append(recency(item.time)).appendLine()
             }
-            if (records.size > 15) appendLine("Additional lower-priority/recent records omitted from this compact view.")
+            if (filteredRecords.isEmpty()) appendLine("No stored notification matched the requested focus slots.")
+            if (filteredRecords.size > 15) appendLine("Additional lower-priority/recent matches omitted from this compact view.")
             append("These are compact content cues, not verbatim notification transcripts; recency is approximate and exact timestamps are intentionally omitted. Do not infer missing details.")
         }.trim()
     }
