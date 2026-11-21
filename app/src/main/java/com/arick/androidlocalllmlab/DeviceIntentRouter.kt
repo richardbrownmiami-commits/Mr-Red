@@ -42,7 +42,7 @@ object DeviceIntentRouter {
             (Regex("\\b(important|miss|missed)\\b").containsMatchIn(text) &&
                 Regex("\\b(anything|anything i|tell me|show me|check)\\b").containsMatchIn(text)) ||
             text in setOf("notifications", "notification", "check notification", "check notifications") ||
-            (mentionsMessagingApp && Regex("\\b(what|show|check|read|list|any|unread|latest|recent|from|received|arrived|count|total|how many|important|missed|explain)\\b").containsMatchIn(text)) ||
+            (mentionsMessagingApp && Regex("\\b(what did|what have|show|check|read|list|any|unread|latest|recent|from|received|arrived|count|total|how many|important|missed|messages?)\\b").containsMatchIn(text)) ||
             Regex("\\b(what did|who sent|show me|check|read|list|any|unread|latest|recent|how many|count|total)\\b.*\\b(messages?|sms|texts?)\\b|\\b(messages?|sms|texts?)\\b.*\\b(from|received|arrived|unread|latest|recent)\\b").containsMatchIn(text)
         )
         if (notificationIntent) {
