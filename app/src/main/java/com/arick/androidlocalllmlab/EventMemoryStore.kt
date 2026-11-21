@@ -720,7 +720,7 @@ object EventMemoryStore {
                         }
                         append(" | ").append(ageLabel)
                     }
-                    if (row.active) append(" | active")
+                    append(if (row.active) " | active" else " | dismissed")
                     appendLine()
                 }
                 if (filtered.size > 20) appendLine("Additional matching notifications omitted from the compact prompt.")
@@ -728,106 +728,6 @@ object EventMemoryStore {
             if (asksImportant) appendLine("Only records with stored important classification or explicit attention cues are included.")
             append("Use only these records. Do not infer missing prices, discounts, message text, sender identity, or priority.")
         }
-    }
-
-    /** Compact recent notification snapshot read directly from SQLite; no exact timestamps are exposed. */
-    fun recentNotificationDigest(
-        context: Context,
-        sinceMillis: Long,
-        nowMillis: Long = System.currentTimeMillis(),
-        focus: String = ""
-    ): String {
-        awaitPendingWrites()
-        data class Notification(
-            val app: String,
-            val title: String,
-            val body: String,
-            val time: Long,
-            val importance: String,
-            val active: Boolean
-        )
-        val records = mutableListOf<Notification>()
-        database(context.applicationContext).readableDatabase.rawQuery(
-            "SELECT source, title, body, occurred_at, importance, is_active FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted' AND occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT 100",
-            arrayOf(sinceMillis.toString(), nowMillis.toString())
-        ).use { cursor ->
-            while (cursor.moveToNext()) records += Notification(
-                cursor.getString(0), cursor.getString(1), cursor.getString(2),
-                cursor.getLong(3), cursor.getString(4), cursor.getInt(5) == 1
-            )
-        }
-        if (records.isEmpty()) {
-            return if (failedWriteCount.get() > 0) {
-                "COLLECTION WARNING: " + failedWriteCount.get() +
-                    " database write(s) failed; notification history may be incomplete."
-            } else ""
-        }
-        val query = focus.lowercase(java.util.Locale.ROOT)
-        val appSlots = listOf(
-            "whatsapp", "telegram", "signal", "gmail", "outlook", "messenger",
-            "instagram", "facebook", "messages", "sms", "phone", "dialer",
-            "bank", "wallet", "paypal", "calendar"
-        ).filter(query::contains)
-        val categorySlots = mapOf(
-            "security/verification" to listOf("otp", "verification", "security", "login code", "passcode", "fraud"),
-            "banking/transactions" to listOf("bank", "payment", "transaction", "transfer", "credited", "debited", "card"),
-            "missed calls" to listOf("missed call", "missed calls"),
-            "personal messages" to listOf("message", "messages", "sms", "chat", "replied", "messaged", "whatsapp", "telegram", "signal", "messenger"),
-            "delivery/orders" to listOf("delivery", "delivered", "shipment", "parcel", "order"),
-            "calendar/events" to listOf("calendar", "meeting", "appointment", "event")
-        ).filter { (_, terms) -> terms.any(query::contains) }
-        val senderSlot = Regex("\\bfrom\\s+([\\p{L}][\\p{L}0-9._-]*)")
-            .find(query)?.groupValues?.get(1)
-        val activeOnly = when {
-            listOf("active notification", "currently showing", "still showing", "in notification shade").any(query::contains) -> true
-            listOf("dismissed", "cleared", "removed notification").any(query::contains) -> false
-            else -> null
-        }
-        val filteredRecords = records.filter { item ->
-            val combined = (item.app + " " + item.title + " " + item.body).lowercase(java.util.Locale.ROOT)
-            val appMatch = appSlots.isEmpty() || appSlots.any { item.app.contains(it, true) || item.title.contains(it, true) }
-            val categoryMatch = categorySlots.isEmpty() || categorySlots.values.any { terms -> terms.any(combined::contains) }
-            val senderMatch = senderSlot == null || combined.contains(senderSlot)
-            val statusMatch = activeOnly == null || item.active == activeOnly
-            appMatch && categoryMatch && senderMatch && statusMatch
-        }
-        fun compact(value: String, limit: Int): String {
-            return value.replace(Regex("\\s+"), " ")
-                .replace(
-                    Regex("^(new message|new notification|you have a notification|notification):?\\s*", RegexOption.IGNORE_CASE),
-                    ""
-                )
-                .trim().take(limit).trimEnd(',', ';', ':', '-', '—')
-        }
-        fun recency(time: Long): String {
-            val age = (nowMillis - time).coerceAtLeast(0L)
-            return when {
-                age < 5L * 60 * 1000 -> "just now"
-                age < 60L * 60 * 1000 -> "recently"
-                else -> "earlier in the last hour"
-            }
-        }
-        val ordered = filteredRecords.sortedByDescending { it.time }
-        return buildString {
-            appendLine("COMPACT ANDROID NOTIFICATION SNAPSHOT FROM SQLITE")
-            if (failedWriteCount.get() > 0) {
-                appendLine("Collection warning: " + failedWriteCount.get() + " database write(s) failed; history may be incomplete.")
-            }
-            appendLine("Matching notifications in the last hour: " + filteredRecords.size + " of " + records.size + ".")
-            if (focus.isNotBlank()) appendLine("Requested focus: " + focus.replace(Regex("\\s+"), " ").take(100) + ".")
-            ordered.take(15).forEach { item ->
-                val title = compact(item.title, 48)
-                val body = compact(item.body, 100)
-                val cue = listOf(title, body).filter { it.isNotBlank() }.distinct().joinToString(": ")
-                append("- ").append(item.app.ifBlank { "Unknown app" }.take(28))
-                if (cue.isNotBlank()) append(" | ").append(cue)
-                append(" | ").append(if (item.active) "active" else "dismissed")
-                append(", ").append(recency(item.time)).appendLine()
-            }
-            if (filteredRecords.isEmpty()) appendLine("No stored notification matched the requested focus slots.")
-            if (filteredRecords.size > 15) appendLine("More matching notifications omitted.")
-            append("These are shortened notification excerpts; recency is approximate and exact timestamps are intentionally omitted. Do not infer missing details.")
-        }.trim()
     }
 
     /** Clears event history while preserving explicitly captured long-term facts. */
