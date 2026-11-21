@@ -649,7 +649,7 @@ object EventMemoryStore {
             val combined = (row.title + " " + row.body + " " + row.app).lowercase(java.util.Locale.ROOT)
             // Do not treat the app-level heuristic stored in the legacy "importance" column
             // as a real priority signal. Filter only on explicit, answer-relevant content cues.
-            Regex("\\b(otp|verification code|security alert|fraud|missed call|payment due|payment failed|transaction failed|card blocked|meeting|appointment|delivery today|account locked|action required|due today|expires today|renewal required)\\b")
+            return Regex("\\b(otp|verification code|security alert|fraud|missed call|payment due|payment failed|transaction failed|card blocked|meeting|appointment|delivery today|account locked|action required|due today|expires today|renewal required)\\b")
                 .containsMatchIn(combined)
         }
         val filtered = unreadRecords.filter { row ->
