@@ -221,7 +221,7 @@ class AndroidToolExecutor(private val context: Context) {
             },
             object : ToolDefinition {
                 override val name = "read_notifications"
-                override val description = "Read compact, request-focused recent notification evidence from SQLite after the user grants Android notification access"
+                override val description = "Query stored notifications for the requested time range, app, sender, category, count, or not-yet-shared status and return compact model evidence"
                 override val parameterSchema = listOf(
                     ToolParameterSchema(
                         "focus",
@@ -522,14 +522,19 @@ class AndroidToolExecutor(private val context: Context) {
     }
 
     private fun readNotifications(focus: String = ""): ToolResult {
-        if (!isNotificationAccessEnabled()) {
-            return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
-        }
+        // Reading stored history does not require the listener permission; that permission
+        // is needed only for collecting new notifications into SQLite.
         val evidence = EventMemoryStore.notificationContextForQuestion(context, focus)
+        if (evidence.contains("No stored notifications matched this request.") &&
+            !isNotificationAccessEnabled()) {
+            return ToolResult.Success(
+                evidence + "\nNotification access is off, so new notifications cannot currently be collected."
+            )
+        }
         if (evidence.contains("No stored notifications matched this request.") &&
             !MrRedNotificationListenerService.isConnected()) {
             return ToolResult.Success(
-                "No matching notification records are stored. Notification access is enabled, but Android has not connected the listener yet."
+                evidence + "\nNotification access is enabled, but Android has not connected the listener yet."
             )
         }
         return ToolResult.Success(evidence)
