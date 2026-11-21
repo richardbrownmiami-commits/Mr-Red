@@ -525,17 +525,14 @@ class AndroidToolExecutor(private val context: Context) {
         if (!isNotificationAccessEnabled()) {
             return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
         }
-        val now = System.currentTimeMillis()
-        val hourAgo = now - 60L * 60L * 1000L
-        val digest = EventMemoryStore.recentNotificationDigest(context, hourAgo, now, focus)
-        if (digest.isBlank()) {
-            return if (!MrRedNotificationListenerService.isConnected()) {
-                ToolResult.Success("Notification access is enabled, but Android has not connected the notification listener yet. No notifications from the last hour can be verified.")
-            } else {
-                ToolResult.Success("No active notifications were recorded in SQLite during the last hour.")
-            }
+        val evidence = EventMemoryStore.notificationContextForQuestion(context, focus)
+        if (evidence.contains("No stored notifications matched this request.") &&
+            !MrRedNotificationListenerService.isConnected()) {
+            return ToolResult.Success(
+                "No matching notification records are stored. Notification access is enabled, but Android has not connected the listener yet."
+            )
         }
-        return ToolResult.Success(digest)
+        return ToolResult.Success(evidence)
     }
 
     private fun getNews(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
