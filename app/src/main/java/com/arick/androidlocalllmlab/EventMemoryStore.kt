@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference
  */
 object EventMemoryStore {
     private const val DATABASE_NAME = "mr_red_memory.db"
-    private const val DATABASE_VERSION = 2
+    private const val DATABASE_VERSION = 3
     private const val EVENT_RETENTION_DAYS = 90
     private const val RETENTION_INTERVAL_MILLIS = 24L * 60 * 60 * 1000
 
@@ -210,6 +210,101 @@ object EventMemoryStore {
         }
     }
 
+
+    /**
+     * Stores a completed chat exchange in the dedicated SQLite conversation table.
+     * Exact duplicate pairs are ignored; distinct answers to the same question are retained.
+     */
+    fun recordConversationExchange(
+        context: Context,
+        question: String,
+        answer: String,
+        occurredAtMillis: Long = System.currentTimeMillis()
+    ) {
+        val q = question.trim().take(4000)
+        val a = answer.trim().take(4000)
+        if (q.isBlank() || a.isBlank()) return
+        val appContext = context.applicationContext
+        writer.execute {
+            runWrite {
+                val db = database(appContext).writableDatabase
+                val fingerprint = sha256(
+                    q.replace(Regex("\\s+"), " ").lowercase(java.util.Locale.ROOT) +
+                        "\\n" +
+                        a.replace(Regex("\\s+"), " ").lowercase(java.util.Locale.ROOT)
+                )
+                val values = ContentValues().apply {
+                    put("question", q)
+                    put("answer", a)
+                    put("created_at", occurredAtMillis)
+                    put("fingerprint", fingerprint)
+                }
+                db.insertWithOnConflict("conversation_turns", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+                db.execSQL(
+                    "DELETE FROM conversation_turns WHERE id NOT IN (SELECT id FROM conversation_turns ORDER BY created_at DESC, id DESC LIMIT 200)"
+                )
+            }
+        }
+    }
+
+    /** Imports the legacy SharedPreferences transcript once per unique exchange. */
+    fun importLegacyConversationHistory(context: Context, exchanges: List<Pair<String, String>>) {
+        if (exchanges.isEmpty()) return
+        val appContext = context.applicationContext
+        writer.execute {
+            runWrite {
+                val db = database(appContext).writableDatabase
+                db.beginTransaction()
+                try {
+                    exchanges.forEach { (question, answer) ->
+                        val q = question.trim().take(4000)
+                        val a = answer.trim().take(4000)
+                        if (q.isNotBlank() && a.isNotBlank()) {
+                            val fingerprint = sha256(
+                                q.replace(Regex("\\s+"), " ").lowercase(java.util.Locale.ROOT) +
+                                    "\\n" +
+                                    a.replace(Regex("\\s+"), " ").lowercase(java.util.Locale.ROOT)
+                            )
+                            val values = ContentValues().apply {
+                                put("question", q)
+                                put("answer", a)
+                                put("created_at", System.currentTimeMillis())
+                                put("fingerprint", fingerprint)
+                            }
+                            db.insertWithOnConflict("conversation_turns", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+                        }
+                    }
+                    db.execSQL(
+                        "DELETE FROM conversation_turns WHERE id NOT IN (SELECT id FROM conversation_turns ORDER BY created_at DESC, id DESC LIMIT 200)"
+                    )
+                    db.setTransactionSuccessful()
+                } finally {
+                    db.endTransaction()
+                }
+            }
+        }
+    }
+
+    /** Reads completed Q&A pairs from SQLite, newest first in storage and chronological in result. */
+    fun recentConversationExchanges(context: Context, limit: Int = 12): List<Pair<String, String>> {
+        awaitPendingWrites()
+        val result = mutableListOf<Pair<String, String>>()
+        database(context.applicationContext).readableDatabase.rawQuery(
+            "SELECT question, answer FROM conversation_turns ORDER BY created_at DESC, id DESC LIMIT ?",
+            arrayOf(limit.coerceIn(1, 200).toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) result += cursor.getString(0) to cursor.getString(1)
+        }
+        return result.asReversed()
+    }
+
+    /** Clears only the dedicated conversation transcript. */
+    fun clearConversationHistory(context: Context) {
+        val appContext = context.applicationContext
+        writer.execute {
+            runWrite { database(appContext).writableDatabase.delete("conversation_turns", null, null) }
+        }
+    }
 
     /**
      * Selects only memory relevant to the current question. This runs on a background
@@ -425,12 +520,34 @@ object EventMemoryStore {
                 )""".trimIndent()
             )
             db.execSQL("CREATE INDEX idx_facts_updated ON facts(updated_at DESC)")
+            db.execSQL(
+                """CREATE TABLE conversation_turns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    question TEXT NOT NULL,
+                    answer TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    fingerprint TEXT NOT NULL UNIQUE
+                )""".trimIndent()
+            )
+            db.execSQL("CREATE INDEX idx_conversation_turns_created ON conversation_turns(created_at DESC)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
             if (oldVersion < 2) {
                 db.execSQL("DROP INDEX IF EXISTS idx_notification_unique")
                 db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at) WHERE event_type = 'NOTIFICATION' AND action = 'posted'")
+            }
+            if (oldVersion < 3) {
+                db.execSQL(
+                    """CREATE TABLE conversation_turns (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        question TEXT NOT NULL,
+                        answer TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        fingerprint TEXT NOT NULL UNIQUE
+                    )""".trimIndent()
+                )
+                db.execSQL("CREATE INDEX idx_conversation_turns_created ON conversation_turns(created_at DESC)")
             }
         }
     }
