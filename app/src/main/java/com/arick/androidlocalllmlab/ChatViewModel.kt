@@ -914,12 +914,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         relevant stored history, and any context the user supplied in the current message.
                         Keep their origins distinct: live tool output is current observed data; SQLite
                         records are historical observations; user-provided text is user-supplied context.
-                        For notification requests, analyse the FULL notification snapshot supplied below.
-                        Identify actionable or time-sensitive items first: missed calls, personal messages,
-                        account/security/bank alerts, reminders, deliveries and transaction updates.
-                        Separate those from promotions, games and routine app chatter. Explain what needs
-                        attention using the actual notification details. Do not label marketing as important
-                        merely because it uses urgent wording. If nothing appears urgent, say so.
+                        For notification requests, analyse the compact SQLite notification snapshot and
+                        question-specific stored notification slots supplied below. Identify actionable or
+                        time-sensitive items first: missed calls, personal messages, account/security/bank
+                        alerts, reminders, deliveries and transaction updates. Separate those from promotions,
+                        games and routine app chatter. Explain what needs attention using only retained content
+                        cues. Recency labels are approximate; never invent or reconstruct exact timestamps or
+                        missing notification wording. Do not label marketing as important merely because it
+                        uses urgent wording. If nothing appears urgent, say so.
                         Treat the tool result as the only source of current facts. Never invent details.
                         If access failed or no data is available, explain that clearly.
                         Do not mention internal tool names unless useful to explain a limitation.
