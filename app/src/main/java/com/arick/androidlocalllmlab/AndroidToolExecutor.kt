@@ -222,8 +222,15 @@ class AndroidToolExecutor(private val context: Context) {
             object : ToolDefinition {
                 override val name = "read_notifications"
                 override val description = "Read recent notifications after the user grants Android notification access"
-                override val parameterSchema: List<ToolParameterSchema> = emptyList()
-                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = readNotifications()
+                override val parameterSchema = listOf(
+                    ToolParameterSchema(
+                        "focus",
+                        "The user's requested notification app, sender, topic, or status; pass a concise version of the current request",
+                        maxLength = 120
+                    )
+                )
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) =
+                    readNotifications(arguments.optString("focus"))
             },
             object : ToolDefinition {
                 override val name = "open_app_notification_settings"
@@ -514,13 +521,13 @@ class AndroidToolExecutor(private val context: Context) {
         }
     }
 
-    private fun readNotifications(): ToolResult {
+    private fun readNotifications(focus: String = ""): ToolResult {
         if (!isNotificationAccessEnabled()) {
             return ToolResult.Failure("Notification access is off. Ask me to enable notification access, then grant Mr-Red access in Android settings.")
         }
         val now = System.currentTimeMillis()
         val hourAgo = now - 60L * 60L * 1000L
-        val digest = EventMemoryStore.recentNotificationDigest(context, hourAgo, now)
+        val digest = EventMemoryStore.recentNotificationDigest(context, hourAgo, now, focus)
         if (digest.isBlank()) {
             return if (!MrRedNotificationListenerService.isConnected()) {
                 ToolResult.Success("Notification access is enabled, but Android has not connected the notification listener yet. No notifications from the last hour can be verified.")
