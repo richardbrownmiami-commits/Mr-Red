@@ -82,6 +82,7 @@ class DeviceIntentRouterTest {
         assertEquals("read_notifications", DeviceIntentRouter.route("what did Alice message me")?.name)
         assertEquals("read_notifications", DeviceIntentRouter.route("what did Alice say on WhatsApp")?.name)
         assertEquals("read_notifications", DeviceIntentRouter.route("show text messages from my operator")?.name)
+        assertNull(DeviceIntentRouter.route("what is WhatsApp"))
         assertEquals("open_notification_access", DeviceIntentRouter.route("open notification access")?.name)
         assertNull(DeviceIntentRouter.route("Explain how Android notifications work"))
         assertNull(DeviceIntentRouter.route("Tell me a story about the weather"))
