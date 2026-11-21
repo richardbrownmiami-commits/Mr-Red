@@ -673,10 +673,11 @@ object EventMemoryStore {
             }
         }
 
+        val countOnly = asksCount && contentTerms.isEmpty() && sender == null && !asksImportant
         // Only records whose compact detail lines are actually included are marked shared.
-        // Aggregate-only count requests do not mark every underlying notification as seen by GGUF.
+        // Aggregate-only count requests do not mark underlying notification details as seen by GGUF.
         val sharedIds = previouslyShared.toMutableSet()
-        filtered.take(20).forEach { sharedIds += it.id.toString() }
+        if (!countOnly) filtered.take(20).forEach { sharedIds += it.id.toString() }
         sharePrefs.edit().putStringSet(
             "shared_notification_ids",
             sharedIds.sortedByDescending { it.toLongOrNull() ?: 0L }.take(10000).toSet()
@@ -692,7 +693,6 @@ object EventMemoryStore {
             if (asksCount || requestedApps.isEmpty()) {
                 append("By app: ").append(appCounts.take(12).joinToString(", ") { it.key + "=" + it.value }).appendLine()
             }
-            val countOnly = asksCount && contentTerms.isEmpty() && sender == null && !asksImportant
             if (!countOnly) {
                 filtered.take(20).forEach { row ->
                     val app = row.app.ifBlank { "Unknown app" }.take(32)
