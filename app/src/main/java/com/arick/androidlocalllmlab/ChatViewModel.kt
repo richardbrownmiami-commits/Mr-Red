@@ -870,12 +870,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     "web_search", "get_news", "get_weather" -> "WEB"
                     else -> "DEVICE"
                 }
-                ActivityLogger.record(
-                    getApplication(),
-                    memoryLayer,
-                    "result_${call.name}",
-                    toolContent
-                )
+                if (call.name != "read_notifications") {
+                    ActivityLogger.record(
+                        getApplication(),
+                        memoryLayer,
+                        "result_${call.name}",
+                        toolContent
+                    )
+                }
                 // Kotlin reads the live Android snapshot; the GGUF model analyses the
                 // complete verified notification payload rather than returning a raw dump.
                 // Notification results are evidence for the GGUF model, never a final
