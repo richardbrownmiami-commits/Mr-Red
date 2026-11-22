@@ -72,17 +72,17 @@ class DeviceIntentRouterTest {
         assertEquals("open_settings", DeviceIntentRouter.route("Open phone battery settings")?.name)
     }
 
-    @Test fun routesNotificationRequestsButNotUnrelatedChat() {
-        assertEquals("read_notifications", DeviceIntentRouter.route("read my notifications")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("notifications")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("check notifications")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("what notifications do i have")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("recent notifications")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("how many notifications arrived in the last hour")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("what did Alice message me")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("when did Alice message me")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("what did Alice say on WhatsApp")?.name)
-        assertEquals("read_notifications", DeviceIntentRouter.route("show text messages from my operator")?.name)
+    @Test fun notificationAnswerRequestsStayInConversationInsteadOfRoutingToDatabase() {
+        assertNull(DeviceIntentRouter.route("read my notifications"))
+        assertNull(DeviceIntentRouter.route("notifications"))
+        assertNull(DeviceIntentRouter.route("check notifications"))
+        assertNull(DeviceIntentRouter.route("what notifications do i have"))
+        assertNull(DeviceIntentRouter.route("recent notifications"))
+        assertNull(DeviceIntentRouter.route("how many notifications arrived in the last hour"))
+        assertNull(DeviceIntentRouter.route("what did Alice message me"))
+        assertNull(DeviceIntentRouter.route("when did Alice message me"))
+        assertNull(DeviceIntentRouter.route("what did Alice say on WhatsApp"))
+        assertNull(DeviceIntentRouter.route("show text messages from my operator"))
         assertNull(DeviceIntentRouter.route("what is WhatsApp"))
         assertEquals("open_notification_access", DeviceIntentRouter.route("open notification access")?.name)
         assertNull(DeviceIntentRouter.route("Explain how Android notifications work"))
