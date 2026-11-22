@@ -17,6 +17,28 @@ import java.util.concurrent.atomic.AtomicReference
  * Original notification bodies and conversation text stay on-device. Prompt selection is a
  * separate concern; this store does not automatically inject its contents into the model.
  */
+/** Read-only row models exposed to the on-device database browser. */
+data class StoredEventRecord(
+    val id: Long,
+    val eventType: String,
+    val action: String,
+    val source: String,
+    val detail: String,
+    val occurredAtMillis: Long,
+    val packageName: String,
+    val title: String,
+    val body: String,
+    val importance: String,
+    val isActive: Boolean
+)
+
+data class StoredConversationRecord(
+    val id: Long,
+    val question: String,
+    val answer: String,
+    val createdAtMillis: Long
+)
+
 object EventMemoryStore {
     private const val DATABASE_NAME = "mr_red_memory.db"
     private const val DATABASE_VERSION = 3
@@ -769,6 +791,101 @@ object EventMemoryStore {
             list
         }
     }.getOrDefault(emptyList())
+
+    /**
+     * Read-only browser query over the existing event table. No records are inserted,
+     * updated, deleted, or migrated by these methods.
+     */
+    fun browseEvents(
+        context: Context,
+        section: String,
+        query: String = "",
+        limit: Int = 500
+    ): List<StoredEventRecord> {
+        awaitPendingWrites()
+        val selection = when (section) {
+            "notifications" -> "event_type = 'NOTIFICATION' AND action = 'posted'"
+            "actions" -> "event_type = 'DEVICE'"
+            "activities" -> "event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE'"
+            else -> "1 = 0"
+        }
+        val needle = query.trim()
+        val searchClause = if (needle.isBlank()) "" else
+            " AND (source LIKE ? OR event_type LIKE ? OR action LIKE ? OR detail LIKE ? OR title LIKE ? OR body LIKE ? OR package_name LIKE ?)"
+        val args = if (needle.isBlank()) emptyArray() else Array(7) { "%$needle%" }
+        val sql = """
+            SELECT id, event_type, action, source, detail, occurred_at, package_name,
+                   title, body, importance, is_active
+            FROM events
+            WHERE $selection$searchClause
+            ORDER BY occurred_at DESC, id DESC
+            LIMIT ?
+        """.trimIndent()
+        val bindArgs = args + arrayOf(limit.coerceIn(1, 1000).toString())
+        val rows = mutableListOf<StoredEventRecord>()
+        database(context.applicationContext).readableDatabase.rawQuery(sql, bindArgs).use { cursor ->
+            while (cursor.moveToNext()) {
+                rows += StoredEventRecord(
+                    id = cursor.getLong(0),
+                    eventType = cursor.getString(1),
+                    action = cursor.getString(2),
+                    source = cursor.getString(3),
+                    detail = cursor.getString(4),
+                    occurredAtMillis = cursor.getLong(5),
+                    packageName = cursor.getString(6),
+                    title = cursor.getString(7),
+                    body = cursor.getString(8),
+                    importance = cursor.getString(9),
+                    isActive = cursor.getInt(10) == 1
+                )
+            }
+        }
+        return rows
+    }
+
+    /** Read-only search over the existing dedicated conversation history table. */
+    fun browseConversations(
+        context: Context,
+        query: String = "",
+        limit: Int = 500
+    ): List<StoredConversationRecord> {
+        awaitPendingWrites()
+        val needle = query.trim()
+        val where = if (needle.isBlank()) "" else "WHERE question LIKE ? OR answer LIKE ?"
+        val args = if (needle.isBlank()) {
+            arrayOf(limit.coerceIn(1, 1000).toString())
+        } else {
+            arrayOf("%$needle%", "%$needle%", limit.coerceIn(1, 1000).toString())
+        }
+        val rows = mutableListOf<StoredConversationRecord>()
+        database(context.applicationContext).readableDatabase.rawQuery(
+            "SELECT id, question, answer, created_at FROM conversation_turns $where ORDER BY created_at DESC, id DESC LIMIT ?",
+            args
+        ).use { cursor ->
+            while (cursor.moveToNext()) rows += StoredConversationRecord(
+                id = cursor.getLong(0),
+                question = cursor.getString(1),
+                answer = cursor.getString(2),
+                createdAtMillis = cursor.getLong(3)
+            )
+        }
+        return rows
+    }
+
+    /** Counts reflect the actual existing tables and event categories. */
+    fun databaseBrowserCounts(context: Context): Map<String, Int> {
+        awaitPendingWrites()
+        val db = database(context.applicationContext).readableDatabase
+        fun count(sql: String): Int = db.rawQuery(sql, null).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+        return mapOf(
+            "notifications" to count("SELECT COUNT(*) FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted'"),
+            "actions" to count("SELECT COUNT(*) FROM events WHERE event_type = 'DEVICE'"),
+            "activities" to count("SELECT COUNT(*) FROM events WHERE event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE'"),
+            "chat" to count("SELECT COUNT(*) FROM conversation_turns")
+        )
+    }
 
     /** Read-only diagnostic counts; useful for validating collection without exposing message text. */
     fun counts(context: Context): Map<String, Int> {
