@@ -220,19 +220,6 @@ class AndroidToolExecutor(private val context: Context) {
                 override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = listScheduledTasks()
             },
             object : ToolDefinition {
-                override val name = "read_notifications"
-                override val description = "Query stored notifications for the requested time range, app, sender, category, count, or not-yet-shared status and return compact model evidence"
-                override val parameterSchema = listOf(
-                    ToolParameterSchema(
-                        "focus",
-                        "The user's requested notification app, sender, topic, or status; pass a concise version of the current request",
-                        maxLength = 120
-                    )
-                )
-                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) =
-                    readNotifications(arguments.optString("focus"))
-            },
-            object : ToolDefinition {
                 override val name = "open_app_notification_settings"
                 override val description = "Open notification settings for Mr-Red itself"
                 override val parameterSchema: List<ToolParameterSchema> = emptyList()
@@ -519,25 +506,6 @@ class AndroidToolExecutor(private val context: Context) {
         }.getOrElse { error ->
             ToolResult.Failure("Could not open Mr-Red notification settings: ${error.message ?: error.javaClass.simpleName}")
         }
-    }
-
-    private fun readNotifications(focus: String = ""): ToolResult {
-        // Reading stored history does not require the listener permission; that permission
-        // is needed only for collecting new notifications into SQLite.
-        val evidence = EventMemoryStore.notificationContextForQuestion(context, focus)
-        if (evidence.contains("No stored notifications matched this request.") &&
-            !isNotificationAccessEnabled()) {
-            return ToolResult.Success(
-                evidence + "\nNotification access is off, so new notifications cannot currently be collected."
-            )
-        }
-        if (evidence.contains("No stored notifications matched this request.") &&
-            !MrRedNotificationListenerService.isConnected()) {
-            return ToolResult.Success(
-                evidence + "\nNotification access is enabled, but Android has not connected the listener yet."
-            )
-        }
-        return ToolResult.Success(evidence)
     }
 
     private fun getNews(arguments: JSONObject, onProgress: (String) -> Unit): ToolResult {
