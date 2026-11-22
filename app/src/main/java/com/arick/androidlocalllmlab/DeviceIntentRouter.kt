@@ -33,21 +33,7 @@ object DeviceIntentRouter {
             return ToolCall("open_app_notification_settings", JSONObject())
         }
 
-        // 2. Notifications, including intent-based "anything important I missed?" requests.
-        val notificationIntent = (
-            Regex(
-                "\\b(read|show|sho|check|what|any|get|list|see|view|my|recent|unread|latest|important|miss|missed|count|total)\\b.*\\bnotifications?\\b|\\bnotifications?\\b.*\\b(read|show|sho|check|get|list|see|view|important|miss|missed|count|total)\\b|\\b(how many|number of)\\b.*\\bnotifications?\\b|\\b(anything important|anything i missed|anything i miss|what did i miss|what have i missed|tell me anything important)\\b",
-                RegexOption.IGNORE_CASE
-            ).containsMatchIn(text) ||
-            (Regex("\\b(important|miss|missed)\\b").containsMatchIn(text) &&
-                Regex("\\b(anything|anything i|tell me|show me|check)\\b").containsMatchIn(text)) ||
-            text in setOf("notifications", "notification", "check notification", "check notifications") ||
-            (mentionsMessagingApp && Regex("\\b(what did|what have|when did|what time|show|check|read|list|any|unread|latest|recent|from|received|arrived|count|total|how many|important|missed|messages?|timestamp|exact)\\b").containsMatchIn(text)) ||
-            Regex("\\b(what did|who sent|when did|what time|show me|check|read|list|any|unread|latest|recent|how many|count|total)\\b.*\\b(messages?|sms|texts?)\\b|\\b(messages?|sms|texts?)\\b.*\\b(from|received|arrived|unread|latest|recent|timestamp)\\b").containsMatchIn(text)
-        )
-        if (notificationIntent) {
-            return ToolCall("read_notifications", JSONObject())
-        }
+        // Notification-answer routing is disabled; stored records remain available in the database explorer.
         if (Regex("\\b(enable|grant|allow|open)\\b.*\\bnotification access\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
             return ToolCall("open_notification_access", JSONObject())
         }
