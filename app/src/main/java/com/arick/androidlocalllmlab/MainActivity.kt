@@ -230,6 +230,7 @@ enum class AppPage(val title: String, val icon: ImageVector) {
     Notifications("Alerts", Icons.Default.Notifications),
     Tasks("Tasks", Icons.Default.Alarm),
     Dashboard("Dashboard", Icons.Default.Dashboard),
+    Database("Data", Icons.Default.Storage),
     Settings("Settings", Icons.Default.Settings)
 }
 
@@ -319,6 +320,7 @@ private fun MainAppScreen(viewModel: ChatViewModel) {
                     onNavigateToChat = { selectedPage = AppPage.Chat },
                     onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) }
                 )
+                AppPage.Database -> DatabaseExplorerPage()
                 AppPage.Settings -> SettingsPage(
                     viewModel = viewModel,
                     onOpenModelPicker = { modelLauncher.launch(arrayOf("*/*")) }
