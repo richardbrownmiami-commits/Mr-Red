@@ -806,7 +806,7 @@ object EventMemoryStore {
         val selection = when (section) {
             "notifications" -> "event_type = 'NOTIFICATION' AND action = 'posted'"
             "actions" -> "(event_type = 'DEVICE' OR (event_type = 'ERROR' AND action = 'device_action_failed'))"
-            "activities" -> "event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE'"
+            "activities" -> "event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE' AND NOT (event_type = 'ERROR' AND action = 'device_action_failed')"
             else -> "1 = 0"
         }
         val needle = query.trim()
@@ -882,7 +882,7 @@ object EventMemoryStore {
         return mapOf(
             "notifications" to count("SELECT COUNT(*) FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted'"),
             "actions" to count("SELECT COUNT(*) FROM events WHERE event_type = 'DEVICE' OR (event_type = 'ERROR' AND action = 'device_action_failed')"),
-            "activities" to count("SELECT COUNT(*) FROM events WHERE event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE'"),
+            "activities" to count("SELECT COUNT(*) FROM events WHERE event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE' AND NOT (event_type = 'ERROR' AND action = 'device_action_failed')"),
             "chat" to count("SELECT COUNT(*) FROM conversation_turns")
         )
     }
