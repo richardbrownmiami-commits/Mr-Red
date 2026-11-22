@@ -889,16 +889,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val contextCapacity = ready.nCtx.coerceAtLeast(128)
                     val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
                     val promptBudget = (contextCapacity - maxOutput - 32).coerceAtLeast(1)
-                    val synthesisRequest = if (call.name == "read_notifications") {
-                        """
-                            Question: $prompt
-                            SQLite notification evidence:
-                            $toolContent
-
-                            Answer naturally using only this evidence. Prioritize actionable items and summarize routine activity briefly. Distinguish message text from app summaries. Never invent details or claim Android read status; "unread" means not previously shared with the model.
-                        """.trimIndent()
-                    } else {
-                        """
+                    val synthesisRequest = """
                             CURRENT USER MESSAGE (including any extra context the user supplied):
                             $prompt
 
@@ -914,7 +905,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             Never invent details. If access failed or no data is available, explain that clearly.
                             Do not mention internal tool names unless useful to explain a limitation.
                         """.trimIndent()
-                    }
                     var rawAnswer = ""
                     var startsThinking = false
                     val generated = withContext(Dispatchers.Default) {
