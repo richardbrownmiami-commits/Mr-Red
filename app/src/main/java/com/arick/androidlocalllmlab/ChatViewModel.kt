@@ -303,6 +303,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         scheduleMemoryWarmup()
     }
 
+    private fun isNotificationAnswerQuestion(question: String): Boolean =
+        Regex("\\bnotifications?\\b", RegexOption.IGNORE_CASE).containsMatchIn(question) ||
+            Regex("\\b(?:show|read|check|list|what|any|recent|unread|latest|count|how many)\\b.*\\b(?:messages?|sms|texts?|whatsapp|telegram|signal)\\b", RegexOption.IGNORE_CASE)
+                .containsMatchIn(question)
+
     private fun restoreConversationHistory() {
         runCatching {
             val saved = JSONArray(historyPreferences.getString("turns", "[]"))
@@ -311,7 +316,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val item = saved.optJSONObject(index) ?: continue
                 val question = item.optString("question").trim()
                 val answer = item.optString("answer").trim()
-                if (question.isNotBlank() && answer.isNotBlank()) restored += question to answer
+                if (question.isNotBlank() && answer.isNotBlank() && !isNotificationAnswerQuestion(question)) {
+                    restored += question to answer
+                }
             }
             synchronized(conversationHistory) {
                 conversationHistory.clear()
@@ -471,8 +478,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Keep phone actions local; they are not injected into GGUF inference.
         DeviceIntentRouter.route(prompt)?.let { call ->
-            // Pass the complete question to the Kotlin notification action for query planning.
-            if (call.name == "read_notifications") call.arguments.put("focus", prompt)
             executeRoutedDeviceRequest(prompt, call)
             return
         }
@@ -674,11 +679,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // A repeated exact question is represented by its latest completed answer.
         val unique = linkedMapOf<String, Pair<String, String>>()
-        exchanges.forEach { (question, answer) ->
-            val key = question.replace(Regex("[^\\p{L}\\p{N}]+"), " ")
-                .trim().lowercase(java.util.Locale.ROOT)
-            if (key.isNotBlank() && answer.isNotBlank()) { unique.remove(key); unique[key] = question to answer }
-        }
+        exchanges.filterNot { (question, _) -> isNotificationAnswerQuestion(question) }
+            .forEach { (question, answer) ->
+                val key = question.replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+                    .trim().lowercase(java.util.Locale.ROOT)
+                if (key.isNotBlank() && answer.isNotBlank()) { unique.remove(key); unique[key] = question to answer }
+            }
         val compactTurns = unique.values.map { (question, answer) ->
             compactExchange(question, answer, expanded)
         }
@@ -803,14 +809,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (Regex("\\b(do you have memory|have you got memory|do you remember me)\\b").containsMatchIn(text)) {
             val turns = synchronized(conversationHistory) { conversationHistory.size }
-            return "Yes. Mr-Red has local memory: up to 40 completed chat exchanges are saved on this device, alongside the app's activity and notification log. I can use that saved context when it is included in the current prompt. It is not human memory, and live notifications still need a fresh Android check. Currently saved chat exchanges: $turns."
+            return "Yes. Mr-Red has local memory: up to 40 completed chat exchanges are saved on this device, alongside the app's activity log. I can use that saved context when it is included in the current prompt. It is not human memory. Currently saved chat exchanges: $turns."
         }
         if (Regex("\\b(what you said|what did you say|repeat that|what was your last answer)\\b").containsMatchIn(text)) {
             val previousAnswer = synchronized(conversationHistory) { conversationHistory.lastOrNull()?.second }
             return previousAnswer ?: "I don't have an earlier completed answer available in the saved chat history."
         }
         if (Regex("\\b(who are you|what are you|introduce yourself|tell me about yourself)\\b").containsMatchIn(text)) {
-            return "I'm Mr-Red, your on-device personal assistant. I can help with conversation and the Android features connected in this app, including active notifications, device status, alarms and reminders. I'm composed, observant and occasionally dry-witted; I'll be clear about what I can and cannot access."
+            return "I'm Mr-Red, your on-device personal assistant. I can help with conversation and the Android features connected in this app, including device status, alarms and reminders. I'm composed, observant and occasionally dry-witted; I'll be clear about what I can and cannot access."
         }
         if (Regex("\\b(email|emails|mail|inbox)\\b").containsMatchIn(text) &&
             Regex("\\b(any|check|show|read|new|unread|latest|have|got|see|look|my)\\b").containsMatchIn(text)) {
@@ -842,7 +848,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _generationError.value = null
         _generationProgress.value = when (call.name) {
             "get_news", "get_weather", "web_search" -> "Checking the internet…"
-            "read_notifications" -> "Reading recent notifications…"
             "set_alarm", "dismiss_alarm", "schedule_reminder", "cancel_reminders" -> "Updating alarms & reminders…"
             else -> "Checking your device…"
         }
@@ -858,26 +863,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     is ToolResult.Success -> Triple(result.content, result.sources, "Completed locally: ${call.name}")
                     is ToolResult.Failure -> Triple(result.message, emptyList(), "Could not complete: ${call.name}")
                 }
-                val memoryLayer = when (call.name) {
-                    "read_notifications" -> "NOTIFICATION"
+                        val memoryLayer = when (call.name) {
                     "web_search", "get_news", "get_weather" -> "WEB"
                     else -> "DEVICE"
                 }
-                if (call.name != "read_notifications") {
-                    ActivityLogger.record(
-                        getApplication(),
-                        memoryLayer,
-                        "result_${call.name}",
-                        toolContent
-                    )
-                }
-                // Kotlin reads the live Android snapshot; the GGUF model analyses the
-                // complete verified notification payload rather than returning a raw dump.
-                // Notification results are evidence for the GGUF model, never a final
-                // Kotlin-authored answer or raw notification dump. Always synthesize them.
-                val requiresNaturalAnswer = call.name == "read_notifications" ||
-                    (call.name in setOf("web_search", "get_news", "get_weather") &&
-                        _uiState.value is ChatUiState.Ready)
+                ActivityLogger.record(
+                    getApplication(),
+                    memoryLayer,
+                    "result_${call.name}",
+                    toolContent
+                )
+                val requiresNaturalAnswer =
+                    call.name in setOf("web_search", "get_news", "get_weather") &&
+                        _uiState.value is ChatUiState.Ready
                 val content = if (requiresNaturalAnswer) {
                     val ready = _uiState.value as? ChatUiState.Ready
                         ?: error("Load a GGUF model before asking Mr-Red to interpret notification data.")
@@ -885,13 +883,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     appendLatestAssistantAgentTrace("Passing verified system data and your question to the local GGUF model")
                     appendLatestAssistantSources(sources)
                     _generationProgress.value = "Writing a natural-language answer…"
-                    // Notification actions have one authoritative retrieval path:
-                    // the Kotlin action tool queried SQLite and compacted its results already.
-                    // Do not query EventMemoryStore again or inject duplicate notification context.
-                    val memory = if (call.name == "read_notifications") {
-                        ""
-                    } else {
-                        withContext(Dispatchers.IO) { ActivityLogger.promptMemory(getApplication()) }
+                    val memory = withContext(Dispatchers.IO) {
+                        ActivityLogger.promptMemory(getApplication())
                     }
                     val contextCapacity = ready.nCtx.coerceAtLeast(128)
                     val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
