@@ -805,7 +805,7 @@ object EventMemoryStore {
         awaitPendingWrites()
         val selection = when (section) {
             "notifications" -> "event_type = 'NOTIFICATION' AND action = 'posted'"
-            "actions" -> "event_type = 'DEVICE'"
+            "actions" -> "(event_type = 'DEVICE' OR (event_type = 'ERROR' AND action = 'device_action_failed'))"
             "activities" -> "event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE'"
             else -> "1 = 0"
         }
@@ -881,7 +881,7 @@ object EventMemoryStore {
         }
         return mapOf(
             "notifications" to count("SELECT COUNT(*) FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted'"),
-            "actions" to count("SELECT COUNT(*) FROM events WHERE event_type = 'DEVICE'"),
+            "actions" to count("SELECT COUNT(*) FROM events WHERE event_type = 'DEVICE' OR (event_type = 'ERROR' AND action = 'device_action_failed')"),
             "activities" to count("SELECT COUNT(*) FROM events WHERE event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE'"),
             "chat" to count("SELECT COUNT(*) FROM conversation_turns")
         )
