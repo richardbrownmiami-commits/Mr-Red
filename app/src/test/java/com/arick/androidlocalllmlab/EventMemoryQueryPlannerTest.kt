@@ -24,7 +24,8 @@ class EventMemoryQueryPlannerTest {
         assertEquals(millis(2026, 11, 21, 5), plan.startMillis)
         assertEquals(millis(2026, 11, 21, 12), plan.endExclusiveMillis)
         assertEquals("this morning (05:00–12:00)", plan.rangeLabel)
-        assertTrue(plan.eventTypes.containsAll(setOf("NOTIFICATION", "WEB", "PERMISSION", "QUESTION", "ANSWER")))
+        assertTrue(plan.eventTypes.containsAll(setOf("WEB", "PERMISSION", "QUESTION", "ANSWER")))
+        assertFalse(plan.eventTypes.contains("NOTIFICATION"))
         assertTrue(plan.includeConversation)
     }
 
@@ -64,7 +65,7 @@ class EventMemoryQueryPlannerTest {
     @Test
     fun specificCategoriesAreAdditiveAndDoNotBecomeBroadQueries() {
         val plan = EventMemoryQueryPlanner.plan("show notifications and web search history", millis(2026, 11, 21, 14), utc)
-        assertTrue(plan.eventTypes.contains("NOTIFICATION"))
+        assertFalse(plan.eventTypes.contains("NOTIFICATION"))
         assertTrue(plan.eventTypes.contains("WEB"))
         assertFalse(plan.eventTypes.contains("APP"))
         assertFalse(plan.includeConversation)
