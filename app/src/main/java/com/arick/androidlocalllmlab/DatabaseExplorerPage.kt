@@ -167,7 +167,7 @@ fun DatabaseExplorerPage() {
             Text("Could not read database: $errorMessage", color = AppColors.Error, fontSize = 13.sp)
         } else if (selectedSection == DatabaseSection.Chat) {
             if (chatRows.isEmpty()) {
-                EmptyDatabaseSection("No saved conversations match this search.")
+                EmptyDatabaseSection("No saved conversations match this search.", Modifier.weight(1f))
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -191,7 +191,7 @@ fun DatabaseExplorerPage() {
             }
         } else {
             if (eventRows.isEmpty()) {
-                EmptyDatabaseSection("No stored records match this search.")
+                EmptyDatabaseSection("No stored records match this search.", Modifier.weight(1f))
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -268,9 +268,9 @@ private fun EventRecordCard(record: StoredEventRecord, section: DatabaseSection)
 }
 
 @Composable
-private fun EmptyDatabaseSection(message: String) {
+private fun EmptyDatabaseSection(message: String, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier.fillMaxWidth().weight(1f),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
