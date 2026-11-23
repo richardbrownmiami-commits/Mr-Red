@@ -88,8 +88,9 @@ internal object DatabaseMatcher {
                 }
             }
             if (meaning.table == preferredTable) { score += 5.0; signals += "user-selected-table" }
-            val values = discoverValues(db, meaning, tokens)
-            if (values.isNotEmpty()) { score += minOf(1.8, values.size * 0.45); signals += "stored-value" }
+            val matchedValues = discoverValues(db, meaning, tokens)
+            if (matchedValues.isNotEmpty()) { score += minOf(1.8, matchedValues.size * 0.45); signals += "stored-value" }
+            val values = matchedValues.ifEmpty { discoverAvailableValues(db, meaning) }
             DatabaseMatchCandidate(meaning.table, score, signals.toList(), values)
         }.sortedByDescending { it.score }
 
@@ -131,6 +132,26 @@ internal object DatabaseMatcher {
             }
         }
         return output.take(4).toList()
+    }
+
+    /** Small categorical samples for clarification choices; never reads notification/chat bodies. */
+    private fun discoverAvailableValues(db: SQLiteDatabase, meaning: TableMeaning): List<String> {
+        val output = mutableListOf<String>()
+        for (column in meaning.valueColumns.take(4)) {
+            runCatching {
+                db.rawQuery(
+                    "SELECT DISTINCT $column FROM ${meaning.table} WHERE $column IS NOT NULL AND TRIM(CAST($column AS TEXT)) <> '' ORDER BY $column LIMIT 4",
+                    null
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val value = cursor.getString(0)?.trim().orEmpty()
+                        if (value.isNotBlank()) output += "$column: ${value.take(32)}"
+                    }
+                }
+            }
+            if (output.size >= 6) break
+        }
+        return output.take(6)
     }
 
     private fun countRows(db: SQLiteDatabase, table: String): Int = runCatching {
