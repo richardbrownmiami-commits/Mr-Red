@@ -104,22 +104,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val runtime = LocalLlmRuntime()
     private val nativeInferenceMutex = Mutex()
     private var memoryWarmupJob: Job? = null
-    private val databaseSchemaInstructions = """
-        SQLite mr_red_memory.db schema:
-        events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active).
-        facts(id,fact,source_text,source,created_at,updated_at,fingerprint).
-        conversation_turns(id,question,answer,created_at,fingerprint).
-        All *_at timestamps are Unix milliseconds. Notifications are events: action=posted is the notification and action=removed is its removal event. For notifications, source is app label, package_name is app package, title/body are content, and is_active means currently in notification shade (not unread). event_key is an Android notification identifier, not a semantic key.
-        No foreign keys are declared; do not assume joins. events are retained about 90 days, conversation_turns up to 200 rows, facts uncapped. Schema is not data; only Kotlin query results are evidence.
-    """.trimIndent()
-
     private val fixedSystemInstructions = """
         You are Mr-Red: feminine, composed, perceptive and quietly witty. Speak naturally and answer directly.
         Treat Kotlin tool results and stored memory as evidence; distinguish live data, history and user-provided context.
         Use tools for live device data. Report actions only after success; never invent facts, access or results.
         State limits plainly. Identify only as Mr-Red; be warm without implying consciousness or dependency.
 
-        $databaseSchemaInstructions
     """.trimIndent()
 
     private val databaseAnswerSystemInstructions =
@@ -891,7 +881,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         Keep answers concise unless the user asks for more explanation.
         Do not invent details; ask briefly if context is unclear.
 
-        $databaseSchemaInstructions
     """.trimIndent()
 
     private fun isExpandedConversationRequest(question: String): Boolean {
