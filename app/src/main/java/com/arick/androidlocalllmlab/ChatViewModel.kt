@@ -124,6 +124,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val conversationHistory = mutableListOf<Pair<String, String>>()
     private var pendingDatabaseQuestion: String? = null
     private var pendingDatabaseTables: List<String> = emptyList()
+    private var pendingDatabaseChoices: Map<String, String> = emptyMap()
     private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
     private val maxStoredTurns = 40
 
@@ -489,26 +490,33 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val pendingQuestion = pendingDatabaseQuestion
         if (pendingQuestion != null) {
             val selection = question.trim().lowercase(java.util.Locale.ROOT)
-            val selected = pendingDatabaseTables.firstOrNull { table ->
+            val selectedTable = pendingDatabaseTables.firstOrNull { table ->
                 selection == table || selection == table.replace('_', ' ') ||
                     selection.contains(table.replace('_', ' '))
             }
+            val selectedValueTable = pendingDatabaseChoices.entries.firstOrNull { (value, _) ->
+                selection == value || (value.length >= 3 && selection.contains(value))
+            }?.value
+            val selected = selectedTable ?: selectedValueTable
             when {
-                selection in setOf("all", "everything", "all of them", "search all", "all tables") -> {
+                selection in setOf("all", "everything", "all of them", "search all", "search across all of them", "all tables") -> {
                     effectiveQuestion = "$pendingQuestion. User clarification: search across all available data."
                     searchAllTables = true
                     pendingDatabaseQuestion = null
                     pendingDatabaseTables = emptyList()
+                    pendingDatabaseChoices = emptyMap()
                 }
                 selected != null -> {
                     effectiveQuestion = "$pendingQuestion. User clarification selected database table: $selected."
                     preferredTable = selected
                     pendingDatabaseQuestion = null
                     pendingDatabaseTables = emptyList()
+                    pendingDatabaseChoices = emptyMap()
                 }
                 else -> {
                     pendingDatabaseQuestion = null
                     pendingDatabaseTables = emptyList()
+                    pendingDatabaseChoices = emptyMap()
                 }
             }
         }
@@ -525,6 +533,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         match.clarification?.let { clarification ->
             pendingDatabaseQuestion = effectiveQuestion
             pendingDatabaseTables = match.candidates.map { it.table }
+            pendingDatabaseChoices = match.candidates.flatMap { candidate ->
+                candidate.availableValues.map { value ->
+                    value.substringAfter(':').trim().lowercase(java.util.Locale.ROOT) to candidate.table
+                }
+            }.filter { it.first.isNotBlank() }.toMap()
             val options = match.candidates.joinToString("; ") { candidate ->
                 candidate.table.replace('_', ' ') + candidate.availableValues.takeIf { it.isNotEmpty() }
                     ?.joinToString(prefix = " — ", separator = ", ").orEmpty()
