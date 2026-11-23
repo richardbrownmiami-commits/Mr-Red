@@ -130,10 +130,26 @@ internal object DatabaseMatcher {
         val confidence = (0.35 + (top.score / 10.0).coerceAtMost(0.45) + (margin / 8.0).coerceIn(0.0, 0.20)).coerceIn(0.0, 1.0)
         val candidates = if (searchAll) scored else scored.filter { it.score >= maxOf(1.2, top.score * 0.58) }.take(3)
         val topRowCount = countRows(db, top.table)
+        val temporalTerms = setOf("today", "yesterday", "tomorrow", "recent", "recently", "latest", "oldest", "last", "week", "month", "year", "hour", "hours", "day", "days")
+        val querySpecificTokens = tokens.filterNot { token ->
+            token in temporalTerms ||
+                retrievalSignals.any { termMatches(token, it) } ||
+                meanings.any { meaning ->
+                    meaning.aliases.any { alias -> !alias.contains(' ') && termMatches(token, alias) } ||
+                        meaning.columnMeanings.values.flatten().any { alias -> !alias.contains(' ') && termMatches(token, alias) }
+                }
+        }
+        val hasSpecificText = querySpecificTokens.isNotEmpty()
+        val hasTimeConstraint = tokens.any { it in temporalTerms }
+        val broadHighVolume = !searchAll && preferredTable == null && topRowCount > 40 &&
+            when (top.table) {
+                "events" -> !top.matchedSignals.contains("stored-value") && !hasSpecificText
+                "conversation_turns" -> !hasSpecificText && !hasTimeConstraint
+                "facts" -> !hasSpecificText
+                else -> !hasSpecificText && !hasTimeConstraint
+            }
         val ambiguous = !searchAll && preferredTable == null && candidates.size > 1 && margin < 1.5
         val lowConfidence = confidence < 0.62 && preferredTable == null && !searchAll
-        val broadHighVolume = !searchAll && preferredTable == null && topRowCount > 40 &&
-            top.availableValues.isNotEmpty() && !top.matchedSignals.contains("stored-value")
         val clarification = when {
             ambiguous -> {
                 val options = candidates.map { c ->
@@ -143,8 +159,14 @@ internal object DatabaseMatcher {
                 "I found several possible places to look. Which information do you mean? " +
                     options.joinToString(" / ") + " / Search across all of them"
             }
-            broadHighVolume -> "I found $topRowCount records in ${top.table.replace('_', ' ')}. You can narrow the search using these actual database values: " +
-                top.availableValues.joinToString(" / ") + " / Search all"
+            broadHighVolume -> {
+                val narrowing = if (top.availableValues.isNotEmpty()) {
+                    "Available database choices: " + top.availableValues.joinToString(" / ")
+                } else {
+                    "Narrow it by a topic, person, or date range."
+                }
+                "I found $topRowCount records in ${top.table.replace('_', ' ')}. $narrowing Or say 'all' to search broadly."
+            }
             lowConfidence -> "I'm not confident which stored information you mean. Should I search ${top.table.replace('_', ' ')} ($topRowCount records), or something else?"
             else -> null
         }
