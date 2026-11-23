@@ -828,6 +828,16 @@ object EventMemoryStore {
         require(tableReferences.isNotEmpty() && tableReferences.all { it in allowedTables }) {
             "The query must read only from events, facts, or conversation_turns."
         }
+        require(!Regex("\\bsqlite_[A-Za-z0-9_]*\\b", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
+            "SQLite internal tables and functions are not available to model queries."
+        }
+        val fromClause = Regex(
+            "\\bFROM\\b(.*?)(?=\\bWHERE\\b|\\bGROUP\\s+BY\\b|\\bORDER\\s+BY\\b|\\bLIMIT\\b|\\bUNION\\b|$)",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        ).find(statement)?.groupValues?.getOrNull(1).orEmpty()
+        require(!fromClause.contains(',')) {
+            "Comma-style table lists are not permitted; use explicit JOIN clauses."
+        }
 
         val dbFile = context.applicationContext.getDatabasePath(DATABASE_NAME)
         require(dbFile.isFile) { "The Mr Red database does not exist yet." }
