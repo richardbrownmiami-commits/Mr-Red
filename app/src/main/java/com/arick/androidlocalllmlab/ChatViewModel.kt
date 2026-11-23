@@ -538,12 +538,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 "Database query planning needs ${estimatedTokens} input tokens; the limit is $plannerPromptLimit."
             }
             var actualPromptTokens = 0
+            var templateStartsThinking = false
             val response = runtime.generate(
                 messages = planMessages,
                 inferenceConfig = inferenceConfig.copy(maxTokens = plannerOutputLimit),
                 contextWindowTokens = contextWindowTokens,
-                onPrompt = { _, count ->
+                onPrompt = { formattedPrompt, count ->
                     actualPromptTokens = count
+                    templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
                     require(count in 1..plannerPromptLimit) {
                         "Formatted database-planning prompt is ${count} tokens; the limit is $plannerPromptLimit."
                     }
@@ -554,7 +556,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             require(actualPromptTokens in 1..plannerPromptLimit) {
                 "The runtime did not confirm a valid database-planning prompt token count."
             }
-            return response.trim()
+            val parsed = splitAssistantResponse(response, templateStartsThinking)
+            return (parsed.answer.ifBlank {
+                if (response.contains("<think>") || response.contains("</think>")) "" else response
+            }).trim()
         }
 
         var correction = ""
