@@ -689,14 +689,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         ).size + 32
         require(count("") <= maxPromptTokens) { "The question alone exceeds the model-input budget." }
 
-        val tableSections = evidence.split(Regex("(?m)(?=^\\\\[DATABASE TABLE: )"))
+        val tableSections = evidence.split(Regex("(?m)(?=^\\[DATABASE TABLE: )"))
             .filter { it.startsWith("[DATABASE TABLE: ") }
         if (tableSections.size > 1) {
-            val headers = tableSections.map { it.substringBefore('\\n') }
+            val headers = tableSections.map { it.substringBefore('\n') }
             val bodyLines = tableSections.map { section ->
-                section.substringAfter('\\n', "").lines().filter { it.isNotBlank() }
+                section.substringAfter('\n', "").lines().filter { it.isNotBlank() }
             }
-            val selected = headers.map { "$it\\n" }.toMutableList()
+            val selected = headers.map { "$it\n" }.toMutableList()
             val positions = IntArray(tableSections.size)
             var madeProgress = true
             while (madeProgress) {
@@ -705,7 +705,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     while (positions[index] < bodyLines[index].size) {
                         val line = bodyLines[index][positions[index]++]
                         val candidateSections = selected.toMutableList()
-                        candidateSections[index] += "$line\\n"
+                        candidateSections[index] += "$line\n"
                         val candidate = candidateSections.joinToString("")
                         if (count(candidate) <= maxPromptTokens) {
                             selected[index] = candidateSections[index]
