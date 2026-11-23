@@ -338,7 +338,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _messages.value = conversationHistory.flatMap { (question, answer) ->
                     listOf(ChatMessage(MessageRole.User, question), ChatMessage(MessageRole.Assistant, answer))
                 }
-                // Rewrite only the chat-history preference after filtering old notification Q&A.
+                // Persist the complete restored transcript, including notification-related turns for follow-ups.
                 persistConversationHistoryLocked()
             }
             // SQLite becomes the prompt-context source of truth; import legacy saved turns idempotently.
