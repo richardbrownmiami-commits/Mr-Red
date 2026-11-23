@@ -65,7 +65,7 @@ internal object DatabaseMatcher {
     private val retrievalSignals = setOf("show", "find", "search", "list", "get", "retrieve", "count", "many", "total", "latest", "recent", "previous", "history", "what", "which", "when", "where", "happened", "remember", "discuss", "talk", "asked", "saved", "occurred")
     private val stopWords = setOf("a", "an", "the", "is", "are", "was", "were", "do", "did", "does", "i", "me", "my", "you", "we", "our", "to", "of", "in", "on", "for", "and", "or", "it", "this", "that", "have", "has", "had", "please", "can", "could", "would", "like", "tell", "about")
 
-    fun match(db: SQLiteDatabase, question: String): DatabaseMatchResult {
+    fun match(db: SQLiteDatabase, question: String, preferredTable: String? = null, searchAll: Boolean = false): DatabaseMatchResult {
         val normalized = question.lowercase(Locale.ROOT)
         val tokens = Regex("[\\p{L}\\p{N}]+").findAll(normalized).map { it.value }
             .filter { it.length > 1 && it !in stopWords }.toSet()
@@ -87,6 +87,7 @@ internal object DatabaseMatcher {
                     if (matched) { score += 0.65; signals += "column:$column" }
                 }
             }
+            if (meaning.table == preferredTable) { score += 5.0; signals += "user-selected-table" }
             val values = discoverValues(db, meaning, tokens)
             if (values.isNotEmpty()) { score += minOf(1.8, values.size * 0.45); signals += "stored-value" }
             DatabaseMatchCandidate(meaning.table, score, signals.toList(), values)
@@ -102,8 +103,8 @@ internal object DatabaseMatcher {
 
         val margin = top.score - (runnerUp?.score ?: 0.0)
         val confidence = (0.35 + (top.score / 10.0).coerceAtMost(0.45) + (margin / 8.0).coerceIn(0.0, 0.20)).coerceIn(0.0, 1.0)
-        val candidates = scored.filter { it.score >= maxOf(1.2, top.score * 0.58) }.take(3)
-        val ambiguous = candidates.size > 1 && margin < 1.5
+        val candidates = if (searchAll) scored else scored.filter { it.score >= maxOf(1.2, top.score * 0.58) }.take(3)
+        val ambiguous = !searchAll && preferredTable == null && candidates.size > 1 && margin < 1.5
         val clarification = if (ambiguous) {
             val options = candidates.map { c -> "${c.table.replace('_', ' ')} (${countRows(db, c.table)} records)" }
             "I found several possible places to look. Which information do you mean? " +
