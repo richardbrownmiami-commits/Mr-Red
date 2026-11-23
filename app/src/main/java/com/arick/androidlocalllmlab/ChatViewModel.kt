@@ -589,13 +589,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         fun generatePlan(table: String, correction: String = ""): String {
             val tableRequest = userRequest.replace("MATCHED_TABLES=$allMatchedTables", "MATCHED_TABLES=$table")
-            val requestWithHistory = if (previousTurn.isBlank()) tableRequest else "$tableRequest\\n$previousTurn"
+            val requestWithHistory = if (previousTurn.isBlank()) tableRequest else "$tableRequest\n$previousTurn"
             val planMessages = listOf(
                 PromptMessage("system", plannerInstructions),
                 PromptMessage("user", if (correction.isBlank()) requestWithHistory else
-                    "$requestWithHistory\\nSQL_REJECTION: ${correction.take(80)}. Return a corrected SELECT only.")
+                    "$requestWithHistory\nSQL_REJECTION: ${correction.take(80)}. Return a corrected SELECT only.")
             )
-            val serialized = planMessages.joinToString("\\n") { it.role + "\\n" + it.content }
+            val serialized = planMessages.joinToString("\n") { it.role + "\n" + it.content }
             val estimatedTokens = runtime.tokenize(serialized).size + 32
             require(estimatedTokens <= plannerPromptLimit) {
                 "Database query planning needs ${estimatedTokens} input tokens; the limit is $plannerPromptLimit."
@@ -647,19 +647,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             if (tableEvidence != null && combinedEvidence.length < 17_000) {
-                combinedEvidence.append("[DATABASE TABLE: ").append(table).append("]\\n")
+                combinedEvidence.append("[DATABASE TABLE: ").append(table).append("]\n")
                     .append(tableEvidence.take((17_000 - combinedEvidence.length).coerceAtLeast(0)))
-                    .append("\\n")
+                    .append("\n")
             }
         }
         if (failures.isNotEmpty()) {
-            combinedEvidence.append("[Some table queries failed: ").append(failures.joinToString("; ")).append("]\\n")
+            combinedEvidence.append("[Some table queries failed: ").append(failures.joinToString("; ")).append("]\n")
         }
         if (combinedEvidence.isNotEmpty()) return combinedEvidence.toString().take(18_000)
         return "DATABASE QUERY FAILED: no table returned evidence. Do not invent results."
     }
 
-    private fun buildDatabaseAnswerMessages    private fun buildDatabaseAnswerMessages(
+    private fun buildDatabaseAnswerMessages(
         question: String,
         evidence: String,
         maxPromptTokens: Int = 300
@@ -985,7 +985,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         var compactContext = buildCompactConversationContext(currentQuestion, 300)
         fun messagesFor(context: String): List<PromptMessage> = buildList {
             add(system)
-            if (context.isNotBlank()) add(PromptMessage("user", "COMPACT RECENT CONVERSATION (historical context):\\n$context"))
+            if (context.isNotBlank()) add(PromptMessage("user", "COMPACT RECENT CONVERSATION (historical context):\n$context"))
             add(questionMessage)
         }
         var messages = messagesFor(compactContext)
