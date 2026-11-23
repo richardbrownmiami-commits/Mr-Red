@@ -35,6 +35,13 @@ class DatabaseMatcherInstrumentedTest {
         assertTrue("events should be the leading match", result.candidates.first().table == "events")
         assertTrue("Actual app label should be discovered", result.candidates.first().availableValues.any { it.contains(appLabel) })
         assertTrue("Discovery must not include notification body", result.candidates.none { it.availableValues.any { value -> value.contains("Private body") } })
+        val fuzzy = EventMemoryStore.matchDatabaseQuestion(
+            context,
+            "Show my latest notifications from WhtsApp"
+        )
+        assertTrue("A one-character application-name typo should still match", fuzzy.isDatabaseIntent)
+        assertTrue(fuzzy.candidates.first().table == "events")
+        assertTrue(fuzzy.candidates.first().availableValues.any { it.contains(appLabel) })
     }
 
     @Test
