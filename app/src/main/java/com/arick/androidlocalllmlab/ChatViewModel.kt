@@ -503,7 +503,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             val matchingValueChoices = pendingDatabaseChoices.filter { choice ->
                 val value = choice.value.lowercase(java.util.Locale.ROOT)
-                selection == value || value.startsWith(selection) ||
+                selection == value || value.startsWith(selection) || selection.contains(value) ||
                     value.split(Regex("[^\\p{L}\\p{N}]+")).any { it == selection }
             }
             if (selectedTable == null && matchingValueChoices.size > 1) {
