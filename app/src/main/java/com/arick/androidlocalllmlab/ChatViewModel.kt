@@ -98,11 +98,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val runtime = LocalLlmRuntime()
     private val nativeInferenceMutex = Mutex()
     private var memoryWarmupJob: Job? = null
+    private val databaseSchemaInstructions = """
+        SQLite schema for mr_red_memory.db:
+        events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active).
+        facts(id,fact,source_text,source,created_at,updated_at,fingerprint).
+        conversation_turns(id,question,answer,created_at,fingerprint).
+        occurred_at, created_at and updated_at are Unix timestamps in milliseconds.
+        Notifications are events with event_type='NOTIFICATION'; action='posted' is a posted notification and action='removed' is its removal event.
+        For notification rows: source is the app label, package_name is the app package, title and body are notification content, and is_active means currently present in the notification shade (not unread).
+        Other event_type values represent activity/event logs. facts stores explicitly captured facts. conversation_turns stores prior user questions and assistant answers.
+        No foreign-key relationships are declared. Do not assume joins or invent tables/columns.
+        This is schema information, not database contents. Treat only records actually supplied by Kotlin as evidence.
+    """.trimIndent()
+
     private val fixedSystemInstructions = """
         You are Mr-Red: feminine, composed, perceptive and quietly witty. Speak naturally and answer directly.
         Treat Kotlin tool results and stored memory as evidence; distinguish live data, history and user-provided context.
         Use tools for live device data. Report actions only after success; never invent facts, access or results.
         State limits plainly. Identify only as Mr-Red; be warm without implying consciousness or dependency.
+
+        $databaseSchemaInstructions
     """.trimIndent()
     val toolExecutor = AndroidToolExecutor(application)
     private val modelFileImporter = ModelFileImporter(application)
@@ -637,6 +652,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         Use the compact conversation context only to resolve references and follow-ups.
         Keep answers concise unless the user asks for more explanation.
         Do not invent details; ask briefly if context is unclear.
+
+        $databaseSchemaInstructions
     """.trimIndent()
 
     private fun isExpandedConversationRequest(question: String): Boolean {
