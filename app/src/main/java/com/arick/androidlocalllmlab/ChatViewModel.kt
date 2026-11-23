@@ -548,7 +548,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             conversationHistory.lastOrNull()
         }
         val previousTurn = previousTurnPair?.let { (priorQuestion, priorAnswer) ->
-            "PREVIOUS_QUESTION=${'$'}{priorQuestion.take(150)} PREVIOUS_ANSWER=${'$'}{priorAnswer.take(180)}"
+            "PREVIOUS_QUESTION=${priorQuestion.take(150)} PREVIOUS_ANSWER=${priorAnswer.take(180)}"
         }.orEmpty()
 
         fun runPlanner(system: String, user: String, outputLimit: Int): String {
