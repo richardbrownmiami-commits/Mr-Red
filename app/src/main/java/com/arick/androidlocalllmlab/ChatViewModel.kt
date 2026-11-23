@@ -122,6 +122,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // Completed turns are persisted privately and restored when the app process restarts.
     // The native KV cache is separate and is rebuilt from the transcript after restart.
     private val conversationHistory = mutableListOf<Pair<String, String>>()
+    private var pendingDatabaseQuestion: String? = null
+    private var pendingDatabaseTables: List<String> = emptyList()
     private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
     private val maxStoredTurns = 40
 
@@ -481,20 +483,70 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         contextWindowTokens: Int,
         inferenceConfig: InferenceConfig
     ): String {
+        var effectiveQuestion = question
+        var preferredTable: String? = null
+        var searchAllTables = false
+        val pendingQuestion = pendingDatabaseQuestion
+        if (pendingQuestion != null) {
+            val selection = question.trim().lowercase(java.util.Locale.ROOT)
+            val selected = pendingDatabaseTables.firstOrNull { table ->
+                selection == table || selection == table.replace('_', ' ') ||
+                    selection.contains(table.replace('_', ' '))
+            }
+            when {
+                selection in setOf("all", "everything", "all of them", "search all", "all tables") -> {
+                    effectiveQuestion = "$pendingQuestion. User clarification: search across all available data."
+                    searchAllTables = true
+                    pendingDatabaseQuestion = null
+                    pendingDatabaseTables = emptyList()
+                }
+                selected != null -> {
+                    effectiveQuestion = "$pendingQuestion. User clarification selected database table: $selected."
+                    preferredTable = selected
+                    pendingDatabaseQuestion = null
+                    pendingDatabaseTables = emptyList()
+                }
+                else -> {
+                    pendingDatabaseQuestion = null
+                    pendingDatabaseTables = emptyList()
+                }
+            }
+        }
+
+        val match = EventMemoryStore.matchDatabaseQuestion(
+            getApplication(),
+            effectiveQuestion,
+            preferredTable,
+            searchAllTables
+        )
+        if (!match.isDatabaseIntent) {
+            return "No database lookup was needed. Answer the user's message without claiming stored records were checked."
+        }
+        match.clarification?.let { clarification ->
+            pendingDatabaseQuestion = effectiveQuestion
+            pendingDatabaseTables = match.candidates.map { it.table }
+            val options = match.candidates.joinToString("; ") { candidate ->
+                candidate.table.replace('_', ' ') + candidate.availableValues.takeIf { it.isNotEmpty() }
+                    ?.joinToString(prefix = " — ", separator = ", ").orEmpty()
+            }
+            return "CLARIFICATION_REQUEST: $clarification. Available matching values: $options. Ask the user to choose; do not retrieve or expose record bodies yet."
+        }
+
+        val matchedTables = match.candidates.joinToString(",") { it.table }
         val plannerOutputLimit = minOf(128, (contextWindowTokens / 4).coerceAtLeast(32))
         val plannerPromptLimit = minOf(300, (contextWindowTokens - plannerOutputLimit - 32).coerceAtLeast(1))
         val nowMillis = System.currentTimeMillis()
         val zone = java.time.ZoneId.systemDefault().id
         val plannerInstructions = """
             You route questions to SQLite. For greetings, chit-chat, general knowledge, and questions not asking about Mr-Red's stored records, output exactly NO_QUERY.
-            Otherwise output one read-only SELECT using only this schema:
+            Otherwise output one read-only SELECT using the matched table(s) only. MATCHED_TABLES is a Kotlin hint; use the most relevant table(s), with no undeclared joins. Schema:
             events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active);
             facts(id,fact,source_text,source,created_at,updated_at,fingerprint);
             conversation_turns(id,question,answer,created_at,fingerprint).
             Use explicit columns and LIMIT 100 or less. No writes, PRAGMA, comments, semicolons, markdown, placeholders, or invented joins.
             *_at values are Unix milliseconds. Use NOW_MS and TZ for relative/calendar date bounds.
         """.trimIndent()
-        val userRequest = "NOW_MS=$nowMillis TZ=$zone QUESTION=$question"
+        val userRequest = "NOW_MS=$nowMillis TZ=$zone MATCHED_TABLES=$matchedTables CONFIDENCE=\${"%.2f".format(java.util.Locale.ROOT, match.confidence)} QUESTION=$effectiveQuestion"
         val previousTurn = synchronized(conversationHistory) {
             conversationHistory.lastOrNull()?.let { (priorQuestion, priorAnswer) ->
                 "PREVIOUS_TURN: User: ${priorQuestion.take(180)} Mr-Red: ${priorAnswer.take(180)}"
