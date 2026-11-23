@@ -85,12 +85,12 @@ internal object DatabaseMatcher {
             val signals = linkedSetOf<String>()
             var score = 0.0
             meaning.aliases.forEach { alias ->
-                val matched = if (alias.contains(' ')) normalized.contains(alias) else alias in tokens
+                val matched = if (alias.contains(' ')) normalized.contains(alias) else tokens.any { termMatches(it, alias) }
                 if (matched) { score += 1.8; signals += "table:$alias" }
             }
             meaning.columnMeanings.forEach { (column, aliases) ->
                 aliases.forEach { alias ->
-                    val matched = if (alias.contains(' ')) normalized.contains(alias) else alias in tokens
+                    val matched = if (alias.contains(' ')) normalized.contains(alias) else tokens.any { termMatches(it, alias) }
                     if (matched) { score += 0.65; signals += "column:$column" }
                 }
             }
@@ -103,7 +103,7 @@ internal object DatabaseMatcher {
 
         val top = scored.firstOrNull() ?: return DatabaseMatchResult(false, 0.0, emptyList())
         val runnerUp = scored.getOrNull(1)
-        val hasRetrievalIntent = retrievalSignals.any { it in tokens } ||
+        val hasRetrievalIntent = retrievalSignals.any { signal -> tokens.any { termMatches(it, signal) } } ||
             meanings.any { m -> m.aliases.any { it.contains(' ') && normalized.contains(it) } }
         val genericDataIntent = tokens.any { it in setOf("data", "database", "records", "everything", "entire") } ||
             normalized.contains("all my history") || normalized.contains("all my information")
@@ -152,6 +152,29 @@ internal object DatabaseMatcher {
             "top=${top.table}; score=${"%.2f".format(Locale.ROOT, top.score)}; margin=${"%.2f".format(Locale.ROOT, margin)}")
     }
 
+    /** Exact/prefix matches are preferred; edit distance <= 2 tolerates short typing errors. */
+    private fun termMatches(query: String, candidate: String): Boolean {
+        if (query == candidate) return true
+        if (query.length >= 3 && candidate.length >= 3 &&
+            (query.startsWith(candidate) || candidate.startsWith(query))) return true
+        if (query.length < 5 || candidate.length < 5 || kotlin.math.abs(query.length - candidate.length) > 2) return false
+
+        var previous = IntArray(candidate.length + 1) { it }
+        for (i in query.indices) {
+            val current = IntArray(candidate.length + 1)
+            current[0] = i + 1
+            var rowMinimum = current[0]
+            for (j in candidate.indices) {
+                val substitution = previous[j] + if (query[i] == candidate[j]) 0 else 1
+                current[j + 1] = minOf(current[j] + 1, previous[j + 1] + 1, substitution)
+                rowMinimum = minOf(rowMinimum, current[j + 1])
+            }
+            if (rowMinimum > 2) return false
+            previous = current
+        }
+        return previous[candidate.length] <= 2
+    }
+
     private fun discoverValues(db: SQLiteDatabase, meaning: TableMeaning, tokens: Set<String>): List<String> {
         val output = linkedSetOf<String>()
         for (column in meaning.valueColumns) {
@@ -161,7 +184,7 @@ internal object DatabaseMatcher {
                     while (cursor.moveToNext()) {
                         val value = cursor.getString(0)?.trim().orEmpty()
                         val valueTokens = value.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+"))
-                        if (value.isNotBlank() && tokens.any { token -> valueTokens.any { it.length >= 3 && (it.startsWith(token) || token.startsWith(it)) } }) {
+                        if (value.isNotBlank() && tokens.any { token -> valueTokens.any { termMatches(token, it) } }) {
                             output += "$column: ${value.take(48)}"
                         }
                     }
