@@ -58,6 +58,46 @@ class DatabaseMatcherInstrumentedTest {
     }
 
     @Test
+    fun selectedApplicationValueIsBoundAsSqlParameter() {
+        val suffix = System.currentTimeMillis().toString()
+        val appLabel = "O'Reilly Matcher $suffix"
+        EventMemoryStore.recordNotification(
+            context = context,
+            appLabel = appLabel,
+            packageName = "com.example.boundfilter.$suffix",
+            notificationKey = "bound-filter-$suffix",
+            title = "Bound parameter test",
+            body = "The selected application must be filtered exactly.",
+            postedAtMillis = System.currentTimeMillis()
+        )
+
+        val evidence = EventMemoryStore.executeModelReadOnlyQuery(
+            context = context,
+            sql = "SELECT id, source, title FROM events WHERE source = ? ORDER BY occurred_at DESC LIMIT 10",
+            requiredTable = "events",
+            requiredFilter = DatabaseQueryFilter("events", "source", appLabel)
+        )
+
+        assertTrue("Bound value containing an apostrophe must match exactly", evidence.contains(appLabel))
+        assertTrue(evidence.contains("Bound parameter test"))
+    }
+
+    @Test
+    fun requiredTableRejectsQueriesAgainstAnotherTable() {
+        var rejected = false
+        try {
+            EventMemoryStore.executeModelReadOnlyQuery(
+                context = context,
+                sql = "SELECT id, fact FROM facts LIMIT 5",
+                requiredTable = "events"
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue("A plan for events must not read facts", rejected)
+    }
+
+    @Test
     fun ordinaryChatDoesNotTriggerDatabaseRetrieval() {
         val result = EventMemoryStore.matchDatabaseQuestion(context, "Hi, how are you?")
         assertFalse(result.isDatabaseIntent)
