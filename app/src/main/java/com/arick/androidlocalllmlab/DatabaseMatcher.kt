@@ -162,7 +162,7 @@ internal object DatabaseMatcher {
                         val value = cursor.getString(0)?.trim().orEmpty()
                         val valueTokens = value.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+"))
                         if (value.isNotBlank() && tokens.any { token -> valueTokens.any { it.length >= 3 && (it.startsWith(token) || token.startsWith(it)) } }) {
-                            output += value.take(48)
+                            output += "$column: ${value.take(48)}"
                         }
                     }
                 }
