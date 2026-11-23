@@ -386,7 +386,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _samplerRetrievedMemory.value = ""
         _samplerFormattedPrompt.value = ""
         _samplerPromptTokenCount.value = 0
-        _samplerStatus.value = "Kotlin is retrieving matching database records…"
+        _samplerStatus.value = "GGUF is planning a database query…"
         _samplerGenerating.value = true
         val inferenceConfig = _inferenceConfig.value
 
@@ -528,9 +528,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         ) withFollowUpContext else baseMessages
 
         fun generatePlan(correction: String = ""): String {
-            val planMessages = if (correction.isBlank()) messages else messages + PromptMessage(
-                "user",
-                "The previous SQL was rejected: ${correction.take(120)}. Return corrected SELECT only, or NO_QUERY."
+            val planMessages = if (correction.isBlank()) messages else listOf(
+                messages.first(),
+                PromptMessage(
+                    "user",
+                    "${messages.last().content}\\nSQL_REJECTION: ${correction.take(80)}. Return a corrected SELECT only, or NO_QUERY."
+                )
             )
             val serialized = planMessages.joinToString("\n") { it.role + "\n" + it.content }
             val estimatedTokens = runtime.tokenize(serialized).size + 32
@@ -661,8 +664,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val answer = withContext(Dispatchers.Default) {
                     nativeInferenceMutex.withLock {
                     runtime.resetStopRequest()
-                    // Keep the native KV cache between turns. The prompt uses the invariant
-                    // system instructions, one compact logger summary, and the current question.
+                    // Run model-generated SQL planning followed by a separate natural-language answer pass.
                     val readyState = _uiState.value as? ChatUiState.Ready
                     val contextCapacity = (readyState?.nCtx ?: 512).coerceAtLeast(128)
                     // Small context windows must reserve room for memory as well as output.
@@ -686,7 +688,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         getApplication(), "INFERENCE", "prompt_composition",
                         "database_evidence_chars=${databaseEvidence.length} " +
                             "database_evidence_tokens=${runtime.tokenize(databaseEvidence).size} " +
-                            "context=${contextCapacity} prompt_budget=300 output_limit=${effectiveMaxTokens}"
+                            "context=${contextCapacity} prompt_budget=${answerPromptBudget} output_limit=${effectiveMaxTokens}"
                     )
                     runtime.resetStopRequest()
                     runtime.generate(
