@@ -502,7 +502,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (selectedTable == null && matchingValueChoices.size > 1) {
                 val options = matchingValueChoices.take(6).joinToString(" / ") { choice ->
-                    "\${choice.column}: \${choice.value}"
+                    "${choice.column}: ${choice.value}"
                 }
                 return "CLARIFICATION_REQUEST: More than one stored value matches '$question'. Which exact value do you mean: $options?"
             }
@@ -518,7 +518,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 selected != null -> {
                     effectiveQuestion = if (selectedValueChoice != null) {
                         requiredFilter = DatabaseQueryFilter(selected, selectedValueChoice.column, selectedValueChoice.value)
-                        "$pendingQuestion. User selected the stored value for column \${selectedValueChoice.column}; Kotlin will bind the exact value as a SQL parameter."
+                        "$pendingQuestion. User selected the stored value for column ${selectedValueChoice.column}; Kotlin will bind the exact value as a SQL parameter."
                     } else {
                         "$pendingQuestion. User clarification selected database table: $selected."
                     }
@@ -541,7 +541,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val schema = "events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active); facts(id,fact,source_text,source,created_at,updated_at,fingerprint); conversation_turns(id,question,answer,created_at,fingerprint)."
         val previousTurn = synchronized(conversationHistory) {
             conversationHistory.lastOrNull()?.let { (priorQuestion, priorAnswer) ->
-                "PREVIOUS=\${priorQuestion.take(90)} => \${priorAnswer.take(90)}"
+                "PREVIOUS=${priorQuestion.take(90)} => ${priorAnswer.take(90)}"
             }.orEmpty()
         }
 
@@ -590,7 +590,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val intentLabels = intent.split(Regex("[,\\s]+")).map { it.trim().lowercase(java.util.Locale.ROOT) }
         val selectedTables = intentLabels.filter { it in allowedTables }.distinct()
         require(selectedTables.isNotEmpty() && intentLabels.all { it in allowedTables }) {
-            "The model returned an invalid database intent decision. Expected NO_QUERY or table names; received: \${intent.take(100)}"
+            "The model returned an invalid database intent decision. Expected NO_QUERY or table names; received: ${intent.take(100)}"
         }
 
         val sqlSystem = "Generate one read-only SELECT for TABLE only. Schema: $schema Use explicit columns and LIMIT <=100. No joins, UNION, writes, PRAGMA, comments, semicolons or markdown. *_at timestamps are Unix milliseconds. Use NOW_MS and TZ for relative dates. If FILTER_COLUMN is supplied, use exactly FILTER_COLUMN = ? and no other placeholder; Kotlin binds its value. Return SQL only."
@@ -598,14 +598,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val failures = mutableListOf<String>()
         for (table in selectedTables) {
             val filterForTable = requiredFilter?.takeIf { it.table == table }
-            val filterHint = filterForTable?.let { " FILTER_COLUMN=\${it.column}." }.orEmpty()
+            val filterHint = filterForTable?.let { " FILTER_COLUMN=${it.column}." }.orEmpty()
             val sqlUser = "NOW_MS=$nowMillis TZ=$zone TABLE=$table$filterHint QUESTION=$effectiveQuestion"
             var correction = ""
             var tableEvidence: String? = null
             for (attempt in 0..1) {
                 runtime.resetStopRequest()
                 val request = if (correction.isBlank()) sqlUser else
-                    "$sqlUser\nREJECTION=\${correction.take(80)}. Return corrected SELECT only."
+                    "$sqlUser\nREJECTION=${correction.take(80)}. Return corrected SELECT only."
                 val sql = runPlanner(sqlSystem, request, plannerOutputLimit)
                 try {
                     tableEvidence = EventMemoryStore.executeModelReadOnlyQuery(
@@ -617,7 +617,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     break
                 } catch (error: Exception) {
                     correction = error.message ?: error.javaClass.simpleName
-                    if (attempt == 1) failures += "$table: \${correction.take(160)}"
+                    if (attempt == 1) failures += "$table: ${correction.take(160)}"
                 }
             }
             if (tableEvidence != null && combinedEvidence.length < 17_000) {
