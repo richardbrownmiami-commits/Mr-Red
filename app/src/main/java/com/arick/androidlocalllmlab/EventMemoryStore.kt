@@ -842,8 +842,10 @@ object EventMemoryStore {
             "Comma-style table lists are not permitted; use explicit JOIN clauses."
         }
 
+        // Initialize the existing helper/schema on first use before opening the read-only handle.
+        database(context).readableDatabase
         val dbFile = context.applicationContext.getDatabasePath(DATABASE_NAME)
-        require(dbFile.isFile) { "The Mr Red database does not exist yet." }
+        require(dbFile.isFile) { "The Mr Red database could not be initialized." }
         val db = SQLiteDatabase.openDatabase(
             dbFile.absolutePath,
             null,
