@@ -639,7 +639,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     continue
                 }
                 try {
-                    tableEvidence = EventMemoryStore.executeModelReadOnlyQuery(getApplication(), sql)
+                    tableEvidence = EventMemoryStore.executeModelReadOnlyQuery(getApplication(), sql, requiredTable = table)
                     break
                 } catch (error: Exception) {
                     correction = error.message ?: error.javaClass.simpleName
