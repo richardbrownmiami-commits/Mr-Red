@@ -404,15 +404,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
 
-                        // This is the same question-specific SQLite retrieval used by normal chat.
-                        val retrievedMemory = EventMemoryStore.relevantContext(getApplication(), prompt)
-                        _samplerRetrievedMemory.value = retrievedMemory
-                        val promptMessages = buildPromptMessages(
-                            currentQuestion = prompt,
-                            memorySummary = retrievedMemory,
-                            maxPromptTokens = promptBudget,
-                            includeConversationHistory = false
+                        // Use the same model-generated SQL path as normal chat; no parallel keyword planner.
+                        val retrievedMemory = retrieveDatabaseEvidence(
+                            question = prompt,
+                            contextWindowTokens = readyState.nCtx,
+                            inferenceConfig = inferenceConfig
                         )
+                        _samplerRetrievedMemory.value = retrievedMemory
+                        val promptMessages = buildDatabaseAnswerMessages(prompt, retrievedMemory)
                         _samplerStatus.value = "Prompt built; running GGUF inference…"
 
                         runtime.generate(
