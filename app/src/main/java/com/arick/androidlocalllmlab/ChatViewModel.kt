@@ -709,28 +709,115 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
 
-        // Retain both sides privately so the summary can describe the exchange without quoting it.
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
         EventMemoryStore.captureExplicitFact(getApplication(), prompt)
 
-        // Answer stable capability/identity questions locally; a small on-device model
-        // should not be allowed to hallucinate capabilities or drift on identity.
         localConversationReply(prompt)?.let { reply ->
             completeLocalReply(prompt, reply)
             return
         }
 
-        // Keep phone actions local; they are not injected into GGUF inference.
-        DeviceIntentRouter.route(prompt)?.let { call ->
-            executeRoutedDeviceRequest(prompt, call)
-            return
-        }
-
         if (_uiState.value !is ChatUiState.Ready) {
+            // Preserve the no-model fallback for basic device actions.
+            DeviceIntentRouter.route(prompt)?.let { call ->
+                executeRoutedDeviceRequest(prompt, call)
+                return
+            }
             _generationError.value = "Load a GGUF model before sending a question."
             return
         }
 
+        // The GGUF decides whether a real device/live-data tool is needed.
+        // If it declines, the database planner separately decides DB lookup vs normal chat.
+        _isGenerating.value = true
+        _generationProgress.value = "Understanding the request…"
+        viewModelScope.launch {
+            val toolCall = runCatching {
+                withContext(Dispatchers.Default) {
+                    nativeInferenceMutex.withLock { routeToolRequestWithModel(prompt) }
+                }
+            }.onFailure {
+                ActivityLogger.record(getApplication(), "ERROR", "tool_routing_failed", it.javaClass.simpleName)
+            }.getOrNull()
+            if (toolCall != null) {
+                executeRoutedDeviceRequest(prompt, toolCall)
+            } else {
+                sendModelRequest(prompt)
+            }
+        }
+    }
+
+    private fun routeToolRequestWithModel(question: String): ToolCall? {
+        val ready = _uiState.value as? ChatUiState.Ready ?: return null
+        val contextWindow = ready.nCtx.coerceAtLeast(128)
+        val outputLimit = 64
+        val promptLimit = minOf(300, (contextWindow - outputLimit - 32).coerceAtLeast(1))
+        val system = "Route the request. Use a tool only when the user asks to perform a device action or needs live external/device data. " +
+            "Do NOT use tools for general explanations, writing, hypotheticals, or Mr-Red stored notifications, facts, or chat history. " +
+            "If the user asks how to do something rather than asking you to do it, return NO_TOOL. If required arguments are missing or uncertain, return NO_TOOL. " +
+            "Never invent a phone number, recipient, message, city, app or time. Output exactly NO_TOOL or TOOL_CALL|name|JSON. " +
+            "Available tools: device_vitals{}; open_settings{page}; open_app{app_name}; make_call{phone_number}; set_timer{seconds}; " +
+            "set_alarm{hour,minute,message}; dismiss_alarm{}; schedule_reminder{message,interval_minutes,recurring}; " +
+            "cancel_reminders{}; list_scheduled_tasks{}; open_app_notification_settings{}; open_notification_access{}; " +
+            "get_news{query}; get_weather{city}; web_search{query}. " +
+            "Allowed settings pages: wifi, bluetooth, battery, display, system."
+        val messages = listOf(
+            PromptMessage("system", system),
+            PromptMessage("user", "QUESTION=$question")
+        )
+        var actualTokens = 0
+        var startsThinking = false
+        val response = runtime.generate(
+            messages = messages,
+            inferenceConfig = _inferenceConfig.value.copy(maxTokens = outputLimit),
+            contextWindowTokens = contextWindow,
+            onPrompt = { formatted, count ->
+                actualTokens = count
+                startsThinking = formatted.trimEnd().endsWith("<think>")
+                require(count in 1..promptLimit) {
+                    "Tool-routing prompt is $count tokens; limit is $promptLimit."
+                }
+            },
+            onToken = {},
+            onMetrics = {}
+        )
+        require(actualTokens in 1..promptLimit) {
+            "The runtime did not confirm a valid tool-routing prompt token count."
+        }
+        val parsed = splitAssistantResponse(response, startsThinking)
+        val output = (parsed.answer.ifBlank { response }).trim()
+            .removePrefix("```json").removePrefix("```").trim()
+            .removeSuffix("```").trim()
+        if (output.equals("NO_TOOL", ignoreCase = true) || output.startsWith("NO_TOOL ", true)) {
+            ActivityLogger.record(getApplication(), "INFERENCE", "request_route", "model=NO_TOOL input_tokens=$actualTokens")
+            return null
+        }
+        if (!output.startsWith("TOOL_CALL|")) return null
+        val payload = output.removePrefix("TOOL_CALL|")
+        val separator = payload.indexOf('|')
+        if (separator <= 0) return null
+        val name = payload.substring(0, separator).trim().lowercase(java.util.Locale.ROOT)
+        val allowed = setOf(
+            "device_vitals", "open_settings", "open_app", "make_call", "set_timer", "set_alarm",
+            "dismiss_alarm", "schedule_reminder", "cancel_reminders", "list_scheduled_tasks",
+            "open_app_notification_settings", "open_notification_access", "get_news", "get_weather", "web_search"
+        )
+        if (name !in allowed) return null
+        val jsonText = payload.substring(separator + 1)
+        val jsonStart = jsonText.indexOf('{')
+        val jsonEnd = jsonText.lastIndexOf('}')
+        if (jsonStart < 0 || jsonEnd < jsonStart) return null
+        val arguments = runCatching {
+            org.json.JSONObject(jsonText.substring(jsonStart, jsonEnd + 1))
+        }.getOrNull() ?: return null
+        ActivityLogger.record(
+            getApplication(), "INFERENCE", "request_route",
+            "model=TOOL tool=$name input_tokens=$actualTokens"
+        )
+        return ToolCall(name, arguments)
+    }
+
+    private fun sendModelRequest(prompt: String) {
         ActivityLogger.record(getApplication(), "INFERENCE", "request_started", "Question submitted; message content omitted")
         val inferenceConfig = _inferenceConfig.value
         val userMessage = ChatMessage(MessageRole.User, prompt)
