@@ -419,6 +419,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             inferenceConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens),
                             contextWindowTokens = readyState.nCtx,
                             onPrompt = { formattedPrompt, tokenCount ->
+                                require(tokenCount <= 300) { "Formatted answer prompt is $tokenCount tokens; the limit is 300." }
                                 _samplerFormattedPrompt.value = formattedPrompt
                                 _samplerPromptTokenCount.value = tokenCount
                                 templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
@@ -666,6 +667,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         inferenceConfig = generationConfig,
                         contextWindowTokens = readyState?.nCtx ?: 0,
                         onPrompt = { formattedPrompt, tokenCount ->
+                            require(tokenCount <= 300) { "Formatted answer prompt is $tokenCount tokens; the limit is 300." }
                             _promptTokenCount.value = tokenCount
                             _generationProgress.value = "Prefilling $tokenCount tokens…"
                             templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
