@@ -532,7 +532,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 messages.first(),
                 PromptMessage(
                     "user",
-                    "${messages.last().content}\\nSQL_REJECTION: ${correction.take(80)}. Return a corrected SELECT only, or NO_QUERY."
+                    "${messages.last().content}\nSQL_REJECTION: ${correction.take(80)}. Return a corrected SELECT only, or NO_QUERY."
                 )
             )
             val serialized = planMessages.joinToString("\n") { it.role + "\n" + it.content }
