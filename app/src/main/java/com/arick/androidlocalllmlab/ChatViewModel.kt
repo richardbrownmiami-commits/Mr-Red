@@ -532,12 +532,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     preferredTable = selected
                     pendingDatabaseQuestion = null
                     pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyMap()
+                    pendingDatabaseChoices = emptyList()
                 }
                 else -> {
                     pendingDatabaseQuestion = null
                     pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyMap()
+                    pendingDatabaseChoices = emptyList()
                 }
             }
         }
@@ -560,7 +560,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val rawValue = option.substringAfter(':', "").trim()
                     val value = rawValue.replace(Regex("\\s+\\(\\d+\\)$"), "").trim()
                     if (column.isBlank() || value.isBlank()) null else {
-                        value.lowercase(java.util.Locale.ROOT) to PendingDatabaseChoice(candidate.table, column, value)
+                        PendingDatabaseChoice(candidate.table, column, value)
                     }
                 }
             }
