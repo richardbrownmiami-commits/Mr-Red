@@ -825,7 +825,7 @@ object EventMemoryStore {
         val statement = sql.trim().removeSuffix(";").trim()
         require(statement.isNotBlank()) { "The model returned an empty SQL query." }
         require(statement.length <= 8_000) { "SQL query is too long." }
-        require(Regex("^SELECT\\s+\\*", RegexOption.IGNORE_CASE).containsMatchIn(statement).not()) {
+        require(!Regex("\\bSELECT\\s+\\*", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
             "Select explicit columns instead of SELECT *."
         }
         require(Regex("^SELECT\\b", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
@@ -834,6 +834,9 @@ object EventMemoryStore {
         require(!statement.contains(';') && !statement.contains("--") &&
             !statement.contains("/*") && !statement.contains("*/")) {
             "Multiple statements and SQL comments are not permitted."
+        }
+        require(!Regex("\\b(JOIN|UNION)\\b", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
+            "Joins and UNION are not permitted; query each matched table independently."
         }
         val unsafeFunctions = Regex(
             "\\b(load_extension|readfile|writefile|fts3_tokenizer|randomblob|zeroblob)\\s*\\(",
