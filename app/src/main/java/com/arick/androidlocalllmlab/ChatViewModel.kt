@@ -501,10 +501,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 selection == table || selection == table.replace('_', ' ') ||
                     selection.contains(table.replace('_', ' '))
             }
-            val selectedValueChoice = pendingDatabaseChoices.entries.firstOrNull { (value, _) ->
+            val matchingValueChoices = pendingDatabaseChoices.entries.filter { (value, _) ->
                 selection == value || value.startsWith(selection) ||
                     value.split(Regex("[^\\p{L}\\p{N}]+")).any { it == selection }
-            }?.value
+            }
+            if (selectedTable == null && matchingValueChoices.size > 1) {
+                val options = matchingValueChoices.take(6).joinToString(" / ") { (_, choice) ->
+                    "${choice.column}: ${choice.value}"
+                }
+                return "CLARIFICATION_REQUEST: More than one stored value matches '$question'. Which exact value do you mean: $options?"
+            }
+            val selectedValueChoice = matchingValueChoices.singleOrNull()?.value
             val selected = selectedTable ?: selectedValueChoice?.table
             when {
                 selection in setOf("all", "everything", "all of them", "search all", "search across all of them", "all tables") -> {
