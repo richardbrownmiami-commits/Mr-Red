@@ -202,7 +202,9 @@ internal object DatabaseMatcher {
     private fun discoverValues(db: SQLiteDatabase, meaning: TableMeaning, tokens: Set<String>): List<String> {
         val output = linkedSetOf<String>()
         for (column in meaning.valueColumns) {
-            val sql = "SELECT DISTINCT $column FROM ${meaning.table} WHERE $column IS NOT NULL AND TRIM(CAST($column AS TEXT)) <> '' ORDER BY $column LIMIT 40"
+            val sql = "SELECT $column, COUNT(*) AS row_count FROM ${meaning.table} " +
+                "WHERE $column IS NOT NULL AND TRIM(CAST($column AS TEXT)) <> '' " +
+                "GROUP BY $column ORDER BY row_count DESC, $column LIMIT 100"
             runCatching {
                 db.rawQuery(sql, null).use { cursor ->
                     while (cursor.moveToNext()) {
