@@ -107,6 +107,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         Notifications are events with event_type='NOTIFICATION'; action='posted' is a posted notification and action='removed' is its removal event.
         For notification rows: source is the app label, package_name is the app package, title and body are notification content, and is_active means currently present in the notification shade (not unread).
         Other event_type values represent activity/event logs. facts stores explicitly captured facts. conversation_turns stores prior user questions and assistant answers.
+        events are pruned after about 90 days; conversation_turns is capped at 200 rows; facts has no fixed row cap.
+        is_active means currently present in the notification shade, not unread. event_key is an Android notification identifier, not a semantic content key.
         No foreign-key relationships are declared. Do not assume joins or invent tables/columns.
         This is schema information, not database contents. Treat only records actually supplied by Kotlin as evidence.
     """.trimIndent()
