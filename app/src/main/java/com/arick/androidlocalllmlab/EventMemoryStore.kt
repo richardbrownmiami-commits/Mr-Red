@@ -817,11 +817,13 @@ object EventMemoryStore {
             !statement.contains("/*") && !statement.contains("*/")) {
             "Multiple statements and SQL comments are not permitted."
         }
-        val forbidden = Regex(
-            "\\b(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|ATTACH|DETACH|PRAGMA|VACUUM|REINDEX|TRIGGER|BEGIN|COMMIT|ROLLBACK)\\b",
+        val unsafeFunctions = Regex(
+            "\\b(load_extension|readfile|writefile|fts3_tokenizer)\\s*\\(",
             RegexOption.IGNORE_CASE
         )
-        require(!forbidden.containsMatchIn(statement)) { "The query contains a prohibited SQL operation." }
+        require(!unsafeFunctions.containsMatchIn(statement)) {
+            "The query contains a prohibited SQLite function."
+        }
 
         val allowedTables = setOf("events", "facts", "conversation_turns")
         val tableReferences = Regex(
