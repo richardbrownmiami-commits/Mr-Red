@@ -106,11 +106,19 @@ internal object DatabaseMatcher {
         val confidence = (0.35 + (top.score / 10.0).coerceAtMost(0.45) + (margin / 8.0).coerceIn(0.0, 0.20)).coerceIn(0.0, 1.0)
         val candidates = if (searchAll) scored else scored.filter { it.score >= maxOf(1.2, top.score * 0.58) }.take(3)
         val ambiguous = !searchAll && preferredTable == null && candidates.size > 1 && margin < 1.5
-        val clarification = if (ambiguous) {
-            val options = candidates.map { c -> "${c.table.replace('_', ' ')} (${countRows(db, c.table)} records)" }
-            "I found several possible places to look. Which information do you mean? " +
-                options.joinToString(" / ") + " / Search across all of them"
-        } else null
+        val lowConfidence = confidence < 0.62 && preferredTable == null && !searchAll
+        val clarification = when {
+            ambiguous -> {
+                val options = candidates.map { c ->
+                    "${c.table.replace('_', ' ')} (${countRows(db, c.table)} records)" +
+                        c.availableValues.takeIf { it.isNotEmpty() }?.joinToString(prefix = " — ", separator = ", ").orEmpty()
+                }
+                "I found several possible places to look. Which information do you mean? " +
+                    options.joinToString(" / ") + " / Search across all of them"
+            }
+            lowConfidence -> "I'm not confident which stored information you mean. Should I search ${top.table.replace('_', ' ')} (${countRows(db, top.table)} records), or something else?"
+            else -> null
+        }
         return DatabaseMatchResult(true, confidence, candidates, clarification,
             "top=${top.table}; score=${"%.2f".format(Locale.ROOT, top.score)}; margin=${"%.2f".format(Locale.ROOT, margin)}")
     }
