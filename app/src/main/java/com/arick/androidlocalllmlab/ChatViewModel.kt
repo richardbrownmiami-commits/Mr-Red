@@ -971,9 +971,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         includeConversationHistory: Boolean = true
     ): List<PromptMessage> {
         val strictPromptBudget = minOf(maxPromptTokens, 300).coerceAtLeast(1)
-        val hasMatchingMemoryKeywords =
-            EventMemoryQueryPlanner.plan(currentQuestion).eventTypes.isNotEmpty()
-        if (hasMatchingMemoryKeywords) {
+        if (memorySummary.isNotBlank()) {
             return PromptBudgetPlanner.build(
                 systemInstructions = fixedSystemInstructions,
                 currentQuestion = currentQuestion,
@@ -993,8 +991,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val questionMessage = PromptMessage("user", currentQuestion)
         if (!includeConversationHistory) {
             val direct = listOf(system, questionMessage)
-            require(count(direct) <= budget) { "The complete model input exceeds the 300-token limit." }
-            return direct
+            if (count(direct) <= budget) return direct
+            var low = 0
+            var high = currentQuestion.length
+            var best = ""
+            while (low <= high) {
+                val middle = (low + high) ushr 1
+                val candidate = currentQuestion.take(middle).trimEnd()
+                val messages = listOf(system, PromptMessage("user", candidate))
+                if (count(messages) <= budget) {
+                    best = candidate
+                    low = middle + 1
+                } else {
+                    high = middle - 1
+                }
+            }
+            require(best.isNotBlank()) { "The system prompt alone exceeds the 300-token input limit." }
+            return listOf(system, PromptMessage("user", best))
         }
 
         var compactContext = buildCompactConversationContext(currentQuestion, 300)
