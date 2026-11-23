@@ -851,19 +851,19 @@ object EventMemoryStore {
             db.rawQuery(boundedSql, null).use { cursor ->
                 if (!cursor.moveToFirst()) return "Query completed. No matching records were found."
                 val output = StringBuilder()
-                output.append("Database query returned rows:\\n")
+                output.append("Database query returned rows:\n")
                 var rowNumber = 0
                 do {
                     rowNumber++
-                    output.append("Record ").append(rowNumber).append(":\\n")
+                    output.append("Record ").append(rowNumber).append(":\n")
                     for (column in cursor.columnNames.indices) {
                         if (output.length >= maxChars) break
                         val value = if (cursor.isNull(column)) "NULL" else
                             runCatching { cursor.getString(column) }.getOrDefault("[unreadable value]")
                         output.append(cursor.getColumnName(column)).append(": ")
-                            .append(value.take(2_000)).append('\\n')
+                            .append(value.take(2_000)).append('\n')
                     }
-                    output.append('\\n')
+                    output.append('\n')
                 } while (output.length < maxChars && rowNumber < maxRows.coerceIn(1, 100) && cursor.moveToNext())
                 if (output.length >= maxChars) output.append("[Results truncated to fit the response budget.]")
                 return output.toString().take(maxChars)
