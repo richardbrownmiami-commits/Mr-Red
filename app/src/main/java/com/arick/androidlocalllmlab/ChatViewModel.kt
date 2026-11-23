@@ -504,10 +504,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             USER_QUESTION:
             $question
         """.trimIndent()
-        val messages = listOf(
+        val previousTurn = synchronized(conversationHistory) {
+            conversationHistory.lastOrNull()?.let { (priorQuestion, priorAnswer) ->
+                "PREVIOUS_TURN: User: ${priorQuestion.take(180)} Mr-Red: ${priorAnswer.take(180)}"
+            }.orEmpty()
+        }
+        val baseMessages = listOf(
             PromptMessage("system", plannerInstructions),
             PromptMessage("user", userRequest)
         )
+        val withFollowUpContext = if (previousTurn.isBlank()) baseMessages else listOf(
+            baseMessages[0],
+            PromptMessage("user", "$userRequest\\n$previousTurn")
+        )
+        val messages = if (
+            runtime.tokenize(withFollowUpContext.joinToString("\\n") { it.role + "\\n" + it.content }).size + 32 <= 300
+        ) withFollowUpContext else baseMessages
 
         fun generatePlan(correction: String = ""): String {
             val planMessages = if (correction.isBlank()) messages else messages + PromptMessage(
