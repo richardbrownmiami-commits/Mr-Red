@@ -99,18 +99,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val nativeInferenceMutex = Mutex()
     private var memoryWarmupJob: Job? = null
     private val databaseSchemaInstructions = """
-        SQLite schema for mr_red_memory.db:
+        SQLite mr_red_memory.db schema:
         events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active).
         facts(id,fact,source_text,source,created_at,updated_at,fingerprint).
         conversation_turns(id,question,answer,created_at,fingerprint).
-        occurred_at, created_at and updated_at are Unix timestamps in milliseconds.
-        Notifications are events with event_type='NOTIFICATION'; action='posted' is a posted notification and action='removed' is its removal event.
-        For notification rows: source is the app label, package_name is the app package, title and body are notification content, and is_active means currently present in the notification shade (not unread).
-        Other event_type values represent activity/event logs. facts stores explicitly captured facts. conversation_turns stores prior user questions and assistant answers.
-        events are pruned after about 90 days; conversation_turns is capped at 200 rows; facts has no fixed row cap.
-        is_active means currently present in the notification shade, not unread. event_key is an Android notification identifier, not a semantic content key.
-        No foreign-key relationships are declared. Do not assume joins or invent tables/columns.
-        This is schema information, not database contents. Treat only records actually supplied by Kotlin as evidence.
+        All *_at timestamps are Unix milliseconds. Notifications are events: action=posted is the notification and action=removed is its removal event. For notifications, source is app label, package_name is app package, title/body are content, and is_active means currently in notification shade (not unread). event_key is an Android notification identifier, not a semantic key.
+        No foreign keys are declared; do not assume joins. events are retained about 90 days, conversation_turns up to 200 rows, facts uncapped. Schema is not data; only Kotlin query results are evidence.
     """.trimIndent()
 
     private val fixedSystemInstructions = """
@@ -492,24 +486,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val nowMillis = System.currentTimeMillis()
         val zone = java.time.ZoneId.systemDefault().id
         val plannerInstructions = """
-            You are Mr-Red's SQLite query planner.
-            ${databaseSchemaInstructions}
-            Decide whether the user's question requires stored database records.
-            If no database lookup is needed, output exactly NO_QUERY.
-            Otherwise output exactly one read-only SQLite SELECT statement and nothing else.
-            Use only listed tables and columns. Never modify data or use PRAGMA.
-            Use explicit columns, not SELECT *. Add LIMIT 100 or less.
-            Timestamps are Unix milliseconds. Calculate relative ranges from NOW_MILLIS and emit absolute integer millisecond bounds.
-            Never put NOW_MILLIS itself in SQL, never convert stored timestamps to seconds, and use DEVICE_TIME_ZONE for calendar-day boundaries.
-            Do not invent table relationships.
-            No comments, semicolons, markdown fences, named parameters, or placeholders.
+            You route questions to SQLite. For greetings, chit-chat, general knowledge, and questions not asking about Mr-Red's stored records, output exactly NO_QUERY.
+            Otherwise output one read-only SELECT using only this schema:
+            events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active);
+            facts(id,fact,source_text,source,created_at,updated_at,fingerprint);
+            conversation_turns(id,question,answer,created_at,fingerprint).
+            Use explicit columns and LIMIT 100 or less. No writes, PRAGMA, comments, semicolons, markdown, placeholders, or invented joins.
+            *_at values are Unix milliseconds. Use NOW_MS and TZ for relative/calendar date bounds.
         """.trimIndent()
-        val userRequest = """
-            NOW_MILLIS=$nowMillis
-            DEVICE_TIME_ZONE=$zone
-            USER_QUESTION:
-            $question
-        """.trimIndent()
+        val userRequest = "NOW_MS=$nowMillis TZ=$zone QUESTION=$question"
         val previousTurn = synchronized(conversationHistory) {
             conversationHistory.lastOrNull()?.let { (priorQuestion, priorAnswer) ->
                 "PREVIOUS_TURN: User: ${priorQuestion.take(180)} Mr-Red: ${priorAnswer.take(180)}"
