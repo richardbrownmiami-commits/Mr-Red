@@ -122,7 +122,7 @@ internal object DatabaseMatcher {
                 diagnostic = "generic database request; clarification required"
             )
         }
-        if (!hasRetrievalIntent || top.score < 1.8) {
+        if (!hasRetrievalIntent || (top.score < 1.8 && !searchAll && preferredTable == null)) {
             return DatabaseMatchResult(false, 0.0, emptyList(), diagnostic = "No reliable database intent match.")
         }
 
