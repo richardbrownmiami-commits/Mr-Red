@@ -817,6 +817,7 @@ object EventMemoryStore {
         context: Context,
         sql: String,
         requiredTable: String? = null,
+        requiredFilter: DatabaseQueryFilter? = null,
         maxRows: Int = 100,
         maxChars: Int = 18_000
     ): String {
@@ -855,6 +856,20 @@ object EventMemoryStore {
                 "This query was planned for $requiredTable and may not read another table."
             }
         }
+        if (requiredFilter != null) {
+            require(requiredTable == requiredFilter.table) { "A selected-value filter must belong to the required table." }
+            require(requiredFilter.column.matches(Regex("^[A-Za-z_][A-Za-z0-9_]*$"))) { "Invalid selected-value column." }
+            require(requiredFilter.value.length <= 256 && !requiredFilter.value.contains('\u0000')) { "Selected value is invalid or too long." }
+            val filterExpression = Regex(
+                "\\b${Regex.escape(requiredFilter.column)}\\s*=\\s*\\?",
+                RegexOption.IGNORE_CASE
+            )
+            require(filterExpression.containsMatchIn(statement) && statement.count { it == '?' } == 1) {
+                "The query must filter ${requiredFilter.column} with exactly one bound parameter (column = ?)."
+            }
+        } else {
+            require(!statement.contains('?')) { "SQL placeholders are allowed only for a validated selected-value filter." }
+        }
         require(!Regex("\\bsqlite_[A-Za-z0-9_]*\\b", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
             "SQLite internal tables and functions are not available to model queries."
         }
@@ -876,8 +891,15 @@ object EventMemoryStore {
             SQLiteDatabase.OPEN_READONLY
         )
         try {
+            if (requiredFilter != null) {
+                val availableColumns = db.rawQuery("PRAGMA table_info(${requiredFilter.table})", null).use { cursor ->
+                    buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) }
+                }
+                require(requiredFilter.column in availableColumns) { "Selected filter column is not in the requested table." }
+            }
             val boundedSql = "SELECT * FROM ($statement) AS model_result LIMIT ${maxRows.coerceIn(1, 100)}"
-            db.rawQuery(boundedSql, null).use { cursor ->
+            val bindArgs = requiredFilter?.let { arrayOf(it.value) }
+            db.rawQuery(boundedSql, bindArgs).use { cursor ->
                 if (!cursor.moveToFirst()) return "Query completed. No matching records were found."
                 val output = StringBuilder()
                 output.append("Database query returned rows:\n")
