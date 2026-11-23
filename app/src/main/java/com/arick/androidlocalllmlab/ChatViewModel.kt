@@ -529,7 +529,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     require(count in 1..300) {
                         "Formatted database-planning prompt is ${count} tokens; the limit is 300."
                     }
-                }
+                },
+                onToken = {},
+                onMetrics = {}
             )
             require(actualPromptTokens in 1..300) {
                 "The runtime did not confirm a valid database-planning prompt token count."
