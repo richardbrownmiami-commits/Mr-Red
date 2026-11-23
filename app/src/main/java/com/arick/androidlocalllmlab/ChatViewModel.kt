@@ -130,7 +130,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val conversationHistory = mutableListOf<Pair<String, String>>()
     private var pendingDatabaseQuestion: String? = null
     private var pendingDatabaseTables: List<String> = emptyList()
-    private var pendingDatabaseChoices: Map<String, PendingDatabaseChoice> = emptyMap()
+    private var pendingDatabaseChoices: List<PendingDatabaseChoice> = emptyList()
     private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
     private val maxStoredTurns = 40
 
@@ -501,17 +501,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 selection == table || selection == table.replace('_', ' ') ||
                     selection.contains(table.replace('_', ' '))
             }
-            val matchingValueChoices = pendingDatabaseChoices.entries.filter { (value, _) ->
+            val matchingValueChoices = pendingDatabaseChoices.filter { choice ->
+                val value = choice.value.lowercase(java.util.Locale.ROOT)
                 selection == value || value.startsWith(selection) ||
                     value.split(Regex("[^\\p{L}\\p{N}]+")).any { it == selection }
             }
             if (selectedTable == null && matchingValueChoices.size > 1) {
-                val options = matchingValueChoices.take(6).joinToString(" / ") { (_, choice) ->
+                val options = matchingValueChoices.take(6).joinToString(" / ") { choice ->
                     "${choice.column}: ${choice.value}"
                 }
                 return "CLARIFICATION_REQUEST: More than one stored value matches '$question'. Which exact value do you mean: $options?"
             }
-            val selectedValueChoice = matchingValueChoices.singleOrNull()?.value
+            val selectedValueChoice = matchingValueChoices.singleOrNull()
             val selected = selectedTable ?: selectedValueChoice?.table
             when {
                 selection in setOf("all", "everything", "all of them", "search all", "search across all of them", "all tables") -> {
@@ -519,7 +520,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     searchAllTables = true
                     pendingDatabaseQuestion = null
                     pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyMap()
+                    pendingDatabaseChoices = emptyList()
                 }
                 selected != null -> {
                     effectiveQuestion = if (selectedValueChoice != null) {
@@ -562,7 +563,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         value.lowercase(java.util.Locale.ROOT) to PendingDatabaseChoice(candidate.table, column, value)
                     }
                 }
-            }.toMap()
+            }
             val options = match.candidates.joinToString("; ") { candidate ->
                 candidate.table.replace('_', ' ') + candidate.availableValues.takeIf { it.isNotEmpty() }
                     ?.joinToString(prefix = " — ", separator = ", ").orEmpty()
