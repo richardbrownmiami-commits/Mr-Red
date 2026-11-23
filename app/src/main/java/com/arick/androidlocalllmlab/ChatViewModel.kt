@@ -767,6 +767,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
         var actualTokens = 0
         var startsThinking = false
+        runtime.resetStopRequest()
         val response = runtime.generate(
             messages = messages,
             inferenceConfig = _inferenceConfig.value.copy(maxTokens = outputLimit),
