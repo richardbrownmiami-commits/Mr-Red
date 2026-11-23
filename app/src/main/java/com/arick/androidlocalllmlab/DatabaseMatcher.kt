@@ -127,7 +127,9 @@ internal object DatabaseMatcher {
         }
 
         val margin = top.score - (runnerUp?.score ?: 0.0)
-        val confidence = (0.35 + (top.score / 10.0).coerceAtMost(0.45) + (margin / 8.0).coerceIn(0.0, 0.20)).coerceIn(0.0, 1.0)
+        val signalSupport = (top.matchedSignals.distinct().size * 0.06).coerceAtMost(0.24)
+        val separationSupport = if (runnerUp == null) 0.05 else (margin / 8.0).coerceIn(0.0, 0.15)
+        val confidence = (0.20 + (top.score / 10.0).coerceAtMost(0.45) + signalSupport + separationSupport).coerceIn(0.0, 1.0)
         val candidates = if (searchAll) scored else scored.filter { it.score >= maxOf(1.2, top.score * 0.58) }.take(3)
         val topRowCount = countRows(db, top.table)
         val temporalTerms = setOf("today", "yesterday", "tomorrow", "recent", "recently", "latest", "oldest", "last", "week", "month", "year", "hour", "hours", "day", "days")
@@ -149,7 +151,7 @@ internal object DatabaseMatcher {
                 else -> !hasSpecificText && !hasTimeConstraint
             }
         val ambiguous = !searchAll && preferredTable == null && candidates.size > 1 && margin < 1.5
-        val lowConfidence = confidence < 0.62 && preferredTable == null && !searchAll
+        val lowConfidence = confidence < 0.58 && preferredTable == null && !searchAll && !hasSpecificText
         val clarification = when {
             ambiguous -> {
                 val options = candidates.map { c ->
