@@ -413,7 +413,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             inferenceConfig = inferenceConfig
                         )
                         _samplerRetrievedMemory.value = retrievedMemory
-                        val promptMessages = buildDatabaseAnswerMessages(prompt, retrievedMemory)
+                        val answerPromptBudget = minOf(300, promptBudget)
+                        val promptMessages = buildDatabaseAnswerMessages(prompt, retrievedMemory, answerPromptBudget)
                         _samplerStatus.value = "Prompt built; running GGUF inference…"
 
                         runtime.generate(
@@ -421,7 +422,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             inferenceConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens),
                             contextWindowTokens = readyState.nCtx,
                             onPrompt = { formattedPrompt, tokenCount ->
-                                require(tokenCount <= 300) { "Formatted answer prompt is $tokenCount tokens; the limit is 300." }
+                                require(tokenCount <= 300) { "Formatted answer prompt is $tokenCount tokens; the limit is $plannerPromptLimit." }
                                 _samplerFormattedPrompt.value = formattedPrompt
                                 _samplerPromptTokenCount.value = tokenCount
                                 templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
@@ -486,6 +487,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         contextWindowTokens: Int,
         inferenceConfig: InferenceConfig
     ): String {
+        val plannerOutputLimit = minOf(128, (contextWindowTokens / 4).coerceAtLeast(32))
+        val plannerPromptLimit = minOf(300, (contextWindowTokens - plannerOutputLimit - 32).coerceAtLeast(1))
         val nowMillis = System.currentTimeMillis()
         val zone = java.time.ZoneId.systemDefault().id
         val plannerInstructions = """
@@ -521,7 +524,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             PromptMessage("user", "$userRequest\n$previousTurn")
         )
         val messages = if (
-            runtime.tokenize(withFollowUpContext.joinToString("\n") { it.role + "\n" + it.content }).size + 32 <= 300
+            runtime.tokenize(withFollowUpContext.joinToString("\n") { it.role + "\n" + it.content }).size + 32 <= plannerPromptLimit
         ) withFollowUpContext else baseMessages
 
         fun generatePlan(correction: String = ""): String {
@@ -531,24 +534,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
             val serialized = planMessages.joinToString("\n") { it.role + "\n" + it.content }
             val estimatedTokens = runtime.tokenize(serialized).size + 32
-            require(estimatedTokens <= 300) {
-                "Database query planning needs ${estimatedTokens} input tokens; the limit is 300."
+            require(estimatedTokens <= plannerPromptLimit) {
+                "Database query planning needs ${estimatedTokens} input tokens; the limit is $plannerPromptLimit."
             }
             var actualPromptTokens = 0
             val response = runtime.generate(
                 messages = planMessages,
-                inferenceConfig = inferenceConfig.copy(maxTokens = 128),
+                inferenceConfig = inferenceConfig.copy(maxTokens = plannerOutputLimit),
                 contextWindowTokens = contextWindowTokens,
                 onPrompt = { _, count ->
                     actualPromptTokens = count
-                    require(count in 1..300) {
-                        "Formatted database-planning prompt is ${count} tokens; the limit is 300."
+                    require(count in 1..plannerPromptLimit) {
+                        "Formatted database-planning prompt is ${count} tokens; the limit is $plannerPromptLimit."
                     }
                 },
                 onToken = {},
                 onMetrics = {}
             )
-            require(actualPromptTokens in 1..300) {
+            require(actualPromptTokens in 1..plannerPromptLimit) {
                 "The runtime did not confirm a valid database-planning prompt token count."
             }
             return response.trim()
@@ -575,7 +578,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildDatabaseAnswerMessages(
         question: String,
-        evidence: String
+        evidence: String,
+        maxPromptTokens: Int = 300
     ): List<PromptMessage> {
         val system = PromptMessage(
             "system",
@@ -588,7 +592,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         fun count(text: String): Int = runtime.tokenize(
             messagesFor(text).joinToString("\n") { it.role + "\n" + it.content }
         ).size + 32
-        require(count("") <= 300) { "The question alone exceeds the 300-token model-input limit." }
+        require(count("") <= maxPromptTokens) { "The question alone exceeds the model-input budget." }
 
         var low = 0
         var high = evidence.length
@@ -596,7 +600,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         while (low <= high) {
             val middle = (low + high) ushr 1
             val candidate = evidence.take(middle)
-            if (count(candidate) <= 300) {
+            if (count(candidate) <= maxPromptTokens) {
                 best = candidate
                 low = middle + 1
             } else {
@@ -671,7 +675,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         contextWindowTokens = readyState?.nCtx ?: contextCapacity,
                         inferenceConfig = generationConfig
                     )
-                    val promptMessages = buildDatabaseAnswerMessages(prompt, databaseEvidence)
+                    val answerPromptBudget = minOf(300, promptBudget)
+                    val promptMessages = buildDatabaseAnswerMessages(prompt, databaseEvidence, answerPromptBudget)
                     ActivityLogger.record(
                         getApplication(), "INFERENCE", "prompt_composition",
                         "database_evidence_chars=${databaseEvidence.length} " +
@@ -684,7 +689,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         inferenceConfig = generationConfig,
                         contextWindowTokens = readyState?.nCtx ?: 0,
                         onPrompt = { formattedPrompt, tokenCount ->
-                            require(tokenCount <= 300) { "Formatted answer prompt is $tokenCount tokens; the limit is 300." }
+                            require(tokenCount <= 300) { "Formatted answer prompt is $tokenCount tokens; the limit is $plannerPromptLimit." }
                             _promptTokenCount.value = tokenCount
                             _generationProgress.value = "Prefilling $tokenCount tokens…"
                             templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
