@@ -816,6 +816,7 @@ object EventMemoryStore {
     fun executeModelReadOnlyQuery(
         context: Context,
         sql: String,
+        requiredTable: String? = null,
         maxRows: Int = 100,
         maxChars: Int = 18_000
     ): String {
@@ -848,6 +849,11 @@ object EventMemoryStore {
         ).findAll(statement).map { it.groupValues[1].lowercase(java.util.Locale.ROOT) }.toList()
         require(tableReferences.isNotEmpty() && tableReferences.all { it in allowedTables }) {
             "The query must read only from events, facts, or conversation_turns."
+        }
+        if (requiredTable != null) {
+            require(requiredTable in allowedTables && tableReferences.all { it == requiredTable }) {
+                "This query was planned for $requiredTable and may not read another table."
+            }
         }
         require(!Regex("\\bsqlite_[A-Za-z0-9_]*\\b", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
             "SQLite internal tables and functions are not available to model queries."
