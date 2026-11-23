@@ -198,3 +198,6 @@ internal object DatabaseMatcher {
         db.rawQuery("SELECT COUNT(*) FROM $table", null).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
     }.getOrDefault(0)
 }
+
+/** A user-selected database value, always supplied to SQLite as a bound parameter. */
+data class DatabaseQueryFilter(val table: String, val column: String, val value: String)
