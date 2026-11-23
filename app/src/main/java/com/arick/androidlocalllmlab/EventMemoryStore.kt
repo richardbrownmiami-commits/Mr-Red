@@ -807,6 +807,9 @@ object EventMemoryStore {
         val statement = sql.trim()
         require(statement.isNotBlank()) { "The model returned an empty SQL query." }
         require(statement.length <= 8_000) { "SQL query is too long." }
+        require(Regex("^SELECT\\s+\\*", RegexOption.IGNORE_CASE).containsMatchIn(statement).not()) {
+            "Select explicit columns instead of SELECT *."
+        }
         require(Regex("^SELECT\\b", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
             "Only a single SELECT statement is permitted."
         }
