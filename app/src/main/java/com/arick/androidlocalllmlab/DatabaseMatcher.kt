@@ -31,6 +31,7 @@ internal object DatabaseMatcher {
         TableMeaning("events",
             setOf("event", "events", "activity", "activities", "happened", "happen", "notification", "notifications", "alert", "alerts", "alarm", "alarms", "reminder", "reminders", "app", "application", "device", "error", "errors", "crash", "setting", "settings", "action", "actions", "history", "recent"),
             mapOf(
+                "id" to setOf("id", "identifier", "record id"),
                 "event_type" to setOf("type", "category", "kind", "activity", "event"),
                 "action" to setOf("action", "operation", "status"),
                 "source" to setOf("app", "application", "source", "sender", "person"),
@@ -38,7 +39,8 @@ internal object DatabaseMatcher {
                 "occurred_at" to setOf("when", "time", "date", "recent", "latest", "oldest"),
                 "title" to setOf("title", "subject", "heading"),
                 "body" to setOf("message", "content", "text", "body"),
-                "detail" to setOf("details", "description"),
+                "detail" to setOf("details", "description", "event detail"),
+                "event_key" to setOf("notification key", "event key", "android key"),
                 "importance" to setOf("important", "priority", "urgent"),
                 "is_active" to setOf("active", "current", "showing", "dismissed", "removed")
             ), listOf("event_type", "action", "source", "package_name", "importance")
@@ -46,7 +48,10 @@ internal object DatabaseMatcher {
         TableMeaning("facts",
             setOf("fact", "facts", "memory", "memories", "remember", "remembered", "preference", "preferences", "personal", "know", "saved", "save"),
             mapOf(
+                "id" to setOf("id", "identifier", "record id"),
                 "fact" to setOf("fact", "memory", "remember", "information", "preference", "know"),
+                "source_text" to setOf("original text", "source text", "captured text"),
+                "fingerprint" to setOf("fingerprint", "duplicate", "deduplication"),
                 "source" to setOf("source", "origin"),
                 "created_at" to setOf("when", "date", "created", "saved"),
                 "updated_at" to setOf("updated", "changed", "latest")
@@ -55,7 +60,9 @@ internal object DatabaseMatcher {
         TableMeaning("conversation_turns",
             setOf("conversation", "conversations", "chat", "chats", "discuss", "discussed", "talk", "talked", "asked", "question", "questions", "answer", "answers", "said", "told", "previous", "history"),
             mapOf(
+                "id" to setOf("id", "identifier", "record id"),
                 "question" to setOf("asked", "question", "discuss", "talk", "conversation", "chat"),
+                "fingerprint" to setOf("fingerprint", "duplicate", "deduplication"),
                 "answer" to setOf("answer", "said", "told", "reply", "response"),
                 "created_at" to setOf("when", "time", "date", "recent", "latest", "yesterday")
             ), emptyList()
