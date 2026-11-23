@@ -546,7 +546,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             Use explicit columns and LIMIT 100 or less. No writes, PRAGMA, comments, semicolons, markdown, placeholders, or invented joins.
             *_at values are Unix milliseconds. Use NOW_MS and TZ for relative/calendar date bounds.
         """.trimIndent()
-        val userRequest = "NOW_MS=$nowMillis TZ=$zone MATCHED_TABLES=$matchedTables CONFIDENCE=\${"%.2f".format(java.util.Locale.ROOT, match.confidence)} QUESTION=$effectiveQuestion"
+        val userRequest = "NOW_MS=$nowMillis TZ=$zone MATCHED_TABLES=$matchedTables CONFIDENCE=${"%.2f".format(java.util.Locale.ROOT, match.confidence)} QUESTION=$effectiveQuestion"
         val previousTurn = synchronized(conversationHistory) {
             conversationHistory.lastOrNull()?.let { (priorQuestion, priorAnswer) ->
                 "PREVIOUS_TURN: User: ${priorQuestion.take(180)} Mr-Red: ${priorAnswer.take(180)}"
