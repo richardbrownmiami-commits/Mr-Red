@@ -904,22 +904,24 @@ object EventMemoryStore {
             val bindArgs = requiredFilter?.let { arrayOf(it.value) }
             db.rawQuery(boundedSql, bindArgs).use { cursor ->
                 if (!cursor.moveToFirst()) return "Query completed. No matching records were found."
-                val output = StringBuilder()
-                output.append("Database query returned rows:\n")
+                val output = StringBuilder("ROWS:")
                 var rowNumber = 0
                 do {
+                    if (output.length >= maxChars) break
                     rowNumber++
-                    output.append("Record ").append(rowNumber).append(":\n")
+                    output.append('\n')
                     for (column in cursor.columnNames.indices) {
                         if (output.length >= maxChars) break
-                        val value = if (cursor.isNull(column)) "NULL" else
+                        if (column > 0) output.append(" | ")
+                        val rawValue = if (cursor.isNull(column)) "NULL" else
                             runCatching { cursor.getString(column) }.getOrDefault("[unreadable value]")
-                        output.append(cursor.getColumnName(column)).append(": ")
-                            .append(value.take(2_000)).append('\n')
+                        // One compact row per line keeps useful evidence inside the strict
+                        // 300-token answer prompt; field contents remain untrusted data.
+                        val value = rawValue.replace(Regex("\\s+"), " ").take(600)
+                        output.append(cursor.getColumnName(column)).append('=').append(value)
                     }
-                    output.append('\n')
                 } while (output.length < maxChars && rowNumber < maxRows.coerceIn(1, 100) && cursor.moveToNext())
-                if (output.length >= maxChars) output.append("[Results truncated to fit the response budget.]")
+                if (output.length >= maxChars) output.append("\n[Rows truncated.]")
                 return output.toString().take(maxChars)
             }
         } finally {
