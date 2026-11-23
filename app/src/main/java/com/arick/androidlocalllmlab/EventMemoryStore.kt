@@ -804,7 +804,7 @@ object EventMemoryStore {
         maxChars: Int = 18_000
     ): String {
         awaitPendingWrites()
-        val statement = sql.trim()
+        val statement = sql.trim().removeSuffix(";").trim()
         require(statement.isNotBlank()) { "The model returned an empty SQL query." }
         require(statement.length <= 8_000) { "SQL query is too long." }
         require(Regex("^SELECT\\s+\\*", RegexOption.IGNORE_CASE).containsMatchIn(statement).not()) {
@@ -818,7 +818,7 @@ object EventMemoryStore {
             "Multiple statements and SQL comments are not permitted."
         }
         val unsafeFunctions = Regex(
-            "\\b(load_extension|readfile|writefile|fts3_tokenizer)\\s*\\(",
+            "\\b(load_extension|readfile|writefile|fts3_tokenizer|randomblob|zeroblob)\\s*\\(",
             RegexOption.IGNORE_CASE
         )
         require(!unsafeFunctions.containsMatchIn(statement)) {
