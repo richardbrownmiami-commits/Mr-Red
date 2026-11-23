@@ -515,10 +515,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
         val withFollowUpContext = if (previousTurn.isBlank()) baseMessages else listOf(
             baseMessages[0],
-            PromptMessage("user", "$userRequest\\n$previousTurn")
+            PromptMessage("user", "$userRequest\n$previousTurn")
         )
         val messages = if (
-            runtime.tokenize(withFollowUpContext.joinToString("\\n") { it.role + "\\n" + it.content }).size + 32 <= 300
+            runtime.tokenize(withFollowUpContext.joinToString("\n") { it.role + "\n" + it.content }).size + 32 <= 300
         ) withFollowUpContext else baseMessages
 
         fun generatePlan(correction: String = ""): String {
