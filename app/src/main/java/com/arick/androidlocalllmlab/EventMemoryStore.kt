@@ -147,7 +147,7 @@ object EventMemoryStore {
         title: String,
         body: String,
         postedAtMillis: Long,
-        importance: String = classifyNotification(packageName, title, body)
+        importance: String = "unclassified"
     ) {
         val appContext = context.applicationContext
         writer.execute {
@@ -1035,22 +1035,6 @@ object EventMemoryStore {
             "facts" to count("facts"),
             "active_notifications" to count("events", "event_type = 'NOTIFICATION' AND action = 'posted' AND is_active = 1")
         )
-    }
-
-    private fun classifyNotification(packageName: String, title: String, body: String): String {
-        val id = packageName.lowercase()
-        val combined = "$title $body".lowercase()
-        val importantApps = listOf(
-            "messaging", "mms", "sms", "whatsapp", "telegram", "signal",
-            "gmail", "outlook", "mail", "dialer", "phone", "incall",
-            "bank", "banking", "pay", "wallet", "authenticator", "calendar"
-        )
-        return when {
-            importantApps.any(id::contains) -> "important"
-            Regex("\\b(otp|verification code|security alert|fraud|transaction|payment received|missed call)\\b")
-                .containsMatchIn(combined) -> "important"
-            else -> "routine"
-        }
     }
 
     private fun containsSensitiveTopic(value: String): Boolean {
