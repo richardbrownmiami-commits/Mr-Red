@@ -98,6 +98,23 @@ class DatabaseMatcherInstrumentedTest {
     }
 
     @Test
+    fun genericDatabaseQuestionOffersAllThreeExistingTables() {
+        val clarification = EventMemoryStore.matchDatabaseQuestion(context, "Show all my database records")
+        val everything = EventMemoryStore.matchDatabaseQuestion(
+            context,
+            "Show all my database records",
+            searchAll = true
+        )
+
+        assertTrue(clarification.isDatabaseIntent)
+        assertTrue(clarification.clarification?.contains("events") == true)
+        assertTrue(clarification.clarification?.contains("facts") == true)
+        assertTrue(clarification.clarification?.contains("conversation turns") == true)
+        assertTrue(everything.isDatabaseIntent)
+        assertTrue(everything.candidates.map { it.table }.containsAll(listOf("events", "facts", "conversation_turns")))
+    }
+
+    @Test
     fun ordinaryChatDoesNotTriggerDatabaseRetrieval() {
         val result = EventMemoryStore.matchDatabaseQuestion(context, "Hi, how are you?")
         assertFalse(result.isDatabaseIntent)
