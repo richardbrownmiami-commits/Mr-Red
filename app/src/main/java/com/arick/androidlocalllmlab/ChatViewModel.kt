@@ -479,6 +479,116 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _samplerStatus.value = "Sampler cleared. The database was not changed."
     }
 
+    private fun retrieveDatabaseEvidence(
+        question: String,
+        contextWindowTokens: Int,
+        inferenceConfig: InferenceConfig
+    ): String {
+        val nowMillis = System.currentTimeMillis()
+        val zone = java.time.ZoneId.systemDefault().id
+        val plannerInstructions = """
+            You are Mr-Red's SQLite query planner.
+            ${databaseSchemaInstructions}
+            Decide whether the user's question requires stored database records.
+            If no database lookup is needed, output exactly NO_QUERY.
+            Otherwise output exactly one read-only SQLite SELECT statement and nothing else.
+            Use only listed tables and columns. Never modify data or use PRAGMA.
+            Use explicit columns, not SELECT *. Add LIMIT 100 or less.
+            Timestamps are Unix milliseconds. Calculate relative ranges from NOW_MILLIS.
+            Use DEVICE_TIME_ZONE for calendar-day boundaries. Do not invent table relationships.
+            No comments, semicolons, markdown fences, named parameters, or placeholders.
+        """.trimIndent()
+        val userRequest = """
+            NOW_MILLIS=$nowMillis
+            DEVICE_TIME_ZONE=$zone
+            USER_QUESTION:
+            $question
+        """.trimIndent()
+        val messages = listOf(
+            PromptMessage("system", plannerInstructions),
+            PromptMessage("user", userRequest)
+        )
+
+        fun generatePlan(correction: String = ""): String {
+            val planMessages = if (correction.isBlank()) messages else messages + PromptMessage(
+                "user",
+                "The previous SQL was rejected: ${correction.take(120)}. Return corrected SELECT only, or NO_QUERY."
+            )
+            val serialized = planMessages.joinToString("\n") { it.role + "\n" + it.content }
+            val estimatedTokens = runtime.tokenize(serialized).size + 32
+            require(estimatedTokens <= 300) {
+                "Database query planning needs ${estimatedTokens} input tokens; the limit is 300."
+            }
+            var actualPromptTokens = 0
+            val response = runtime.generate(
+                messages = planMessages,
+                inferenceConfig = inferenceConfig.copy(maxTokens = 128),
+                contextWindowTokens = contextWindowTokens,
+                onPrompt = { _, count ->
+                    actualPromptTokens = count
+                    require(count in 1..300) {
+                        "Formatted database-planning prompt is ${count} tokens; the limit is 300."
+                    }
+                }
+            )
+            require(actualPromptTokens in 1..300) {
+                "The runtime did not confirm a valid database-planning prompt token count."
+            }
+            return response.trim()
+        }
+
+        var correction = ""
+        repeat(2) { attempt ->
+            runtime.resetStopRequest()
+            val sql = generatePlan(correction)
+            if (sql.equals("NO_QUERY", ignoreCase = true)) {
+                return "No database lookup was needed. Answer the user's message without claiming stored records were checked."
+            }
+            try {
+                return EventMemoryStore.executeModelReadOnlyQuery(getApplication(), sql)
+            } catch (error: Throwable) {
+                correction = error.message ?: error.javaClass.simpleName
+                if (attempt == 1) {
+                    return "DATABASE QUERY FAILED: ${correction.take(220)}. No records were retrieved; do not invent results."
+                }
+            }
+        }
+        return "DATABASE QUERY FAILED. No records were retrieved; do not invent results."
+    }
+
+    private fun buildDatabaseAnswerMessages(
+        question: String,
+        evidence: String
+    ): List<PromptMessage> {
+        val system = PromptMessage(
+            "system",
+            "You are Mr-Red. Answer naturally and directly. Use database records below only as retrieved evidence. If retrieval failed or returned no records, say so; never invent stored data."
+        )
+        fun messagesFor(text: String) = listOf(
+            system,
+            PromptMessage("user", "USER QUESTION:\n$question\n\nDATABASE RESULTS (plain text):\n$text")
+        )
+        fun count(text: String): Int = runtime.tokenize(
+            messagesFor(text).joinToString("\n") { it.role + "\n" + it.content }
+        ).size + 32
+        require(count("") <= 300) { "The question alone exceeds the 300-token model-input limit." }
+
+        var low = 0
+        var high = evidence.length
+        var best = ""
+        while (low <= high) {
+            val middle = (low + high) ushr 1
+            val candidate = evidence.take(middle)
+            if (count(candidate) <= 300) {
+                best = candidate
+                low = middle + 1
+            } else {
+                high = middle - 1
+            }
+        }
+        return messagesFor(best)
+    }
+
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
 
@@ -537,20 +647,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     val generationConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens)
                     val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
-                    // Retrieve only records relevant to this question from the persistent event database.
-                    // General questions receive no unrelated notification/device history.
-                    val memorySummary = EventMemoryStore.relevantContext(getApplication(), prompt)
-                    val promptMessages = buildPromptMessages(
-                        currentQuestion = prompt,
-                        memorySummary = memorySummary,
-                        maxPromptTokens = promptBudget
+                    // GGUF decides whether to query SQLite and generates the SELECT.
+                    // Kotlin validates and executes it read-only, then returns plain-text rows.
+                    val databaseEvidence = retrieveDatabaseEvidence(
+                        question = prompt,
+                        contextWindowTokens = readyState?.nCtx ?: contextCapacity,
+                        inferenceConfig = generationConfig
                     )
+                    val promptMessages = buildDatabaseAnswerMessages(prompt, databaseEvidence)
                     ActivityLogger.record(
                         getApplication(), "INFERENCE", "prompt_composition",
-                        "messages=${promptMessages.size} memory_chars=${memorySummary.length} " +
-                            "memory_tokens=${runtime.tokenize(memorySummary).size} " +
-                            "context=${contextCapacity} prompt_budget=${promptBudget} output_limit=${effectiveMaxTokens}"
+                        "database_evidence_chars=${databaseEvidence.length} " +
+                            "database_evidence_tokens=${runtime.tokenize(databaseEvidence).size} " +
+                            "context=${contextCapacity} prompt_budget=300 output_limit=${effectiveMaxTokens}"
                     )
+                    runtime.resetStopRequest()
                     runtime.generate(
                         messages = promptMessages,
                         inferenceConfig = generationConfig,
