@@ -494,8 +494,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             Otherwise output exactly one read-only SQLite SELECT statement and nothing else.
             Use only listed tables and columns. Never modify data or use PRAGMA.
             Use explicit columns, not SELECT *. Add LIMIT 100 or less.
-            Timestamps are Unix milliseconds. Calculate relative ranges from NOW_MILLIS.
-            Use DEVICE_TIME_ZONE for calendar-day boundaries. Do not invent table relationships.
+            Timestamps are Unix milliseconds. Calculate relative ranges from NOW_MILLIS and emit absolute integer millisecond bounds.
+            Never put NOW_MILLIS itself in SQL, never convert stored timestamps to seconds, and use DEVICE_TIME_ZONE for calendar-day boundaries.
+            Do not invent table relationships.
             No comments, semicolons, markdown fences, named parameters, or placeholders.
         """.trimIndent()
         val userRequest = """
