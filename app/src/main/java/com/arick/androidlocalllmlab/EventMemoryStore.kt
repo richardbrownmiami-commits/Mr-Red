@@ -101,9 +101,19 @@ object EventMemoryStore {
         }
 
     /** Match a question against the live schema and bounded samples of stored categorical values. */
-    fun matchDatabaseQuestion(context: Context, question: String): DatabaseMatchResult {
+    fun matchDatabaseQuestion(
+        context: Context,
+        question: String,
+        preferredTable: String? = null,
+        searchAll: Boolean = false
+    ): DatabaseMatchResult {
         awaitPendingWrites()
-        return DatabaseMatcher.match(database(context.applicationContext).readableDatabase, question)
+        return DatabaseMatcher.match(
+            database(context.applicationContext).readableDatabase,
+            question,
+            preferredTable,
+            searchAll
+        )
     }
 
     fun recordEvent(
