@@ -793,6 +793,77 @@ object EventMemoryStore {
     }.getOrDefault(emptyList())
 
     /**
+     * Executes model-generated SQL against a separate read-only SQLite connection.
+     * Only one SELECT statement over the existing allowlisted tables is accepted.
+     * Results are returned as compact plain text for the GGUF answer-generation pass.
+     */
+    fun executeModelReadOnlyQuery(
+        context: Context,
+        sql: String,
+        maxRows: Int = 100,
+        maxChars: Int = 18_000
+    ): String {
+        awaitPendingWrites()
+        val statement = sql.trim()
+        require(statement.isNotBlank()) { "The model returned an empty SQL query." }
+        require(statement.length <= 8_000) { "SQL query is too long." }
+        require(Regex("^SELECT\\b", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
+            "Only a single SELECT statement is permitted."
+        }
+        require(!statement.contains(';') && !statement.contains("--") &&
+            !statement.contains("/*") && !statement.contains("*/")) {
+            "Multiple statements and SQL comments are not permitted."
+        }
+        val forbidden = Regex(
+            "\\b(INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|ATTACH|DETACH|PRAGMA|VACUUM|REINDEX|TRIGGER|BEGIN|COMMIT|ROLLBACK)\\b",
+            RegexOption.IGNORE_CASE
+        )
+        require(!forbidden.containsMatchIn(statement)) { "The query contains a prohibited SQL operation." }
+
+        val allowedTables = setOf("events", "facts", "conversation_turns")
+        val tableReferences = Regex(
+            "\\b(?:FROM|JOIN)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+            RegexOption.IGNORE_CASE
+        ).findAll(statement).map { it.groupValues[1].lowercase(java.util.Locale.ROOT) }.toList()
+        require(tableReferences.isNotEmpty() && tableReferences.all { it in allowedTables }) {
+            "The query must read only from events, facts, or conversation_turns."
+        }
+
+        val dbFile = context.applicationContext.getDatabasePath(DATABASE_NAME)
+        require(dbFile.isFile) { "The Mr Red database does not exist yet." }
+        val db = SQLiteDatabase.openDatabase(
+            dbFile.absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READONLY
+        )
+        try {
+            val boundedSql = "SELECT * FROM ($statement) AS model_result LIMIT ${maxRows.coerceIn(1, 100)}"
+            db.rawQuery(boundedSql, null).use { cursor ->
+                if (!cursor.moveToFirst()) return "Query completed. No matching records were found."
+                val output = StringBuilder()
+                output.append("Database query returned rows:\\n")
+                var rowNumber = 0
+                do {
+                    rowNumber++
+                    output.append("Record ").append(rowNumber).append(":\\n")
+                    for (column in cursor.columnNames.indices) {
+                        if (output.length >= maxChars) break
+                        val value = if (cursor.isNull(column)) "NULL" else
+                            runCatching { cursor.getString(column) }.getOrDefault("[unreadable value]")
+                        output.append(cursor.getColumnName(column)).append(": ")
+                            .append(value.take(2_000)).append('\\n')
+                    }
+                    output.append('\\n')
+                } while (output.length < maxChars && rowNumber < maxRows.coerceIn(1, 100) && cursor.moveToNext())
+                if (output.length >= maxChars) output.append("[Results truncated to fit the response budget.]")
+                return output.toString().take(maxChars)
+            }
+        } finally {
+            db.close()
+        }
+    }
+
+    /**
      * Read-only browser query over the existing event table. No records are inserted,
      * updated, deleted, or migrated by these methods.
      */
