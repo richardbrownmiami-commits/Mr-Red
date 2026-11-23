@@ -105,6 +105,23 @@ internal object DatabaseMatcher {
         val runnerUp = scored.getOrNull(1)
         val hasRetrievalIntent = retrievalSignals.any { it in tokens } ||
             meanings.any { m -> m.aliases.any { it.contains(' ') && normalized.contains(it) } }
+        val genericDataIntent = tokens.any { it in setOf("data", "database", "records", "everything", "entire") } ||
+            normalized.contains("all my history") || normalized.contains("all my information")
+        if (hasRetrievalIntent && genericDataIntent && top.score < 1.8 && !searchAll) {
+            val allCandidates = scored.map { candidate ->
+                candidate.copy(score = 0.0, matchedSignals = candidate.matchedSignals + "generic-database-request")
+            }
+            val choices = allCandidates.joinToString(" / ") { candidate ->
+                "${candidate.table.replace('_', ' ')} (${countRows(db, candidate.table)} records)"
+            }
+            return DatabaseMatchResult(
+                isDatabaseIntent = true,
+                confidence = 0.50,
+                candidates = allCandidates,
+                clarification = "I can search the whole database. Which information should I start with: $choices, or everything?",
+                diagnostic = "generic database request; clarification required"
+            )
+        }
         if (!hasRetrievalIntent || top.score < 1.8) {
             return DatabaseMatchResult(false, 0.0, emptyList(), diagnostic = "No reliable database intent match.")
         }
