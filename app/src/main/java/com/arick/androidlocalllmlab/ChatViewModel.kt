@@ -571,7 +571,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             try {
                 return EventMemoryStore.executeModelReadOnlyQuery(getApplication(), sql)
-            } catch (error: Throwable) {
+            } catch (error: Exception) {
                 correction = error.message ?: error.javaClass.simpleName
                 if (attempt == 1) {
                     return "DATABASE QUERY FAILED: ${correction.take(220)}. No records were retrieved; do not invent results."
