@@ -487,8 +487,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         inferenceConfig: InferenceConfig
     ): String {
         var effectiveQuestion = question
-        var preferredTable: String? = null
-        var searchAllTables = false
         var requiredFilter: DatabaseQueryFilter? = null
         val pendingQuestion = pendingDatabaseQuestion
         if (pendingQuestion != null) {
@@ -504,7 +502,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (selectedTable == null && matchingValueChoices.size > 1) {
                 val options = matchingValueChoices.take(6).joinToString(" / ") { choice ->
-                    "${choice.column}: ${choice.value}"
+                    "\${choice.column}: \${choice.value}"
                 }
                 return "CLARIFICATION_REQUEST: More than one stored value matches '$question'. Which exact value do you mean: $options?"
             }
@@ -513,7 +511,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             when {
                 selection in setOf("all", "everything", "all of them", "search all", "search across all of them", "all tables") -> {
                     effectiveQuestion = "$pendingQuestion. User clarification: search across all available data."
-                    searchAllTables = true
                     pendingDatabaseQuestion = null
                     pendingDatabaseTables = emptyList()
                     pendingDatabaseChoices = emptyList()
@@ -521,11 +518,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 selected != null -> {
                     effectiveQuestion = if (selectedValueChoice != null) {
                         requiredFilter = DatabaseQueryFilter(selected, selectedValueChoice.column, selectedValueChoice.value)
-                        "$pendingQuestion. User selected the stored value for column ${selectedValueChoice.column}; Kotlin will bind the exact value as a SQL parameter."
+                        "$pendingQuestion. User selected the stored value for column \${selectedValueChoice.column}; Kotlin will bind the exact value as a SQL parameter."
                     } else {
                         "$pendingQuestion. User clarification selected database table: $selected."
                     }
-                    preferredTable = selected
                     pendingDatabaseQuestion = null
                     pendingDatabaseTables = emptyList()
                     pendingDatabaseChoices = emptyList()
@@ -538,127 +534,90 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        val match = EventMemoryStore.matchDatabaseQuestion(
-            getApplication(),
-            effectiveQuestion,
-            preferredTable,
-            searchAllTables
-        )
-        if (!match.isDatabaseIntent) {
-            return "No database lookup was needed. Answer the user's message without claiming stored records were checked."
-        }
-        match.clarification?.let { clarification ->
-            pendingDatabaseQuestion = effectiveQuestion
-            pendingDatabaseTables = match.candidates.map { it.table }
-            pendingDatabaseChoices = match.candidates.flatMap { candidate ->
-                candidate.availableValues.mapNotNull { option ->
-                    val column = option.substringBefore(':', "").trim()
-                    val rawValue = option.substringAfter(':', "").trim()
-                    val value = rawValue.replace(Regex("\\s+\\(\\d+\\)$"), "").trim()
-                    if (column.isBlank() || value.isBlank()) null else {
-                        PendingDatabaseChoice(candidate.table, column, value)
-                    }
-                }
-            }
-            val options = match.candidates.joinToString("; ") { candidate ->
-                candidate.table.replace('_', ' ') + candidate.availableValues.takeIf { it.isNotEmpty() }
-                    ?.joinToString(prefix = " — ", separator = ", ").orEmpty()
-            }
-            return "CLARIFICATION_REQUEST: $clarification. Available matching values: $options. Ask the user to choose; do not retrieve or expose record bodies yet."
-        }
-
-        val tablesToQuery = if (searchAllTables) {
-            match.candidates.map { it.table }.distinct()
-        } else {
-            listOf(match.candidates.first().table)
-        }
-        val allMatchedTables = tablesToQuery.joinToString(",")
         val plannerOutputLimit = minOf(128, (contextWindowTokens / 4).coerceAtLeast(32))
         val plannerPromptLimit = minOf(300, (contextWindowTokens - plannerOutputLimit - 32).coerceAtLeast(1))
         val nowMillis = System.currentTimeMillis()
         val zone = java.time.ZoneId.systemDefault().id
-        val plannerInstructions = """
-            Produce one read-only SELECT for the requested data from MATCHED_TABLES only. Do not return NO_QUERY: Kotlin has already confirmed a database retrieval request.
-            Schema:
-            events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active);
-            facts(id,fact,source_text,source,created_at,updated_at,fingerprint);
-            conversation_turns(id,question,answer,created_at,fingerprint).
-            If REQUIRED_FILTER_COLUMN is supplied, include an equality predicate on that column using exactly one ? placeholder; Kotlin binds the selected value. Never inline or guess that value. Use explicit columns and LIMIT 100 or less. No writes, PRAGMA, comments, semicolons, markdown, or joins. Do not use any other placeholders.
-            *_at values are Unix milliseconds. Use NOW_MS and TZ for relative/calendar date bounds.
-        """.trimIndent()
-        val userRequest = "NOW_MS=$nowMillis TZ=$zone MATCHED_TABLES=$allMatchedTables CONFIDENCE=${"%.2f".format(java.util.Locale.ROOT, match.confidence)} QUESTION=$effectiveQuestion"
+        val schema = "events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active); facts(id,fact,source_text,source,created_at,updated_at,fingerprint); conversation_turns(id,question,answer,created_at,fingerprint)."
         val previousTurn = synchronized(conversationHistory) {
             conversationHistory.lastOrNull()?.let { (priorQuestion, priorAnswer) ->
-                "PREVIOUS_TURN: User: ${priorQuestion.take(180)} Mr-Red: ${priorAnswer.take(180)}"
+                "PREVIOUS=\${priorQuestion.take(90)} => \${priorAnswer.take(90)}"
             }.orEmpty()
         }
 
-        fun generatePlan(table: String, correction: String = ""): String {
-            val filterForTable = requiredFilter?.takeIf { it.table == table }
-            val filterHint = filterForTable?.let {
-                " REQUIRED_FILTER_COLUMN=${it.column}; include ${it.column} = ? in the WHERE clause."
-            }.orEmpty()
-            val tableRequest = userRequest.replace("MATCHED_TABLES=$allMatchedTables", "MATCHED_TABLES=$table") + filterHint
-            val requestWithHistory = if (previousTurn.isBlank()) tableRequest else "$tableRequest\n$previousTurn"
-            val planMessages = listOf(
-                PromptMessage("system", plannerInstructions),
-                PromptMessage("user", if (correction.isBlank()) requestWithHistory else
-                    "$requestWithHistory\nSQL_REJECTION: ${correction.take(80)}. Return a corrected SELECT only.")
-            )
-            val serialized = planMessages.joinToString("\n") { it.role + "\n" + it.content }
+        fun runPlanner(system: String, user: String, outputLimit: Int): String {
+            val messages = listOf(PromptMessage("system", system), PromptMessage("user", user))
+            val serialized = messages.joinToString("\n") { it.role + "\n" + it.content }
             val estimatedTokens = runtime.tokenize(serialized).size + 32
             require(estimatedTokens <= plannerPromptLimit) {
-                "Database query planning needs ${estimatedTokens} input tokens; the limit is $plannerPromptLimit."
+                "Database planning needs $estimatedTokens estimated input tokens; limit is $plannerPromptLimit."
             }
             var actualPromptTokens = 0
-            var templateStartsThinking = false
+            var startsThinking = false
             val response = runtime.generate(
-                messages = planMessages,
-                inferenceConfig = inferenceConfig.copy(maxTokens = plannerOutputLimit),
+                messages = messages,
+                inferenceConfig = inferenceConfig.copy(maxTokens = outputLimit),
                 contextWindowTokens = contextWindowTokens,
                 onPrompt = { formattedPrompt, count ->
                     actualPromptTokens = count
-                    templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
+                    startsThinking = formattedPrompt.trimEnd().endsWith("<think>")
                     require(count in 1..plannerPromptLimit) {
-                        "Formatted database-planning prompt is $count tokens; the limit is $plannerPromptLimit."
+                        "Formatted database-planning prompt is $count tokens; limit is $plannerPromptLimit."
                     }
                 },
                 onToken = {},
                 onMetrics = {}
             )
             require(actualPromptTokens in 1..plannerPromptLimit) {
-                "The runtime did not confirm a valid database-planning prompt token count."
+                "The runtime did not confirm a valid formatted planner token count."
             }
-            val parsed = splitAssistantResponse(response, templateStartsThinking)
+            val parsed = splitAssistantResponse(response, startsThinking)
             return (parsed.answer.ifBlank {
                 if (response.contains("<think>") || response.contains("</think>")) "" else response
             }).trim()
         }
 
+        // GGUF decides whether this is a database request and which tables are relevant.
+        // Kotlin validates only the model's table labels; it does not infer intent from keywords.
+        val intentSystem = "Classify the user request. Ordinary chat, greetings, general knowledge and hypothetical questions: output exactly NO_QUERY. If stored Mr-Red records are needed, output only comma-separated table names from events,facts,conversation_turns; select every relevant table. No explanation or SQL. Schema: $schema"
+        val intentUser = "NOW_MS=$nowMillis TZ=$zone QUESTION=$effectiveQuestion" +
+            if (previousTurn.isBlank()) "" else "\n$previousTurn"
+        val intent = runPlanner(intentSystem, intentUser, 24)
+        if (intent.equals("NO_QUERY", ignoreCase = true)) {
+            return "NO_DATABASE_LOOKUP. Answer normally without claiming stored records were checked."
+        }
+        val allowedTables = setOf("events", "facts", "conversation_turns")
+        val intentLabels = intent.split(Regex("[,\\s]+")).map { it.trim().lowercase(java.util.Locale.ROOT) }
+        val selectedTables = intentLabels.filter { it in allowedTables }.distinct()
+        require(selectedTables.isNotEmpty() && intentLabels.all { it in allowedTables }) {
+            "The model returned an invalid database intent decision. Expected NO_QUERY or table names; received: \${intent.take(100)}"
+        }
+
+        val sqlSystem = "Generate one read-only SELECT for TABLE only. Schema: $schema Use explicit columns and LIMIT <=100. No joins, UNION, writes, PRAGMA, comments, semicolons or markdown. *_at timestamps are Unix milliseconds. Use NOW_MS and TZ for relative dates. If FILTER_COLUMN is supplied, use exactly FILTER_COLUMN = ? and no other placeholder; Kotlin binds its value. Return SQL only."
         val combinedEvidence = StringBuilder()
         val failures = mutableListOf<String>()
-        for (table in tablesToQuery) {
+        for (table in selectedTables) {
+            val filterForTable = requiredFilter?.takeIf { it.table == table }
+            val filterHint = filterForTable?.let { " FILTER_COLUMN=\${it.column}." }.orEmpty()
+            val sqlUser = "NOW_MS=$nowMillis TZ=$zone TABLE=$table$filterHint QUESTION=$effectiveQuestion"
             var correction = ""
             var tableEvidence: String? = null
             for (attempt in 0..1) {
                 runtime.resetStopRequest()
-                val sql = generatePlan(table, correction)
-                if (sql.equals("NO_QUERY", ignoreCase = true) || sql.isBlank()) {
-                    correction = "Return a SELECT for the requested table; NO_QUERY is not valid here."
-                    if (attempt == 1) failures += "$table: planner did not return a SELECT"
-                    continue
-                }
+                val request = if (correction.isBlank()) sqlUser else
+                    "$sqlUser\nREJECTION=\${correction.take(80)}. Return corrected SELECT only."
+                val sql = runPlanner(sqlSystem, request, plannerOutputLimit)
                 try {
                     tableEvidence = EventMemoryStore.executeModelReadOnlyQuery(
                         getApplication(),
                         sql,
                         requiredTable = table,
-                        requiredFilter = requiredFilter?.takeIf { it.table == table }
+                        requiredFilter = filterForTable
                     )
                     break
                 } catch (error: Exception) {
                     correction = error.message ?: error.javaClass.simpleName
-                    if (attempt == 1) failures += "$table: ${correction.take(160)}"
+                    if (attempt == 1) failures += "$table: \${correction.take(160)}"
                 }
             }
             if (tableEvidence != null && combinedEvidence.length < 17_000) {
@@ -1070,40 +1029,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         return messages
     }
 
-    /** Debounced idle-time prefill. This fills KV cache without sampling response tokens. */
-    private fun scheduleMemoryWarmup() {
-        if (_isGenerating.value || _uiState.value !is ChatUiState.Ready) return
-        memoryWarmupJob?.cancel()
-        memoryWarmupJob = viewModelScope.launch {
-            delay(900)
-            if (_uiState.value !is ChatUiState.Ready) return@launch
-            val warmedTokens = withContext(Dispatchers.Default) {
-                nativeInferenceMutex.withLock {
-                    if (_uiState.value !is ChatUiState.Ready) {
-                        0
-                    } else {
-                        // A foreground send joins this job before acquiring the native mutex,
-                        // so the invariant system prefix is never abandoned mid-prefill.
-                        runtime.resetStopRequest()
-                        val warmMessages = listOf(PromptMessage("system", databaseAnswerSystemInstructions))
-                        val warmEstimate = runtime.tokenize(
-                            warmMessages.joinToString("\n") { it.role + "\n" + it.content }
-                        ).size + 32
-                        if (warmEstimate <= 300) {
-                            runtime.warmPrompt(warmMessages).also { count ->
-                                check(count in 1..300) { "Warm prompt exceeded the 300-token input limit." }
-                            }
-                        } else {
-                            0
-                        }
-                    }
-                }
-            }
-            if (warmedTokens > 0) {
-                android.util.Log.d("MrRedMemory", "Warmed $warmedTokens memory-prefix tokens")
-            }
-        }
-    }
+    /** No speculative prefill: every model input is checked before inference. */
+    private fun scheduleMemoryWarmup() = Unit
 
     private fun localConversationReply(prompt: String): String? {
         val text = prompt.trim().lowercase(java.util.Locale.US)
