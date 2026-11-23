@@ -413,7 +413,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         _samplerRetrievedMemory.value = retrievedMemory
                         val answerPromptBudget = minOf(300, promptBudget)
-                        val promptMessages = buildDatabaseAnswerMessages(prompt, retrievedMemory, answerPromptBudget)
+                        val promptMessages = if (retrievedMemory.startsWith("NO_DATABASE_LOOKUP.")) {
+                            buildPromptMessages(prompt, "", answerPromptBudget)
+                        } else {
+                            buildDatabaseAnswerMessages(prompt, retrievedMemory, answerPromptBudget)
+                        }
                         _samplerStatus.value = "Prompt built; running GGUF inference…"
 
                         runtime.generate(
@@ -759,7 +763,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         inferenceConfig = generationConfig
                     )
                     val answerPromptBudget = minOf(300, promptBudget)
-                    val promptMessages = buildDatabaseAnswerMessages(prompt, databaseEvidence, answerPromptBudget)
+                    val promptMessages = if (databaseEvidence.startsWith("NO_DATABASE_LOOKUP.")) {
+                        buildPromptMessages(prompt, "", answerPromptBudget)
+                    } else {
+                        buildDatabaseAnswerMessages(prompt, databaseEvidence, answerPromptBudget)
+                    }
                     ActivityLogger.record(
                         getApplication(), "INFERENCE", "prompt_composition",
                         "database_evidence_chars=${databaseEvidence.length} " +
