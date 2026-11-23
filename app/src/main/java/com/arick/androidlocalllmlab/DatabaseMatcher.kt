@@ -105,8 +105,11 @@ internal object DatabaseMatcher {
         val margin = top.score - (runnerUp?.score ?: 0.0)
         val confidence = (0.35 + (top.score / 10.0).coerceAtMost(0.45) + (margin / 8.0).coerceIn(0.0, 0.20)).coerceIn(0.0, 1.0)
         val candidates = if (searchAll) scored else scored.filter { it.score >= maxOf(1.2, top.score * 0.58) }.take(3)
+        val topRowCount = countRows(db, top.table)
         val ambiguous = !searchAll && preferredTable == null && candidates.size > 1 && margin < 1.5
         val lowConfidence = confidence < 0.62 && preferredTable == null && !searchAll
+        val broadHighVolume = !searchAll && preferredTable == null && topRowCount > 40 &&
+            top.availableValues.isNotEmpty() && !top.matchedSignals.contains("stored-value")
         val clarification = when {
             ambiguous -> {
                 val options = candidates.map { c ->
@@ -116,7 +119,9 @@ internal object DatabaseMatcher {
                 "I found several possible places to look. Which information do you mean? " +
                     options.joinToString(" / ") + " / Search across all of them"
             }
-            lowConfidence -> "I'm not confident which stored information you mean. Should I search ${top.table.replace('_', ' ')} (${countRows(db, top.table)} records), or something else?"
+            broadHighVolume -> "I found $topRowCount records in ${top.table.replace('_', ' ')}. You can narrow the search using these actual database values: " +
+                top.availableValues.joinToString(" / ") + " / Search all"
+            lowConfidence -> "I'm not confident which stored information you mean. Should I search ${top.table.replace('_', ' ')} ($topRowCount records), or something else?"
             else -> null
         }
         return DatabaseMatchResult(true, confidence, candidates, clarification,
@@ -148,12 +153,15 @@ internal object DatabaseMatcher {
         for (column in meaning.valueColumns.take(4)) {
             runCatching {
                 db.rawQuery(
-                    "SELECT DISTINCT $column FROM ${meaning.table} WHERE $column IS NOT NULL AND TRIM(CAST($column AS TEXT)) <> '' ORDER BY $column LIMIT 4",
+                    "SELECT $column, COUNT(*) AS row_count FROM ${meaning.table} " +
+                        "WHERE $column IS NOT NULL AND TRIM(CAST($column AS TEXT)) <> '' " +
+                        "GROUP BY $column ORDER BY row_count DESC, $column LIMIT 4",
                     null
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
                         val value = cursor.getString(0)?.trim().orEmpty()
-                        if (value.isNotBlank()) output += "$column: ${value.take(32)}"
+                        val count = cursor.getInt(1)
+                        if (value.isNotBlank()) output += "$column: ${value.take(32)} ($count)"
                     }
                 }
             }
