@@ -7,16 +7,19 @@ import org.junit.Test
 
 class PromptCacheTest {
     @Test
-    fun fixedSystemPromptOwnsRoutingAndMemoryDecisions() {
+    fun fixedSystemPromptDefinesCompactModelContract() {
         val system = PromptCache.STABLE_SYSTEM
-        assertTrue(system.contains("Every new user message is sent directly to you"))
+        assertTrue(system.contains("Choose the action for each request"))
         assertTrue(system.contains("CHAT|"))
         assertTrue(system.contains("SQL|"))
         assertTrue(system.contains("TOOL_CALL|"))
-        assertTrue(system.contains("SQLITE MEMORY"))
+        assertTrue(system.contains("events(id,event_type"))
         assertTrue(system.contains("conversation_turns"))
         assertTrue(system.contains("DATABASE_RESULT_HANDOFF"))
         assertTrue(system.contains("TOOL_RESULT_HANDOFF"))
+        assertTrue(system.length < 2400)
+        assertTrue(!system.contains("Kotlin does not classify intent"))
+        assertTrue(!system.contains("Every new user message is sent directly to you"))
     }
 
     @Test
