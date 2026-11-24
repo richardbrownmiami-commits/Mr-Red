@@ -455,7 +455,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             templateStartsThinking = firstThinking
                             firstResponse
                         } else {
-                            val evidence = executeToolPlusRequest(firstParts.answer.trim())
+                            val evidence = executeToolPlusRequest(firstParts.answer.trim(), prompt, allowMemoryWrites = false)
                             _samplerRetrievedMemory.value = evidence
                             _samplerStatus.value = "GGUF requested stored data; executing validated read-only SQL…"
                             rawResponse = ""
@@ -533,27 +533,66 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _samplerStatus.value = "Sampler cleared. The database was not changed."
     }
 
-    private fun executeToolPlusRequest(modelAnswer: String): String {
+    private fun executeToolPlusRequest(
+        modelAnswer: String,
+        originalQuestion: String,
+        allowMemoryWrites: Boolean = true
+    ): String {
         val requestBody = modelAnswer.trim().drop(5).trim()
         return runCatching {
             val jsonStart = requestBody.indexOf('{')
             val jsonEnd = requestBody.lastIndexOf('}')
             require(jsonStart >= 0 && jsonEnd >= jsonStart) {
-                "TOOL+ must be followed by a JSON object."
+                "tool+ must be followed by a JSON object."
             }
             val request = JSONObject(requestBody.substring(jsonStart, jsonEnd + 1))
-            val table = request.getString("table").lowercase(java.util.Locale.ROOT)
-            val sql = request.getString("sql")
-            EventMemoryStore.executeModelReadOnlyQuery(
-                context = getApplication(),
-                sql = sql,
-                requiredTable = table,
-                maxRows = 100,
-                maxChars = 18_000
-            )
+            when (request.optString("operation", "query").lowercase(java.util.Locale.ROOT)) {
+                "save_fact" -> {
+                    require(allowMemoryWrites) { "The sampler is read-only and cannot save facts." }
+                    EventMemoryStore.saveModelRequestedFact(
+                        context = getApplication(),
+                        fact = request.getString("fact"),
+                        sourceText = originalQuestion
+                    )
+                }
+                "query" -> {
+                    val queries = request.optJSONArray("queries")
+                    val requests = if (queries != null) {
+                        require(queries.length() in 1..3) { "Provide one to three independent table queries." }
+                        (0 until queries.length()).map { queries.getJSONObject(it) }
+                    } else {
+                        listOf(request)
+                    }
+                    val allowedTables = setOf("events", "facts", "conversation_turns")
+                    val seenTables = mutableSetOf<String>()
+                    val evidence = StringBuilder()
+                    requests.forEach { query ->
+                        val table = query.getString("table").lowercase(java.util.Locale.ROOT)
+                        require(table in allowedTables) { "The requested database table is not allowed." }
+                        require(seenTables.add(table)) { "Request each database table only once." }
+                        val sql = query.getString("sql")
+                        val result = runCatching {
+                            EventMemoryStore.executeModelReadOnlyQuery(
+                                context = getApplication(),
+                                sql = sql,
+                                requiredTable = table,
+                                maxRows = 100,
+                                maxChars = 18_000
+                            )
+                        }.getOrElse { error ->
+                            "QUERY REJECTED: ${error.message ?: error.javaClass.simpleName}. No records were changed."
+                        }
+                        if (evidence.isNotEmpty()) evidence.append('\n')
+                        evidence.append("[DATABASE TABLE: ").append(table).append("]\n")
+                            .append(result).append('\n')
+                    }
+                    evidence.toString().take(18_000)
+                }
+                else -> error("Unsupported tool+ operation.")
+            }
         }.getOrElse { error ->
-            "DATABASE REQUEST REJECTED: ${error.message ?: error.javaClass.simpleName}. " +
-                "No database changes were made. Explain the retrieval failure without inventing records."
+            "TOOL REQUEST REJECTED: ${error.message ?: error.javaClass.simpleName}. " +
+                "No database changes were made. Explain the failure without inventing records."
         }
     }
 
@@ -565,7 +604,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val promptLimit = minOf(maxPromptTokens, PromptCache.PROMPT_CAP).coerceAtLeast(1)
         fun messagesFor(text: String) = PromptCache.stage(
             "ANSWER",
-            "USER QUESTION:\n$question\n\nDATABASE RESULTS (plain text):\n$text"
+            "USER QUESTION:\n$question\n\nDATABASE / MEMORY TOOL RESULT (plain text):\n$text"
         )
         val systemPrefixTokens = runtime.tokenize(PromptCache.STABLE_SYSTEM).size
         fun count(text: String): Int = systemPrefixTokens + runtime.tokenize(
@@ -738,7 +777,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             // The JSON and SQL are untrusted. Kotlin validates the request
                             // and executes only one read-only SELECT against the named table.
-                            val databaseResult = executeToolPlusRequest(modelAnswer)
+                            val databaseResult = executeToolPlusRequest(modelAnswer, prompt)
                             ActivityLogger.record(
                                 getApplication(), "INFERENCE", "tool_plus_executed",
                                 "GGUF requested a validated read-only database operation"

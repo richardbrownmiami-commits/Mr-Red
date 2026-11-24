@@ -190,55 +190,55 @@ object EventMemoryStore {
      * Store only explicit, non-sensitive user-stated facts. Do not infer facts from assistant
      * replies or ordinary questions. Sensitive categories are deliberately excluded.
      */
-    fun captureExplicitFact(context: Context, userText: String) {
-        val text = userText.trim()
-        if (text.isBlank() || containsSensitiveTopic(text)) return
-
-        val patterns = listOf(
-            Regex("^(?:please\\s+)?remember\\s+that\\s+(.+)$", RegexOption.IGNORE_CASE),
-            Regex("^don't\\s+forget\\s+that\\s+(.+)$", RegexOption.IGNORE_CASE),
-            Regex("^my\\s+preference\\s+is\\s+(.+)$", RegexOption.IGNORE_CASE),
-            Regex("^i\\s+prefer\\s+(.+)$", RegexOption.IGNORE_CASE),
-            Regex("^i\\s+like\\s+(.+)$", RegexOption.IGNORE_CASE),
-            Regex("^i\\s+use\\s+(.+)$", RegexOption.IGNORE_CASE)
-        )
-        val fact = patterns.firstNotNullOfOrNull { it.find(text)?.groupValues?.getOrNull(1) }
-            ?.trim()?.trimEnd('.', '!', '?')
-            ?.takeIf { it.length in 3..500 }
-            ?: return
+    /**
+     * Persists a fact only after GGUF explicitly requests the save_fact tool operation.
+     * Kotlin validates the payload and sensitive-topic policy; it does not infer save intent.
+     */
+    fun saveModelRequestedFact(context: Context, fact: String, sourceText: String): String {
+        val normalizedFact = fact.replace(Regex("\\s+"), " ").trim().trimEnd('.', '!', '?')
+        val originalText = sourceText.trim()
+        require(normalizedFact.length in 3..500) { "The requested fact must contain 3 to 500 characters." }
+        require(!normalizedFact.contains('\u0000') && !containsSensitiveTopic(normalizedFact) &&
+            !containsSensitiveTopic(originalText)) {
+            "Sensitive or invalid information is not saved to local memory."
+        }
+        require(originalText.isNotBlank()) { "The original user request is required to save a fact." }
 
         val appContext = context.applicationContext
-        writer.execute {
-            runWrite {
+        writer.submit(java.util.concurrent.Callable<Unit> {
+            val db = database(appContext).writableDatabase
+            db.beginTransaction()
+            try {
                 val now = System.currentTimeMillis()
                 val values = ContentValues().apply {
-                    put("fact", fact)
-                    put("source_text", text.take(1200))
-                    put("source", "explicit_user_statement")
+                    put("fact", normalizedFact)
+                    put("source_text", originalText.take(1200))
+                    put("source", "model_requested_explicit_fact")
                     put("created_at", now)
                     put("updated_at", now)
-                    put("fingerprint", sha256(fact.lowercase()))
+                    put("fingerprint", sha256(normalizedFact.lowercase(java.util.Locale.ROOT)))
                 }
-                check(database(appContext).writableDatabase.insertWithOnConflict(
+                check(db.insertWithOnConflict(
                     "facts", null, values, SQLiteDatabase.CONFLICT_REPLACE
-                ) != -1L) { "Fact insert returned -1" }
+                ) != -1L) { "Fact insert failed." }
                 val eventValues = ContentValues().apply {
                     put("event_type", "FACT")
-                    put("action", "captured")
+                    put("action", "saved")
                     put("source", "user")
-                    put("detail", fact)
+                    put("detail", normalizedFact)
                     put("occurred_at", now)
                 }
-                check(database(appContext).writableDatabase.insert("events", null, eventValues) != -1L) { "Fact event insert returned -1" }
+                check(db.insert("events", null, eventValues) != -1L) { "Fact event insert failed." }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
             }
-        }
+            pruneOldEventsIfDue()
+            Unit
+        }).get(5, TimeUnit.SECONDS)
+        return "MEMORY SAVE RESULT: the explicitly requested fact was saved to local SQLite memory."
     }
 
-
-    /**
-     * Stores a completed chat exchange in the dedicated SQLite conversation table.
-     * Exact duplicate pairs are ignored; distinct answers to the same question are retained.
-     */
     fun recordConversationExchange(
         context: Context,
         question: String,
@@ -880,6 +880,26 @@ object EventMemoryStore {
             SQLiteDatabase.OPEN_READONLY
         )
         try {
+            val allowedColumns = mapOf(
+                "events" to setOf(
+                    "id", "event_type", "action", "source", "detail", "occurred_at",
+                    "package_name", "event_key", "title", "body", "importance", "is_active"
+                ),
+                "facts" to setOf(
+                    "id", "fact", "source_text", "source", "created_at", "updated_at", "fingerprint"
+                ),
+                "conversation_turns" to setOf(
+                    "id", "question", "answer", "created_at", "fingerprint"
+                )
+            )
+            tableReferences.distinct().forEach { table ->
+                val actualColumns = db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+                    buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) }
+                }
+                require(actualColumns.isNotEmpty() && actualColumns.all { it in allowedColumns.getValue(table) }) {
+                    "The database schema contains a column outside the model-query allowlist."
+                }
+            }
             if (requiredFilter != null) {
                 val availableColumns = db.rawQuery("PRAGMA table_info(${requiredFilter.table})", null).use { cursor ->
                     buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) }

@@ -12,6 +12,33 @@ class EventMemoryStoreInstrumentedTest {
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
+    fun onlyExplicitNonSensitiveModelRequestedFactsArePersisted() {
+        val now = System.currentTimeMillis()
+        val fact = "Prefers concise technical answers $now"
+        val result = EventMemoryStore.saveModelRequestedFact(
+            context = context,
+            fact = fact,
+            sourceText = "Please remember that $fact"
+        )
+        assertTrue(result.contains("saved"))
+        val rows = EventMemoryStore.executeModelReadOnlyQuery(
+            context = context,
+            sql = "SELECT fact FROM facts WHERE fact = '$fact' LIMIT 1",
+            requiredTable = "facts"
+        )
+        assertTrue("The explicitly requested fact must be persisted", rows.contains(fact))
+
+        val rejected = runCatching {
+            EventMemoryStore.saveModelRequestedFact(
+                context = context,
+                fact = "Medical diagnosis is private",
+                sourceText = "Please remember my medical diagnosis"
+            )
+        }.isFailure
+        assertTrue("Sensitive facts must be rejected by the storage boundary", rejected)
+    }
+
+    @Test
     fun notificationHistoryIsReadFromSqliteAndTracksDismissal() {
         val now = System.currentTimeMillis()
         val key = "mr-red-instrumented-$now"
