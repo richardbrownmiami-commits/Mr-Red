@@ -429,7 +429,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 val candidate = visible.answer.trimStart()
                                 val possibleToolMarker = candidate.isEmpty() ||
                                     "tool+".startsWith(candidate.take(5), ignoreCase = true) ||
-                                    candidate.startsWith("tool+", ignoreCase = true)
+                                    candidate.startsWith("tool+", ignoreCase = true) ||
+                                    "TOOL_CALL|".startsWith(candidate, ignoreCase = true) ||
+                                    candidate.startsWith("TOOL_CALL|", ignoreCase = true)
                                 if (!possibleToolMarker) {
                                     _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
                                         if (index == _samplerMessages.value.lastIndex) {
@@ -616,71 +618,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
-
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
         if (_uiState.value !is ChatUiState.Ready) {
             _generationError.value = "Load a GGUF model before sending a question."
             return
         }
-
-        // GGUF handles device-tool routing; its chat response requests stored data only with TOOL+.
-        _isGenerating.value = true
-        _generationProgress.value = "Understanding the request…"
-        viewModelScope.launch {
-            val toolCall = runCatching {
-                withContext(Dispatchers.Default) {
-                    nativeInferenceMutex.withLock { routeToolRequestWithModel(prompt) }
-                }
-            }.onFailure {
-                ActivityLogger.record(getApplication(), "ERROR", "tool_routing_failed", it.javaClass.simpleName)
-            }.getOrNull()
-            if (toolCall != null) {
-                executeRoutedDeviceRequest(prompt, toolCall)
-            } else {
-                sendModelRequest(prompt)
-            }
-        }
+        sendModelRequest(prompt)
     }
 
-    private fun routeToolRequestWithModel(question: String): ToolCall? {
-        val ready = _uiState.value as? ChatUiState.Ready ?: return null
-        val contextWindow = ready.nCtx.coerceAtLeast(128)
-        val outputLimit = 64
-        val promptLimit = minOf(
-            PromptCache.PROMPT_CAP,
-            (contextWindow - outputLimit - 32).coerceAtLeast(1)
-        )
-        val messages = PromptCache.stage("ROUTE", "QUESTION=$question")
-        var actualTokens = 0
-        var startsThinking = false
-        runtime.resetStopRequest()
-        val response = runtime.generate(
-            messages = messages,
-            inferenceConfig = _inferenceConfig.value.copy(maxTokens = outputLimit),
-            contextWindowTokens = contextWindow,
-            onPrompt = { formatted, count ->
-                actualTokens = count
-                startsThinking = formatted.trimEnd().endsWith("<think>")
-                require(count in 1..promptLimit) {
-                    "Tool-routing prompt is $count tokens; limit is $promptLimit."
-                }
-            },
-            onToken = {},
-            onMetrics = {}
-        )
-        require(actualTokens in 1..promptLimit) {
-            "The runtime did not confirm a valid tool-routing prompt token count."
-        }
-        val parsed = splitAssistantResponse(response, startsThinking)
-        val output = (parsed.answer.ifBlank { response }).trim()
-            .removePrefix("```json").removePrefix("```").trim()
-            .removeSuffix("```").trim()
-        if (output.equals("NO_TOOL", ignoreCase = true) || output.startsWith("NO_TOOL ", true)) {
-            ActivityLogger.record(getApplication(), "INFERENCE", "request_route", "model=NO_TOOL input_tokens=$actualTokens")
-            return null
-        }
-        if (!output.startsWith("TOOL_CALL|")) return null
-        val payload = output.removePrefix("TOOL_CALL|")
+    private fun parseModelToolCall(rawAnswer: String): ToolCall? {
+        val output = rawAnswer.trim()
+        val markerIndex = output.indexOf("TOOL_CALL|", ignoreCase = true)
+        if (markerIndex < 0) return null
+        val payload = output.substring(markerIndex + "TOOL_CALL|".length)
         val separator = payload.indexOf('|')
         if (separator <= 0) return null
         val name = payload.substring(0, separator).trim().lowercase(java.util.Locale.ROOT)
@@ -695,12 +645,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val jsonEnd = jsonText.lastIndexOf('}')
         if (jsonStart < 0 || jsonEnd < jsonStart) return null
         val arguments = runCatching {
-            org.json.JSONObject(jsonText.substring(jsonStart, jsonEnd + 1))
+            JSONObject(jsonText.substring(jsonStart, jsonEnd + 1))
         }.getOrNull() ?: return null
-        ActivityLogger.record(
-            getApplication(), "INFERENCE", "request_route",
-            "model=TOOL tool=$name input_tokens=$actualTokens"
-        )
         return ToolCall(name, arguments)
     }
 
@@ -778,7 +724,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         check(firstPromptTokens > 0) { "The runtime did not confirm the formatted chat prompt token count." }
                         val firstParts = splitAssistantResponse(firstResponse, firstStartsThinking)
                         val modelAnswer = firstParts.answer.trim()
-                        if (!modelAnswer.startsWith("tool+", ignoreCase = true)) {
+                        if (modelAnswer.startsWith("TOOL_CALL|", ignoreCase = true)) {
+                            templateStartsThinking = firstStartsThinking
+                            firstResponse
+                        } else if (!modelAnswer.startsWith("tool+", ignoreCase = true)) {
                             templateStartsThinking = firstStartsThinking
                             firstResponse
                         } else {
@@ -824,6 +773,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     }
+                }
+                val generatedAnswer = splitAssistantResponse(answer, templateStartsThinking).answer.trim()
+                if (generatedAnswer.startsWith("TOOL_CALL|", ignoreCase = true)) {
+                    val call = parseModelToolCall(generatedAnswer)
+                    if (call != null) {
+                        // The device-tool executor owns this UI turn and appends its own messages.
+                        _messages.value = _messages.value.dropLast(2)
+                        _isGenerating.value = false
+                        executeRoutedDeviceRequest(prompt, call)
+                        return@launch
+                    }
+                    error("GGUF returned an invalid device-tool request.")
                 }
                 if (answer.isBlank() && !_isStopRequested.value) error("Model returned no content")
                 val finalParts = splitAssistantResponse(answer, templateStartsThinking)
