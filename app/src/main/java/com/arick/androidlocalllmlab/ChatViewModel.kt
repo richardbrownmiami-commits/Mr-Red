@@ -632,8 +632,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        // The GGUF decides whether a real device/live-data tool is needed.
-        // If it declines, the database planner separately decides DB lookup vs normal chat.
+        // GGUF handles device-tool routing; its chat response requests stored data only with TOOL+.
         _isGenerating.value = true
         _generationProgress.value = "Understanding the request…"
         viewModelScope.launch {
