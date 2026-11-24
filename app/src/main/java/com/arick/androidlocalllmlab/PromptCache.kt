@@ -44,6 +44,6 @@ Schema: events(id,event_type,action,source,detail,occurred_at,package_name,event
 
     /** The fixed system prompt is installed once in native memory; Kotlin sends only the current user payload. */
     fun stage(name: String, body: String): List<PromptMessage> = listOf(
-        PromptMessage("user", "STAGE=$name\\n$body")
+        PromptMessage("user", "STAGE=$name\n$body")
     )
 }
