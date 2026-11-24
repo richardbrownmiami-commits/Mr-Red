@@ -916,7 +916,7 @@ object EventMemoryStore {
                         val rawValue = if (cursor.isNull(column)) "NULL" else
                             runCatching { cursor.getString(column) }.getOrDefault("[unreadable value]")
                         // One compact row per line keeps useful evidence inside the strict
-                        // 300-token answer prompt; field contents remain untrusted data.
+                        // bounded answer prompt; field contents remain untrusted data.
                         val value = rawValue.replace(Regex("\\s+"), " ").take(600)
                         output.append(cursor.getColumnName(column)).append('=').append(value)
                     }
