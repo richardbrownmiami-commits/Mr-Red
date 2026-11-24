@@ -74,6 +74,13 @@ object NativeLlmBridge {
         contents: Array<String>
     ): Int
 
+    external fun nativeClassify(
+        handle: Long,
+        roles: Array<String>,
+        contents: Array<String>,
+        candidateTokenIds: IntArray
+    ): FloatArray
+
     external fun nativeSampleNextToken(handle: Long): Int
 
     external fun nativeTokenToPiece(

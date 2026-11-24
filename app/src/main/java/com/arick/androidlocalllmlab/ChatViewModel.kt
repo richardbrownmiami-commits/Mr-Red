@@ -70,12 +70,6 @@ data class ChatMessage(
 
 data class AgentTraceItem(val text: String)
 
-private data class PendingDatabaseChoice(
-    val table: String,
-    val column: String,
-    val value: String
-)
-
 data class MemorySnapshot(
     val javaUsedBytes: Long,
     val javaMaxBytes: Long,
@@ -111,9 +105,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // Completed turns are persisted privately and restored when the app process restarts.
     // The native KV cache is separate and is rebuilt from the transcript after restart.
     private val conversationHistory = mutableListOf<Pair<String, String>>()
-    private var pendingDatabaseQuestion: String? = null
-    private var pendingDatabaseTables: List<String> = emptyList()
-    private var pendingDatabaseChoices: List<PendingDatabaseChoice> = emptyList()
     private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
     private val maxStoredTurns = 40
 
@@ -419,15 +410,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
 
-                        // Use the same model-generated SQL path as normal chat; no parallel keyword planner.
-                        val retrievedMemory = retrieveDatabaseEvidence(
-                            question = prompt,
-                            contextWindowTokens = readyState.nCtx,
-                            inferenceConfig = inferenceConfig
-                        )
-                        _samplerRetrievedMemory.value = retrievedMemory
+                        val classification = classifyRequest(prompt, readyState.nCtx)
+                        val table = classification.category.table
+                        val retrievedMemory = table?.let {
+                            retrieveDatabaseEvidence(prompt, it, readyState.nCtx, inferenceConfig)
+                        }
+                        _samplerRetrievedMemory.value = retrievedMemory.orEmpty()
                         val answerPromptBudget = minOf(PromptCache.PROMPT_CAP, promptBudget)
-                        val promptMessages = if (retrievedMemory.startsWith("NO_DATABASE_LOOKUP.")) {
+                        val promptMessages = if (retrievedMemory == null) {
                             buildPromptMessages(prompt, "", answerPromptBudget)
                         } else {
                             buildDatabaseAnswerMessages(prompt, retrievedMemory, answerPromptBudget)
@@ -501,159 +491,43 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun retrieveDatabaseEvidence(
         question: String,
+        table: String,
         contextWindowTokens: Int,
         inferenceConfig: InferenceConfig
-    ): String {
-        var effectiveQuestion = question
-        var requiredFilter: DatabaseQueryFilter? = null
-        val pendingQuestion = pendingDatabaseQuestion
-        if (pendingQuestion != null) {
-            val selection = question.trim().lowercase(java.util.Locale.ROOT)
-            val selectedTable = pendingDatabaseTables.firstOrNull { table ->
-                selection == table || selection == table.replace('_', ' ') ||
-                    selection.contains(table.replace('_', ' '))
-            }
-            val matchingValueChoices = pendingDatabaseChoices.filter { choice ->
-                val value = choice.value.lowercase(java.util.Locale.ROOT)
-                selection == value || value.startsWith(selection) || selection.contains(value) ||
-                    value.split(Regex("[^\\p{L}\\p{N}]+")).any { it == selection }
-            }
-            if (selectedTable == null && matchingValueChoices.size > 1) {
-                val options = matchingValueChoices.take(6).joinToString(" / ") { choice ->
-                    "${choice.column}: ${choice.value}"
-                }
-                return "CLARIFICATION_REQUEST: More than one stored value matches '$question'. Which exact value do you mean: $options?"
-            }
-            val selectedValueChoice = matchingValueChoices.singleOrNull()
-            val selected = selectedTable ?: selectedValueChoice?.table
-            when {
-                selection in setOf("all", "everything", "all of them", "search all", "search across all of them", "all tables") -> {
-                    effectiveQuestion = "$pendingQuestion. User clarification: search across all available data."
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-                selected != null -> {
-                    effectiveQuestion = if (selectedValueChoice != null) {
-                        requiredFilter = DatabaseQueryFilter(selected, selectedValueChoice.column, selectedValueChoice.value)
-                        "$pendingQuestion. User selected the stored value for column ${selectedValueChoice.column}; Kotlin will bind the exact value as a SQL parameter."
-                    } else {
-                        "$pendingQuestion. User clarification selected database table: $selected."
-                    }
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-                else -> {
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-            }
-        }
-
-        val plannerOutputLimit = minOf(128, (contextWindowTokens / 4).coerceAtLeast(32))
-        val plannerPromptLimit = minOf(
-            PromptCache.PROMPT_CAP,
-            (contextWindowTokens - plannerOutputLimit - 32).coerceAtLeast(1)
-        )
-        val nowMillis = System.currentTimeMillis()
-        val zone = java.time.ZoneId.systemDefault().id
-        // Use SQLite as the source of truth so follow-ups still resolve after process restart.
-        // Fall back to the in-memory transcript only if the persisted turn is not yet available.
-        val persistedPreviousTurn = runCatching {
-            EventMemoryStore.recentConversationExchanges(getApplication(), limit = 1).lastOrNull()
-        }.getOrNull()
-        val previousTurnPair = persistedPreviousTurn ?: synchronized(conversationHistory) {
-            conversationHistory.lastOrNull()
-        }
-        val previousTurn = previousTurnPair?.let { (priorQuestion, priorAnswer) ->
-            "PREVIOUS_QUESTION=${priorQuestion.take(150)} PREVIOUS_ANSWER=${priorAnswer.take(180)}"
-        }.orEmpty()
-
-        fun runPlanner(stage: String, user: String, outputLimit: Int): String {
-            val messages = PromptCache.stage(stage, user)
-            // Enforce the actual llama.cpp chat-template token count in onPrompt below.
-            // Raw role/content estimates are not authoritative for this model.
+    ): String? {
+        if (table !in setOf("events", "facts", "conversation_turns")) return null
+        return runCatching {
+            val outputLimit = minOf(96, (contextWindowTokens / 4).coerceAtLeast(24))
+            val promptLimit = minOf(PromptCache.PROMPT_CAP, (contextWindowTokens - outputLimit - 32).coerceAtLeast(1))
+            val nowMillis = System.currentTimeMillis()
+            val zone = java.time.ZoneId.systemDefault().id
+            val previousTurn = runCatching {
+                EventMemoryStore.recentConversationExchanges(getApplication(), limit = 1).lastOrNull()
+            }.getOrNull()?.let { (q, a) -> "PREVIOUS_QUESTION=${q.take(180)} PREVIOUS_ANSWER=${a.take(220)}" }.orEmpty()
+            val sqlUser = "TABLE=$table NOW_MS=$nowMillis TZ=$zone QUESTION=$question" +
+                if (previousTurn.isBlank()) "" else "\n$previousTurn"
             var actualPromptTokens = 0
-            var startsThinking = false
-            val response = runtime.generate(
-                messages = messages,
+            runtime.resetStopRequest()
+            val sql = runtime.generate(
+                messages = PromptCache.stage("SQL", sqlUser),
                 inferenceConfig = inferenceConfig.copy(maxTokens = outputLimit),
                 contextWindowTokens = contextWindowTokens,
-                onPrompt = { formattedPrompt, count ->
+                onPrompt = { _, count ->
                     actualPromptTokens = count
-                    startsThinking = formattedPrompt.trimEnd().endsWith("<think>")
-                    require(count in 1..plannerPromptLimit) {
-                        "Formatted database-planning prompt is $count tokens; limit is $plannerPromptLimit."
-                    }
+                    require(count in 1..promptLimit) { "Formatted SQL prompt is $count tokens; limit is $promptLimit." }
                 },
                 onToken = {},
                 onMetrics = {}
-            )
-            require(actualPromptTokens in 1..plannerPromptLimit) {
-                "The runtime did not confirm a valid formatted planner token count."
-            }
-            val parsed = splitAssistantResponse(response, startsThinking)
-            return (parsed.answer.ifBlank {
-                if (response.contains("<think>") || response.contains("</think>")) "" else response
-            }).trim()
-        }
-
-        // GGUF decides whether this is a database request and which tables are relevant.
-        // Kotlin validates only the model's table labels; it does not infer intent from keywords.
-        val intentUser = "NOW_MS=$nowMillis TZ=$zone QUESTION=$effectiveQuestion" +
-            if (previousTurn.isBlank()) "" else "\n$previousTurn"
-        val intent = runPlanner("INTENT", intentUser, 24)
-            .trim().removeSurrounding("\u0060").trim().removeSuffix(".").removeSuffix(";").trim()
-        if (intent.equals("NO_QUERY", ignoreCase = true)) {
-            return "NO_DATABASE_LOOKUP. Answer normally without claiming stored records were checked."
-        }
-        val allowedTables = setOf("events", "facts", "conversation_turns")
-        val intentLabels = intent.split(Regex("[,\\s]+")).map { it.trim().trim(',', '.', ';').lowercase(java.util.Locale.ROOT) }
-        val selectedTables = intentLabels.filter { it in allowedTables }.distinct()
-        require(selectedTables.isNotEmpty() && intentLabels.all { it in allowedTables }) {
-            "The model returned an invalid database intent decision. Expected NO_QUERY or table names; received: ${intent.take(100)}"
-        }
-
-        val combinedEvidence = StringBuilder()
-        val failures = mutableListOf<String>()
-        for (table in selectedTables) {
-            val filterForTable = requiredFilter?.takeIf { it.table == table }
-            val filterHint = filterForTable?.let { " FILTER_COLUMN=${it.column}." }.orEmpty()
-            val sqlUser = "TABLE=$table$filterHint NOW_MS=$nowMillis TZ=$zone QUESTION=$effectiveQuestion" +
-                if (previousTurn.isBlank()) "" else "\n$previousTurn"
-            var correction = ""
-            var tableEvidence: String? = null
-            for (attempt in 0..1) {
-                runtime.resetStopRequest()
-                val request = if (correction.isBlank()) sqlUser else
-                    "$sqlUser\nREJECTION=${correction.take(80)}. Return corrected SELECT only."
-                val sql = runPlanner("SQL", request, plannerOutputLimit)
-                try {
-                    tableEvidence = EventMemoryStore.executeModelReadOnlyQuery(
-                        getApplication(),
-                        sql,
-                        requiredTable = table,
-                        requiredFilter = filterForTable
-                    )
-                    break
-                } catch (error: Exception) {
-                    correction = error.message ?: error.javaClass.simpleName
-                    if (attempt == 1) failures += "$table: ${correction.take(160)}"
-                }
-            }
-            if (tableEvidence != null && combinedEvidence.length < 17_000) {
-                combinedEvidence.append("[DATABASE TABLE: ").append(table).append("]\n")
-                    .append(tableEvidence.take((17_000 - combinedEvidence.length).coerceAtLeast(0)))
-                    .append("\n")
-            }
-        }
-        if (failures.isNotEmpty()) {
-            combinedEvidence.append("[Some table queries failed: ").append(failures.joinToString("; ")).append("]\n")
-        }
-        if (combinedEvidence.isNotEmpty()) return combinedEvidence.toString().take(18_000)
-        return "DATABASE QUERY FAILED: no table returned evidence. Do not invent results."
+            ).trim()
+            require(actualPromptTokens in 1..promptLimit && sql.isNotBlank()) { "The SQL stage did not return a valid query." }
+            val rows = EventMemoryStore.executeModelReadOnlyQuery(getApplication(), sql, requiredTable = table)
+            if (!rows.startsWith("ROWS:")) {
+                ActivityLogger.record(getApplication(), "DATABASE", "query_no_rows", "table=$table")
+                null
+            } else "[DATABASE TABLE: $table]\n$rows"
+        }.onFailure { error ->
+            ActivityLogger.record(getApplication(), "DATABASE", "sql_rejected", "table=$table error=${error.javaClass.simpleName}")
+        }.getOrNull()
     }
 
     private fun buildDatabaseAnswerMessages(
@@ -719,17 +593,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
-
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
         EventMemoryStore.captureExplicitFact(getApplication(), prompt)
 
-        localConversationReply(prompt)?.let { reply ->
-            completeLocalReply(prompt, reply)
-            return
-        }
-
-        if (_uiState.value !is ChatUiState.Ready) {
-            // Preserve the no-model fallback for basic device actions.
+        val ready = _uiState.value as? ChatUiState.Ready
+        if (ready == null) {
             DeviceIntentRouter.route(prompt)?.let { call ->
                 executeRoutedDeviceRequest(prompt, call)
                 return
@@ -738,64 +606,102 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        // The GGUF decides whether a real device/live-data tool is needed.
-        // If it declines, the database planner separately decides DB lookup vs normal chat.
         _isGenerating.value = true
-        _generationProgress.value = "Understanding the request…"
+        _generationProgress.value = "Classifying request…"
         viewModelScope.launch {
-            val toolCall = runCatching {
-                withContext(Dispatchers.Default) {
-                    nativeInferenceMutex.withLock { routeToolRequestWithModel(prompt) }
+            try {
+                val decision = withContext(Dispatchers.Default) {
+                    nativeInferenceMutex.withLock { classifyRequest(prompt, ready.nCtx) }
                 }
-            }.onFailure {
-                ActivityLogger.record(getApplication(), "ERROR", "tool_routing_failed", it.javaClass.simpleName)
-            }.getOrNull()
-            if (toolCall != null) {
-                executeRoutedDeviceRequest(prompt, toolCall)
-            } else {
+                when (decision.category) {
+                    RequestCategory.DEVICE_LIVE -> {
+                        _generationProgress.value = "Preparing device action…"
+                        val call = withContext(Dispatchers.Default) {
+                            nativeInferenceMutex.withLock { generateToolCallWithModel(prompt, ready.nCtx) }
+                        }
+                        if (call != null) executeRoutedDeviceRequest(prompt, call)
+                        else sendModelRequest(prompt)
+                    }
+                    RequestCategory.NOTIFICATIONS,
+                    RequestCategory.SAVED_FACTS,
+                    RequestCategory.CONVERSATION -> {
+                        _generationProgress.value = "Querying saved data…"
+                        val evidence = withContext(Dispatchers.Default) {
+                            nativeInferenceMutex.withLock {
+                                retrieveDatabaseEvidence(prompt, decision.category.table!!, ready.nCtx, _inferenceConfig.value)
+                            }
+                        }
+                        sendModelRequest(prompt, evidence)
+                    }
+                    RequestCategory.CHAT -> sendModelRequest(prompt)
+                }
+            } catch (error: Throwable) {
+                ActivityLogger.record(getApplication(), "ERROR", "classification_failed", error.javaClass.simpleName)
                 sendModelRequest(prompt)
             }
         }
     }
 
-    private fun routeToolRequestWithModel(question: String): ToolCall? {
-        val ready = _uiState.value as? ChatUiState.Ready ?: return null
-        val contextWindow = ready.nCtx.coerceAtLeast(128)
-        val outputLimit = 64
-        val promptLimit = minOf(
-            PromptCache.PROMPT_CAP,
-            (contextWindow - outputLimit - 32).coerceAtLeast(1)
+    private fun classifyRequest(question: String, contextWindowTokens: Int): RequestClassification {
+        val labels = listOf("A", "B", "C", "D", "E")
+        val candidateTokenIds = labels.map { label ->
+            val ids = runtime.tokenize(label)
+            require(ids.size == 1) { "Classifier label $label is not a single tokenizer token." }
+            ids.single()
+        }
+        require(candidateTokenIds.distinct().size == 5) { "Classifier labels do not have distinct first-token IDs." }
+        val classificationPrompt = """
+            QUESTION:
+            $question
+
+            Choose exactly one category:
+            A = chat, general knowledge, writing, or how-to.
+            B = device action or live data requiring a device or network tool.
+            C = notifications and app events stored on this device.
+            D = saved facts and preferences explicitly stored on this device.
+            E = earlier questions and answers in saved chat history.
+
+            Return exactly one uppercase label character as the first generated token.
+            If uncertain, choose A. Do not explain.
+        """.trimIndent()
+        runtime.resetStopRequest()
+        val logits = runtime.classify(
+            messages = PromptCache.stage("CLASSIFY", classificationPrompt),
+            candidateTokenIds = candidateTokenIds.toIntArray(),
+            contextWindowTokens = contextWindowTokens
         )
-        val messages = PromptCache.stage("ROUTE", "QUESTION=$question")
+        val decision = RequestClassifier.decide(logits)
+        val scoreLog = labels.zip(decision.probabilities).joinToString(" ") { (label, probability) ->
+            "$label=${"%.4f".format(java.util.Locale.US, probability)}"
+        }
+        ActivityLogger.record(getApplication(), "INFERENCE", "classify", "$scoreLog selected=${decision.category.label}")
+        return decision
+    }
+
+    private fun generateToolCallWithModel(question: String, contextWindowTokens: Int): ToolCall? {
+        val outputLimit = 40
+        val promptLimit = minOf(PromptCache.PROMPT_CAP, (contextWindowTokens - outputLimit - 32).coerceAtLeast(1))
+        val messages = PromptCache.stage("TOOL", "QUESTION=$question")
         var actualTokens = 0
         var startsThinking = false
         runtime.resetStopRequest()
         val response = runtime.generate(
             messages = messages,
             inferenceConfig = _inferenceConfig.value.copy(maxTokens = outputLimit),
-            contextWindowTokens = contextWindow,
+            contextWindowTokens = contextWindowTokens,
             onPrompt = { formatted, count ->
                 actualTokens = count
                 startsThinking = formatted.trimEnd().endsWith("<think>")
-                require(count in 1..promptLimit) {
-                    "Tool-routing prompt is $count tokens; limit is $promptLimit."
-                }
+                require(count in 1..promptLimit) { "Tool-argument prompt is $count tokens; limit is $promptLimit." }
             },
             onToken = {},
             onMetrics = {}
         )
-        require(actualTokens in 1..promptLimit) {
-            "The runtime did not confirm a valid tool-routing prompt token count."
-        }
+        if (actualTokens !in 1..promptLimit || response.isBlank()) return null
         val parsed = splitAssistantResponse(response, startsThinking)
         val output = (parsed.answer.ifBlank { response }).trim()
-            .removePrefix("```json").removePrefix("```").trim()
-            .removeSuffix("```").trim()
-        if (output.equals("NO_TOOL", ignoreCase = true) || output.startsWith("NO_TOOL ", true)) {
-            ActivityLogger.record(getApplication(), "INFERENCE", "request_route", "model=NO_TOOL input_tokens=$actualTokens")
-            return null
-        }
-        if (!output.startsWith("TOOL_CALL|")) return null
+            .removePrefix("```json").removePrefix("```").trim().removeSuffix("```").trim()
+        if (output.equals("NO_TOOL", true) || !output.startsWith("TOOL_CALL|")) return null
         val payload = output.removePrefix("TOOL_CALL|")
         val separator = payload.indexOf('|')
         if (separator <= 0) return null
@@ -810,17 +716,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val jsonStart = jsonText.indexOf('{')
         val jsonEnd = jsonText.lastIndexOf('}')
         if (jsonStart < 0 || jsonEnd < jsonStart) return null
-        val arguments = runCatching {
-            org.json.JSONObject(jsonText.substring(jsonStart, jsonEnd + 1))
-        }.getOrNull() ?: return null
-        ActivityLogger.record(
-            getApplication(), "INFERENCE", "request_route",
-            "model=TOOL tool=$name input_tokens=$actualTokens"
-        )
+        val arguments = runCatching { org.json.JSONObject(jsonText.substring(jsonStart, jsonEnd + 1)) }.getOrNull() ?: return null
+        ActivityLogger.record(getApplication(), "INFERENCE", "tool_arguments", "tool=$name input_tokens=$actualTokens")
         return ToolCall(name, arguments)
     }
 
-    private fun sendModelRequest(prompt: String) {
+    private fun sendModelRequest(prompt: String, databaseEvidence: String? = null) {
         ActivityLogger.record(getApplication(), "INFERENCE", "request_started", "Question submitted; message content omitted")
         val inferenceConfig = _inferenceConfig.value
         val userMessage = ChatMessage(MessageRole.User, prompt)
@@ -842,34 +743,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val answer = withContext(Dispatchers.Default) {
                     nativeInferenceMutex.withLock {
                     runtime.resetStopRequest()
-                    // Run model-generated SQL planning followed by a separate natural-language answer pass.
                     val readyState = _uiState.value as? ChatUiState.Ready
                     val contextCapacity = (readyState?.nCtx ?: 512).coerceAtLeast(128)
-                    // Small context windows must reserve room for memory as well as output.
-                    // The previous full output reservation left only ~224 prompt tokens at
-                    // nCtx=512, causing the memory builder to shrink its summary to nothing.
-                    val effectiveMaxTokens = inferenceConfig.maxTokens.coerceAtMost(
-                        (contextCapacity / 3).coerceAtLeast(64)
-                    )
+                    val effectiveMaxTokens = inferenceConfig.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
                     val generationConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens)
                     val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
-                    // GGUF decides whether to query SQLite and generates the SELECT.
-                    // Kotlin validates and executes it read-only, then returns plain-text rows.
-                    val databaseEvidence = retrieveDatabaseEvidence(
-                        question = prompt,
-                        contextWindowTokens = readyState?.nCtx ?: contextCapacity,
-                        inferenceConfig = generationConfig
-                    )
                     val answerPromptBudget = minOf(PromptCache.PROMPT_CAP, promptBudget)
-                    val promptMessages = if (databaseEvidence.startsWith("NO_DATABASE_LOOKUP.")) {
+                    val promptMessages = if (databaseEvidence.isNullOrBlank()) {
                         buildPromptMessages(prompt, "", answerPromptBudget)
                     } else {
                         buildDatabaseAnswerMessages(prompt, databaseEvidence, answerPromptBudget)
                     }
                     ActivityLogger.record(
                         getApplication(), "INFERENCE", "prompt_composition",
-                        "database_evidence_chars=${databaseEvidence.length} " +
-                            "database_evidence_tokens=${runtime.tokenize(databaseEvidence).size} " +
+                        "database_evidence_chars=${databaseEvidence?.length ?: 0} " +
+                            "database_evidence_tokens=${databaseEvidence?.let { runtime.tokenize(it).size } ?: 0} " +
                             "context=${contextCapacity} prompt_budget=${answerPromptBudget} output_limit=${effectiveMaxTokens}"
                     )
                     runtime.resetStopRequest()
@@ -936,29 +824,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun isExpandedConversationRequest(question: String): Boolean {
-        val q = question.lowercase(java.util.Locale.ROOT)
-        return listOf(
-            "explain more", "explain further", "elaborate", "more detail", "more details",
-            "tell me more", "in more depth", "go deeper", "expand on", "break it down",
-            "why exactly", "how exactly", "give me details", "provide more context"
-        ).any(q::contains)
-    }
-
-    private fun compactExchange(question: String, answer: String, expanded: Boolean): String {
-        fun clean(value: String): String = value
-            .replace(Regex("\\s+"), " ")
-            .replace(Regex("^(okay|ok|sure|certainly|of course)[,!. ]+", RegexOption.IGNORE_CASE), "")
-            .trim()
+    private fun compactExchange(question: String, answer: String): String {
+        fun clean(value: String): String = value.replace(Regex("\\s+"), " ").trim()
         val q = clean(question).trimEnd('?', '.', '!')
-        val a = clean(answer)
-        val answerLimit = if (expanded) 420 else 220
-        val compactAnswer = if (expanded) {
-            Regex("(?<=[.!?])\\s+").split(a).filter { it.isNotBlank() }.take(3).joinToString(" ")
-        } else {
-            Regex("(?<=[.!?])\\s+").split(a).filter { it.isNotBlank() }.take(2).joinToString(" ")
-        }
-        return "Q: ${q.take(if (expanded) 150 else 110)} | A: ${compactAnswer.take(answerLimit)}"
+        val sentences = clean(answer).split(Regex("(?<=[.!?])\\s+")).filter { it.isNotBlank() }.take(2)
+        return "Q: ${q.take(110)} | A: ${sentences.joinToString(" ").take(220)}"
     }
 
     /**
@@ -969,10 +839,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         currentQuestion: String,
         maxTokens: Int = 300
     ): String {
-        val expanded = isExpandedConversationRequest(currentQuestion)
         val exchanges = EventMemoryStore.recentConversationExchanges(
             getApplication(),
-            limit = if (expanded) 16 else 8
+            limit = 8
         )
         if (exchanges.isEmpty()) return ""
 
@@ -984,7 +853,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (key.isNotBlank() && answer.isNotBlank()) { unique.remove(key); unique[key] = question to answer }
             }
         val compactTurns = unique.values.map { (question, answer) ->
-            compactExchange(question, answer, expanded)
+            compactExchange(question, answer)
         }
         val selected = mutableListOf<String>()
         for (turn in compactTurns.asReversed()) {
@@ -1101,43 +970,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** The stable system prefix is warmed once after model preparation, not after every answer. */
     private fun scheduleMemoryWarmup() = Unit
-
-    private fun localConversationReply(prompt: String): String? {
-        val text = prompt.trim().lowercase(java.util.Locale.US)
-        if (text.matches(Regex("^[.!?,;:]+$"))) {
-            return "I'm here. What would you like to do?"
-        }
-        if (Regex("\\b(do you have memory|have you got memory|do you remember me)\\b").containsMatchIn(text)) {
-            val turns = synchronized(conversationHistory) { conversationHistory.size }
-            return "Yes. Mr-Red has local memory: up to 40 completed chat exchanges are saved on this device, alongside the app's activity log. I can use that saved context when it is included in the current prompt. It is not human memory. Currently saved chat exchanges: $turns."
-        }
-        if (Regex("\\b(what you said|what did you say|repeat that|what was your last answer)\\b").containsMatchIn(text)) {
-            val previousAnswer = synchronized(conversationHistory) { conversationHistory.lastOrNull()?.second }
-            return previousAnswer ?: "I don't have an earlier completed answer available in the saved chat history."
-        }
-        if (Regex("\\b(who are you|what are you|introduce yourself|tell me about yourself)\\b").containsMatchIn(text)) {
-            return "I'm Mr-Red, your on-device personal assistant. I can help with conversation and the Android features connected in this app, including device status, alarms and reminders. I'm composed, observant and occasionally dry-witted; I'll be clear about what I can and cannot access."
-        }
-        if (Regex("\\b(email|emails|mail|inbox)\\b").containsMatchIn(text) &&
-            Regex("\\b(any|check|show|read|new|unread|latest|have|got|see|look|my)\\b").containsMatchIn(text)) {
-            return "I can't read your email inbox in this build because no email account connection or inbox-reading tool is configured. I can open Gmail on your phone, but I can't see your messages or verify whether you have new mail."
-        }
-        return null
-    }
-
-    private fun completeLocalReply(prompt: String, reply: String) {
-        _messages.value = _messages.value +
-            ChatMessage(MessageRole.User, prompt) +
-            ChatMessage(MessageRole.Assistant, reply)
-        _generationError.value = null
-        ActivityLogger.record(getApplication(), "ANSWER", "generated", reply)
-        synchronized(conversationHistory) {
-            conversationHistory += prompt to reply
-            while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
-            persistConversationHistoryLocked()
-        }
-        EventMemoryStore.recordConversationExchange(getApplication(), prompt, reply)
-    }
 
     private fun executeRoutedDeviceRequest(prompt: String, call: ToolCall) {
         val userMessage = ChatMessage(MessageRole.User, prompt)

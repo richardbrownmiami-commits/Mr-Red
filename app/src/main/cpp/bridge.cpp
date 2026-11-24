@@ -415,6 +415,56 @@ namespace {
             return static_cast<int>(tokens.size());
         }
 
+        std::vector<float> classify(
+                const std::vector<ChatMessage> &history,
+                const std::vector<llama_token> &candidateTokens) {
+            if (model_ == nullptr || context_ == nullptr || history.empty() ||
+                candidateTokens.empty() || stopRequested_.load()) return {};
+            const std::string prompt = formatChatPrompt(history);
+            if (prompt.empty()) return {};
+            const std::vector<llama_token> promptTokens = tokenize(prompt, true);
+            if (promptTokens.empty() || promptTokens.size() > llama_n_ctx(context_)) return {};
+
+            size_t reused = commonPrefixLength(cachedTokens_, promptTokens);
+            // A full KV-prefix hit still requires the final token to be decoded for fresh logits.
+            if (reused >= promptTokens.size()) reused = promptTokens.size() - 1;
+            size_t startIndex = 0;
+            if (!cachedTokens_.empty() && reused > 0) {
+                if (reused < cachedTokens_.size() &&
+                    !llama_memory_seq_rm(llama_get_memory(context_), 0,
+                                          static_cast<llama_pos>(reused), -1)) {
+                    resetContext();
+                } else {
+                    startIndex = reused;
+                    nextPosition_ = static_cast<llama_pos>(reused);
+                }
+            } else {
+                resetContext();
+            }
+            if (prefill(promptTokens, startIndex) != static_cast<int>(promptTokens.size())) {
+                appendDiagnostic("classify_failed reason=prefill_incomplete");
+                resetContext();
+                return {};
+            }
+
+            const llama_vocab *vocab = llama_model_get_vocab(model_);
+            const float *logits = llama_get_logits_ith(context_, -1);
+            if (vocab == nullptr || logits == nullptr) return {};
+            const int32_t vocabSize = llama_vocab_n_tokens(vocab);
+            std::vector<float> selected;
+            selected.reserve(candidateTokens.size());
+            for (const llama_token token : candidateTokens) {
+                if (token < 0 || token >= vocabSize) return {};
+                selected.push_back(logits[token]);
+            }
+            cachedTokens_ = promptTokens;
+            appendDiagnostic("classify_completed prompt_tokens=" +
+                             std::to_string(promptTokens.size()) +
+                             " reused_tokens=" + std::to_string(startIndex) +
+                             " candidates=" + std::to_string(selected.size()));
+            return selected;
+        }
+
         std::string generate(
                 const std::vector<ChatMessage> &history,
                 int maxTokens,
@@ -1048,6 +1098,64 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeWarmPrompt(
         env->DeleteLocalRef(content);
     }
     return runtime->warmPrompt(messages);
+}
+
+extern "C"
+JNIEXPORT jfloatArray JNICALL
+Java_com_arick_androidlocalllmlab_NativeLlmBridge_nativeClassify(
+        JNIEnv *env,
+        jobject /* thiz */,
+        jlong handle,
+        jobjectArray roles,
+        jobjectArray contents,
+        jintArray candidateTokenIds) {
+    auto *runtime = toRuntime(handle);
+    if (runtime == nullptr || roles == nullptr || contents == nullptr ||
+        candidateTokenIds == nullptr) return env->NewFloatArray(0);
+    const jsize roleCount = env->GetArrayLength(roles);
+    const jsize contentCount = env->GetArrayLength(contents);
+    const jsize candidateCount = env->GetArrayLength(candidateTokenIds);
+    if (roleCount <= 0 || roleCount != contentCount || candidateCount <= 0) {
+        return env->NewFloatArray(0);
+    }
+
+    std::vector<ChatMessage> history;
+    history.reserve(static_cast<size_t>(roleCount));
+    for (jsize index = 0; index < roleCount; ++index) {
+        auto role = static_cast<jstring>(env->GetObjectArrayElement(roles, index));
+        auto content = static_cast<jstring>(env->GetObjectArrayElement(contents, index));
+        if (role == nullptr || content == nullptr) {
+            if (role != nullptr) env->DeleteLocalRef(role);
+            if (content != nullptr) env->DeleteLocalRef(content);
+            return env->NewFloatArray(0);
+        }
+        const char *roleChars = env->GetStringUTFChars(role, nullptr);
+        const char *contentChars = env->GetStringUTFChars(content, nullptr);
+        if (roleChars == nullptr || contentChars == nullptr) {
+            if (roleChars != nullptr) env->ReleaseStringUTFChars(role, roleChars);
+            if (contentChars != nullptr) env->ReleaseStringUTFChars(content, contentChars);
+            env->DeleteLocalRef(role);
+            env->DeleteLocalRef(content);
+            return env->NewFloatArray(0);
+        }
+        history.push_back({roleChars, contentChars});
+        env->ReleaseStringUTFChars(role, roleChars);
+        env->ReleaseStringUTFChars(content, contentChars);
+        env->DeleteLocalRef(role);
+        env->DeleteLocalRef(content);
+    }
+
+    jint *rawIds = env->GetIntArrayElements(candidateTokenIds, nullptr);
+    if (rawIds == nullptr) return env->NewFloatArray(0);
+    std::vector<llama_token> candidates(rawIds, rawIds + candidateCount);
+    env->ReleaseIntArrayElements(candidateTokenIds, rawIds, JNI_ABORT);
+
+    const std::vector<float> values = runtime->classify(history, candidates);
+    jfloatArray result = env->NewFloatArray(static_cast<jsize>(values.size()));
+    if (result != nullptr && !values.empty()) {
+        env->SetFloatArrayRegion(result, 0, static_cast<jsize>(values.size()), values.data());
+    }
+    return result;
 }
 
 extern "C"

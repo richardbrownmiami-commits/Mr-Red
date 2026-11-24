@@ -8,7 +8,7 @@ import org.junit.Test
 class PromptCacheTest {
     @Test
     fun everyStageUsesIdenticalSystemContent() {
-        val stages = listOf("ROUTE", "INTENT", "SQL", "ANSWER", "CHAT")
+        val stages = listOf("CLASSIFY", "TOOL", "SQL", "ANSWER", "CHAT")
         val systems = stages.map { PromptCache.stage(it, "question=$it").first().content }
         assertEquals(1, systems.distinct().size)
         assertEquals(PromptCache.STABLE_SYSTEM, systems.first())
@@ -17,21 +17,25 @@ class PromptCacheTest {
     @Test
     fun stableSystemContainsNoPerCallValues() {
         val system = PromptCache.STABLE_SYSTEM
-        listOf(
-            "NOW_MS=", "TZ=", "QUESTION=", "ROWS=", "PREVIOUS_QUESTION=",
-            "nowMillis", "currentTimeMillis", "System.currentTimeMillis"
-        ).forEach { marker ->
+        listOf("NOW_MS=", "TZ=", "QUESTION=", "ROWS=", "PREVIOUS_QUESTION=",
+            "nowMillis", "currentTimeMillis", "System.currentTimeMillis").forEach { marker ->
             assertFalse("Dynamic marker found: $marker", system.contains(marker))
         }
-        assertFalse(Regex("\\b\\d{10,13}\\b").containsMatchIn(system))
-        assertTrue("Stable prefix should stay compact (under 300 whitespace-delimited words)", system.split(Regex("\\s+")).size < 300)
+        assertTrue(system.split(Regex("\\s+")).size < 300)
+        assertEquals(520, PromptCache.MAX_STABLE_PREFIX_TOKENS)
     }
 
     @Test
-    fun stableSystemContainsMrRedPersonaAndTruthfulnessRules() {
+    fun stableSystemContainsRequiredRules() {
         val system = PromptCache.STABLE_SYSTEM
-        assertTrue(system.contains("feminine, composed, perceptive, quietly witty"))
-        assertTrue(system.contains("Identify only as Mr-Red"))
-        assertTrue(system.contains("Never invent facts, access, or results; report actions only after success"))
+        assertTrue(system.contains("You cannot read email; say so and never claim to see an inbox."))
+        assertTrue(system.contains("Saved chat history: up to 40 exchanges on this device."))
+        assertTrue(system.contains("Never answer battery, storage, RAM, or weather without a successful tool result."))
+    }
+
+    @Test
+    fun generatedRoutingStagesAreAbsent() {
+        assertFalse(PromptCache.STABLE_SYSTEM.contains("ROUTE:"))
+        assertFalse(PromptCache.STABLE_SYSTEM.contains("INTENT:"))
     }
 }

@@ -177,10 +177,32 @@ class LocalLlmRuntime : AutoCloseable {
     fun warmPrompt(messages: List<PromptMessage>): Int {
         check(nativeHandle != 0L) { "Runtime has not been created" }
         require(messages.isNotEmpty()) { "Memory prefix must not be empty" }
-        return NativeLlmBridge.nativeWarmPrompt(
+        val tokenCount = NativeLlmBridge.nativeWarmPrompt(
             handle = nativeHandle,
             roles = messages.map { it.role }.toTypedArray(),
             contents = messages.map { it.content }.toTypedArray()
+        )
+        check(tokenCount in 1 until PromptCache.MAX_STABLE_PREFIX_TOKENS) {
+            "The formatted shared system prefix must be under ${PromptCache.MAX_STABLE_PREFIX_TOKENS} tokens; actual count=$tokenCount."
+        }
+        return tokenCount
+    }
+
+    /** Prefills a chat-template prompt and returns logits for candidate first tokens. */
+    fun classify(
+        messages: List<PromptMessage>,
+        candidateTokenIds: IntArray,
+        contextWindowTokens: Int
+    ): FloatArray {
+        check(nativeHandle != 0L) { "Runtime has not been created" }
+        require(messages.isNotEmpty()) { "Classification prompt must not be empty" }
+        require(candidateTokenIds.isNotEmpty()) { "Classifier candidates must not be empty" }
+        require(contextWindowTokens > 0) { "Context window must be positive" }
+        return NativeLlmBridge.nativeClassify(
+            handle = nativeHandle,
+            roles = messages.map { it.role }.toTypedArray(),
+            contents = messages.map { it.content }.toTypedArray(),
+            candidateTokenIds = candidateTokenIds
         )
     }
 
