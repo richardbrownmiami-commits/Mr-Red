@@ -706,7 +706,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 val candidate = splitAssistantResponse(rawResponse, firstStartsThinking).answer.trimStart()
                                 val possibleToolMarker = candidate.isEmpty() ||
                                     "tool+".startsWith(candidate.take(5), ignoreCase = true) ||
-                                    candidate.startsWith("tool+", ignoreCase = true)
+                                    candidate.startsWith("tool+", ignoreCase = true) ||
+                                    "TOOL_CALL|".startsWith(candidate, ignoreCase = true) ||
+                                    candidate.startsWith("TOOL_CALL|", ignoreCase = true)
                                 if (!possibleToolMarker) {
                                     replaceLatestAssistantMessage(
                                         splitAssistantResponse(rawResponse, firstStartsThinking),
