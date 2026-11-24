@@ -45,8 +45,11 @@ object ActivityLogger {
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
             val safeLayer = clean(layer, 32)
             val safeAction = clean(action, 64)
-            // SQLite is the canonical timestamped event store. Its own writer is asynchronous.
-            if (!(safeLayer == "NOTIFICATION" && (safeAction == "posted" || safeAction == "removed"))) {
+            // Conversation content belongs only in conversation_turns. Do not duplicate every
+            // generated answer as an events row; the activity journal still retains its diagnostic
+            // summary while the model queries conversation_turns only when it needs chat history.
+            val isNotificationEvent = safeLayer == "NOTIFICATION" && (safeAction == "posted" || safeAction == "removed")
+            if (safeLayer != "ANSWER" && !isNotificationEvent) {
                 EventMemoryStore.recordEvent(context, safeLayer, safeAction, detail, source = "activity_logger")
             }
             val appContext = context.applicationContext
