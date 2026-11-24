@@ -818,6 +818,7 @@ object EventMemoryStore {
         sql: String,
         requiredTable: String? = null,
         requiredFilter: DatabaseQueryFilter? = null,
+        bindArgs: Array<String>? = null,
         maxRows: Int = 100,
         maxChars: Int = 18_000
     ): String {
@@ -870,8 +871,19 @@ object EventMemoryStore {
             require(filterExpression.containsMatchIn(statement) && statement.count { it == '?' } == 1) {
                 "The query must filter ${requiredFilter.column} with exactly one bound parameter (column = ?)."
             }
-        } else {
-            require(!statement.contains('?')) { "SQL placeholders are allowed only for a validated selected-value filter." }
+        } else if (bindArgs == null) {
+            require(!statement.contains('?')) { "Every SQL placeholder must have a bound parameter." }
+        }
+        if (bindArgs != null) {
+            require(requiredFilter == null) { "Use either explicit query parameters or a selected-value filter, not both." }
+            require(bindArgs.size <= 12 && bindArgs.all { it.length <= 1000 && !it.contains('\\u0000') }) {
+                "SQL query parameters are invalid or too numerous."
+            }
+            require(statement.count { it == '?' } == bindArgs.size) {
+                "The number of SQL placeholders must match the supplied parameters."
+            }
+        } else if (requiredFilter != null) {
+            require(statement.count { it == '?' } == 1) { "The selected-value filter requires exactly one placeholder." }
         }
         require(!Regex("\\bsqlite_[A-Za-z0-9_]*\\b", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
             "SQLite internal tables and functions are not available to model queries."
@@ -901,8 +913,8 @@ object EventMemoryStore {
                 require(requiredFilter.column in availableColumns) { "Selected filter column is not in the requested table." }
             }
             val boundedSql = "SELECT * FROM ($statement) AS model_result LIMIT ${maxRows.coerceIn(1, 100)}"
-            val bindArgs = requiredFilter?.let { arrayOf(it.value) }
-            db.rawQuery(boundedSql, bindArgs).use { cursor ->
+            val queryArgs = bindArgs ?: requiredFilter?.let { arrayOf(it.value) }
+            db.rawQuery(boundedSql, queryArgs).use { cursor ->
                 if (!cursor.moveToFirst()) return "Query completed. No matching records were found."
                 val output = StringBuilder("ROWS:")
                 var rowNumber = 0
