@@ -1073,16 +1073,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             // the stable prefix and compact context, then binary-search the largest leading
             // portion of the tool result that fits instead of rejecting the answer.
             var low = 0
-            var high = currentQuestion.length
+            var high = currentQuestion.codePointCount(0, currentQuestion.length)
             var bestQuestion = ""
             while (low <= high) {
-                var middle = (low + high) ushr 1
-                // Do not split a UTF-16 surrogate pair when truncating supplementary Unicode.
-                if (middle > 0 && middle < currentQuestion.length &&
-                    currentQuestion[middle - 1].isHighSurrogate() &&
-                    currentQuestion[middle].isLowSurrogate()
-                ) middle++
-                val candidate = currentQuestion.substring(0, middle)
+                val middle = (low + high) ushr 1
+                // Search Unicode code points, not UTF-16 code units, so a truncation
+                // boundary can never split a supplementary character.
+                val endIndex = currentQuestion.offsetByCodePoints(0, middle)
+                val candidate = currentQuestion.substring(0, endIndex)
                 if (count(messagesFor(context, candidate)) <= budget) {
                     bestQuestion = candidate
                     low = middle + 1
