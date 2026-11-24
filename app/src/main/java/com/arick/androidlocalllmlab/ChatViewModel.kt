@@ -70,12 +70,6 @@ data class ChatMessage(
 
 data class AgentTraceItem(val text: String)
 
-private data class PendingDatabaseChoice(
-    val table: String,
-    val column: String,
-    val value: String
-)
-
 data class MemorySnapshot(
     val javaUsedBytes: Long,
     val javaMaxBytes: Long,
@@ -111,9 +105,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // Completed turns are persisted privately and restored when the app process restarts.
     // The native KV cache is separate and is rebuilt from the transcript after restart.
     private val conversationHistory = mutableListOf<Pair<String, String>>()
-    private var pendingDatabaseQuestion: String? = null
-    private var pendingDatabaseTables: List<String> = emptyList()
-    private var pendingDatabaseChoices: List<PendingDatabaseChoice> = emptyList()
     private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
     private val maxStoredTurns = 40
 
@@ -504,53 +495,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         contextWindowTokens: Int,
         inferenceConfig: InferenceConfig
     ): String {
-        var effectiveQuestion = question
-        var requiredFilter: DatabaseQueryFilter? = null
-        val pendingQuestion = pendingDatabaseQuestion
-        if (pendingQuestion != null) {
-            val selection = question.trim().lowercase(java.util.Locale.ROOT)
-            val selectedTable = pendingDatabaseTables.firstOrNull { table ->
-                selection == table || selection == table.replace('_', ' ') ||
-                    selection.contains(table.replace('_', ' '))
-            }
-            val matchingValueChoices = pendingDatabaseChoices.filter { choice ->
-                val value = choice.value.lowercase(java.util.Locale.ROOT)
-                selection == value || value.startsWith(selection) || selection.contains(value) ||
-                    value.split(Regex("[^\\p{L}\\p{N}]+")).any { it == selection }
-            }
-            if (selectedTable == null && matchingValueChoices.size > 1) {
-                val options = matchingValueChoices.take(6).joinToString(" / ") { choice ->
-                    "${choice.column}: ${choice.value}"
-                }
-                return "CLARIFICATION_REQUEST: More than one stored value matches '$question'. Which exact value do you mean: $options?"
-            }
-            val selectedValueChoice = matchingValueChoices.singleOrNull()
-            val selected = selectedTable ?: selectedValueChoice?.table
-            when {
-                selection in setOf("all", "everything", "all of them", "search all", "search across all of them", "all tables") -> {
-                    effectiveQuestion = "$pendingQuestion. User clarification: search across all available data."
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-                selected != null -> {
-                    effectiveQuestion = if (selectedValueChoice != null) {
-                        requiredFilter = DatabaseQueryFilter(selected, selectedValueChoice.column, selectedValueChoice.value)
-                        "$pendingQuestion. User selected the stored value for column ${selectedValueChoice.column}; Kotlin will bind the exact value as a SQL parameter."
-                    } else {
-                        "$pendingQuestion. User clarification selected database table: $selected."
-                    }
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-                else -> {
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-            }
-        }
+        val effectiveQuestion = question
 
         val plannerOutputLimit = minOf(128, (contextWindowTokens / 4).coerceAtLeast(32))
         val plannerPromptLimit = minOf(
@@ -619,9 +564,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val combinedEvidence = StringBuilder()
         val failures = mutableListOf<String>()
         for (table in selectedTables) {
-            val filterForTable = requiredFilter?.takeIf { it.table == table }
-            val filterHint = filterForTable?.let { " FILTER_COLUMN=${it.column}." }.orEmpty()
-            val sqlUser = "TABLE=$table$filterHint NOW_MS=$nowMillis TZ=$zone QUESTION=$effectiveQuestion" +
+            val sqlUser = "TABLE=$table NOW_MS=$nowMillis TZ=$zone QUESTION=$effectiveQuestion" +
                 if (previousTurn.isBlank()) "" else "\n$previousTurn"
             var correction = ""
             var tableEvidence: String? = null
@@ -634,8 +577,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     tableEvidence = EventMemoryStore.executeModelReadOnlyQuery(
                         getApplication(),
                         sql,
-                        requiredTable = table,
-                        requiredFilter = filterForTable
+                        requiredTable = table
                     )
                     break
                 } catch (error: Exception) {
