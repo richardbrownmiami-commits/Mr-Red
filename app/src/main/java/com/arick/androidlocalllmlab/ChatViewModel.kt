@@ -1027,9 +1027,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     appendLatestAssistantAgentTrace("Passing verified system data and your question to the local GGUF model")
                     appendLatestAssistantSources(sources)
                     _generationProgress.value = "Writing a natural-language answer…"
-                    val memory = withContext(Dispatchers.IO) {
-                        ActivityLogger.promptMemory(getApplication())
-                    }
                     val contextCapacity = ready.nCtx.coerceAtLeast(128)
                     val maxOutput = _inferenceConfig.value.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
                     val promptBudget = (contextCapacity - maxOutput - 32).coerceAtLeast(1)
@@ -1040,12 +1037,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             LIVE SYSTEM DATA collected by Kotlin tool '${call.name}':
                             $toolContent
 
-                            STORED SYSTEM HISTORY:
-                            ${memory.ifBlank { "No additional stored history was selected." }}
-
-                            Answer the current user message naturally and directly. Use the live system data,
-                            relevant stored history, and any context the user supplied in the current message.
-                            Keep their origins distinct. Treat the tool result as the only source of current facts.
+                            Answer the current user message naturally and directly. Use the live system data
+                            and any context the user supplied in the current message. Treat the tool result as
+                            the source of current facts.
                             Never invent details. If access failed or no data is available, explain that clearly.
                             Do not mention internal tool names unless useful to explain a limitation.
                         """.trimIndent()
