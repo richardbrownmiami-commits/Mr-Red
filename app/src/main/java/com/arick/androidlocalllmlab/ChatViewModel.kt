@@ -934,40 +934,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Builds role-separated GGUF messages from the invariant system instructions,
-     * one compact logger summary, and the current question. No separate transcript is added.
-     */
-    private fun trimMemoryToTokenBudget(memory: String, maxTokens: Int): String {
-        if (memory.isBlank() || maxTokens <= 0) return ""
-        val words = memory.trim().split(Regex("\\s+"))
-        var low = 0
-        var high = words.size
-        var best = ""
-        while (low <= high) {
-            val mid = (low + high) ushr 1
-            val candidate = words.take(mid).joinToString(" ")
-            val tokenCount = if (candidate.isBlank()) 0 else runtime.tokenize(candidate).size
-            if (tokenCount <= maxTokens) {
-                best = candidate
-                low = mid + 1
-            } else {
-                high = mid - 1
-            }
-        }
-        return best
-    }
-
-    private fun buildMemoryPrefixMessages(memorySummary: String): List<PromptMessage> = buildList {
-        add(PromptMessage("system", fixedSystemInstructions))
-        if (memorySummary.isNotBlank()) {
-            add(PromptMessage(
-                "user",
-                "Mr-Red activity memory (compact summary of prior Q&A and app/device events):\n$memorySummary"
-            ))
-        }
-    }
-
     private val conversationOnlySystemInstructions = """
         You are Mr-Red. Reply naturally and directly.
         Use the compact conversation context only to resolve references and follow-ups.
