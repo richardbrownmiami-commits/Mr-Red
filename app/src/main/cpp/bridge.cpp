@@ -446,7 +446,12 @@ namespace {
                 return {};
             }
 
-            const size_t reusedPromptTokenCount = commonPrefixLength(cachedTokens_, promptTokens);
+            size_t reusedPromptTokenCount = commonPrefixLength(cachedTokens_, promptTokens);
+            // A full prompt-cache hit still needs fresh logits for sampling. Re-decode the
+            // final prompt token after trimming any generated suffix from the KV cache.
+            if (!promptTokens.empty() && reusedPromptTokenCount >= promptTokens.size()) {
+                reusedPromptTokenCount = promptTokens.size() - 1;
+            }
             size_t prefillStartIndex = 0;
             if (!cachedTokens_.empty() && reusedPromptTokenCount > 0) {
                 // 新一轮的模板会在上一轮 assistant 文本之后追加 user 标记；Tokenizer 可能
