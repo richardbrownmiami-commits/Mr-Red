@@ -3,8 +3,8 @@ package com.arick.androidlocalllmlab
 /**
  * KV-cache-friendly prompt layout for Mr-Red.
  *
- * Every model stage uses the byte-identical system prefix. Dynamic stage data follows
- * in the user message so llama.cpp can retain the longest identical token prefix.
+ * The fixed system prefix is warmed and retained by the native runtime. Per-request
+ * Kotlin messages contain only the dynamic user payload.
  */
 internal object PromptCache {
     const val MIN_NCTX = 1024
@@ -17,9 +17,8 @@ ANSWER: After receiving DATABASE RESULTS, answer the original question naturally
 Schema: events(id,event_type,action,source,detail,occurred_at,package_name,event_key,title,body,importance,is_active); notifications have event_type=NOTIFICATION and action=posted|removed; importance is unreliable. facts(id,fact,source_text,source,created_at,updated_at,fingerprint) are explicitly saved facts. conversation_turns(id,question,answer,created_at,fingerprint).
 """.trim()
 
-    /** Builds the identical system prefix for every stage; only the stage body varies. */
+    /** The fixed system prompt is installed once in native memory; Kotlin sends only the current user payload. */
     fun stage(name: String, body: String): List<PromptMessage> = listOf(
-        PromptMessage("system", STABLE_SYSTEM),
         PromptMessage("user", "STAGE=$name\n$body")
     )
 }

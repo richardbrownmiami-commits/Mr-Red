@@ -94,6 +94,7 @@ namespace {
 
         void unloadModel() {
             releaseContext();
+            cachedSystemPrompt_.clear();
             if (model_ == nullptr) {
                 return;
             }
@@ -357,10 +358,13 @@ namespace {
         // The prefix intentionally omits the assistant generation marker so a later user
         // message can be appended while preserving the exact cached token prefix.
         int warmPrompt(const std::vector<ChatMessage> &history) {
-            if (model_ == nullptr || context_ == nullptr || history.empty() ||
+            if (model_ == nullptr || context_ == nullptr || history.size() != 1 ||
+                history.front().role != "system" || history.front().content.empty() ||
                 stopRequested_.load()) {
                 return 0;
             }
+            // Keep the fixed system prompt in native memory across KV/context resets.
+            cachedSystemPrompt_ = history.front().content;
 
             using WarmClock = std::chrono::steady_clock;
             const auto warmStartedAt = WarmClock::now();
@@ -431,10 +435,26 @@ namespace {
                 return {};
             }
 
+            if (cachedSystemPrompt_.empty()) {
+                appendDiagnostic("generation_failed reason=system_prompt_not_warmed");
+                return {};
+            }
+            std::vector<ChatMessage> effectiveHistory;
+            effectiveHistory.reserve(history.size() + 1);
+            effectiveHistory.push_back({"system", cachedSystemPrompt_});
+            for (const ChatMessage &message : history) {
+                if (message.role != "system") {
+                    effectiveHistory.push_back(message);
+                }
+            }
+            if (effectiveHistory.size() <= 1) {
+                return {};
+            }
+
             using Clock = std::chrono::steady_clock;
             const auto generationStartedAt = Clock::now();
-            const std::string prompt = formatChatPrompt(history);
-            appendDiagnostic("generation_started messages=" + std::to_string(history.size()) + " max_tokens=" + std::to_string(maxTokens));
+            const std::string prompt = formatChatPrompt(effectiveHistory);
+            appendDiagnostic("generation_started messages=" + std::to_string(effectiveHistory.size()) + " max_tokens=" + std::to_string(maxTokens));
             if (prompt.empty()) {
                 return {};
             }
@@ -740,7 +760,9 @@ namespace {
         llama_model *model_ = nullptr;
         llama_context *context_ = nullptr;
         llama_pos nextPosition_ = 0;
-        // Kotlin 消息是事实来源；该前缀仅用于判断 Context 中哪些 Token 可安全复用。
+        // The fixed system instruction survives context resets; its KV tokens are re-prefilled as needed.
+        std::string cachedSystemPrompt_;
+        // Token prefix tracks the current context and is cleared when its KV cache is reset.
         std::vector<llama_token> cachedTokens_;
         std::atomic_bool stopRequested_ = false;
     };

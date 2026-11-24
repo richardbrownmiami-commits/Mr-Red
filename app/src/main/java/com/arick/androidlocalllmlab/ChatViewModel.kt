@@ -567,7 +567,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             "ANSWER",
             "USER QUESTION:\n$question\n\nDATABASE RESULTS (plain text):\n$text"
         )
-        fun count(text: String): Int = runtime.tokenize(
+        val systemPrefixTokens = runtime.tokenize(PromptCache.STABLE_SYSTEM).size
+        fun count(text: String): Int = systemPrefixTokens + runtime.tokenize(
             messagesFor(text).joinToString("\n") { it.role + "\n" + it.content }
         ).size + 32
         require(count("") <= promptLimit) { "The question alone exceeds the model-input budget." }
@@ -916,8 +917,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             return PromptCache.stage("CHAT", body)
         }
+        val systemPrefixTokens = runtime.tokenize(PromptCache.STABLE_SYSTEM).size
         fun count(messages: List<PromptMessage>): Int =
-            runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
+            systemPrefixTokens + runtime.tokenize(messages.joinToString("\n") { it.role + "\n" + it.content }).size + 32
 
         val compactContext = buildString {
             if (memorySummary.isNotBlank()) append(memorySummary.trim())
