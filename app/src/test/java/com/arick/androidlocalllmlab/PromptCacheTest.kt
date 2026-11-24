@@ -26,4 +26,12 @@ class PromptCacheTest {
         assertFalse(Regex("\\b\\d{10,13}\\b").containsMatchIn(system))
         assertTrue("Stable prefix should stay comfortably below roughly 500 tokens", system.split(Regex("\\s+")).size < 300)
     }
+
+    @Test
+    fun stableSystemContainsMrRedPersonaAndTruthfulnessRules() {
+        val system = PromptCache.STABLE_SYSTEM
+        assertTrue(system.contains("feminine, composed, perceptive, quietly witty"))
+        assertTrue(system.contains("Identify only as Mr-Red"))
+        assertTrue(system.contains("Never invent facts, access, or results; report actions only after success"))
+    }
 }
