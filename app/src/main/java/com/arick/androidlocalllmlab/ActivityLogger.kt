@@ -46,7 +46,8 @@ object ActivityLogger {
             val safeLayer = clean(layer, 32)
             val safeAction = clean(action, 64)
             // SQLite is the canonical timestamped event store. Its own writer is asynchronous.
-            if (!(safeLayer == "NOTIFICATION" && (safeAction == "posted" || safeAction == "removed"))) {
+            if (safeLayer != "ANSWER" &&
+                !(safeLayer == "NOTIFICATION" && (safeAction == "posted" || safeAction == "removed"))) {
                 EventMemoryStore.recordEvent(context, safeLayer, safeAction, detail, source = "activity_logger")
             }
             val appContext = context.applicationContext
