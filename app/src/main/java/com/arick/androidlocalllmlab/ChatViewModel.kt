@@ -798,6 +798,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                             "Formatted database-answer prompt is $count tokens; limit is $answerBudget."
                                         }
                                         answerThinking = formatted.trimEnd().endsWith("<think>")
+                                        _promptTokenCount.value = count
                                         updateLatestAssistantModelInput(formatted, count)
                                     },
                                     onToken = { piece ->
