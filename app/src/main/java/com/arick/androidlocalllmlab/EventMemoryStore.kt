@@ -233,7 +233,7 @@ object EventMemoryStore {
             } finally {
                 db.endTransaction()
             }
-            pruneOldEventsIfDue()
+            runCatching { pruneOldEventsIfDue() }
             Unit
         }).get(5, TimeUnit.SECONDS)
         return "MEMORY SAVE RESULT: the explicitly requested fact was saved to local SQLite memory."

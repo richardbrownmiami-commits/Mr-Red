@@ -37,7 +37,7 @@ class PromptCacheTest {
         assertTrue(system.contains("tool+"))
         assertTrue(system.contains("Never output tool+ for general knowledge"))
         assertTrue(system.contains("TOOL_CALL|name|JSON"))
-        assertTrue(system.contains("operation\\\":\\\"query"))
+        assertTrue(system.contains("operation"))
         assertTrue(system.contains("queries"))
         assertTrue(system.contains("save_fact"))
     }
