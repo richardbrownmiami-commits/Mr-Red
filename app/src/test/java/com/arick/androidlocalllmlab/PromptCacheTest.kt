@@ -57,7 +57,7 @@ class PromptCacheTest {
 
     @Test
     fun requestProtocolNormalizerRemovesCodeFenceButRejectsPlainProse() {
-        assertEquals("CHAT|Hello.", PromptCache.normalizeRequestProtocol("```text\\nCHAT/Hello.\\n```"))
+        assertEquals("CHAT|Hello.", PromptCache.normalizeRequestProtocol("```text\nCHAT/Hello.\n```"))
         assertEquals(null, PromptCache.normalizeRequestProtocol("Hello, how can I help?"))
         assertEquals(null, PromptCache.normalizeRequestProtocol("NO_TOOL"))
     }
