@@ -646,6 +646,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val finalAnswer = answer.trim()
                     if (finalAnswer.isBlank() && !_isStopRequested.value) error("Model returned no content.")
                     replaceLatestAssistantMessage(splitAssistantResponse(finalAnswer, false), null)
+                    // Preserve the existing explicit-fact write path, but only after GGUF has
+                    // received and answered the user's message.
+                    EventMemoryStore.captureExplicitFact(getApplication(), prompt)
                     ActivityLogger.record(getApplication(), "ANSWER", "generated", finalAnswer)
                     synchronized(conversationHistory) {
                         conversationHistory += prompt to finalAnswer
@@ -794,6 +797,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val elapsed = ((System.nanoTime() - startedAt) / 1_000_000).coerceAtLeast(0)
                 val currentAssistant = _messages.value.lastOrNull()
+                // Preserve explicit user-directed fact capture after GGUF has processed the request.
+                EventMemoryStore.captureExplicitFact(getApplication(), prompt)
                 val assistant = (currentAssistant ?: ChatMessage(MessageRole.Assistant, content)).copy(
                     content = content,
                     agentTrace = (currentAssistant?.agentTrace.orEmpty() + AgentTraceItem(trace)),
