@@ -781,11 +781,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             },
                             onToken = { piece ->
                                 rawResponse += piece
+                                // Keep control-protocol text (including SQL and tool arguments) out of chat UI.
                                 _generationProgress.value = "GGUF is generating a request…"
-                                replaceLatestAssistantMessage(
-                                    splitAssistantResponse(rawResponse, templateStartsThinking),
-                                    null
-                                )
                             },
                             onMetrics = { metrics ->
                                 _generationMetrics.value = metrics
@@ -1103,43 +1100,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     /** The stable system prefix is warmed once after model preparation, not after every answer. */
     private fun scheduleMemoryWarmup() = Unit
-
-    private fun localConversationReply(prompt: String): String? {
-        val text = prompt.trim().lowercase(java.util.Locale.US)
-        if (text.matches(Regex("^[.!?,;:]+$"))) {
-            return "I'm here. What would you like to do?"
-        }
-        if (Regex("\\b(do you have memory|have you got memory|do you remember me)\\b").containsMatchIn(text)) {
-            val turns = synchronized(conversationHistory) { conversationHistory.size }
-            return "Yes. Mr-Red has local memory: up to 40 completed chat exchanges are saved on this device, alongside the app's activity log. I can use that saved context when it is included in the current prompt. It is not human memory. Currently saved chat exchanges: $turns."
-        }
-        if (Regex("\\b(what you said|what did you say|repeat that|what was your last answer)\\b").containsMatchIn(text)) {
-            val previousAnswer = synchronized(conversationHistory) { conversationHistory.lastOrNull()?.second }
-            return previousAnswer ?: "I don't have an earlier completed answer available in the saved chat history."
-        }
-        if (Regex("\\b(who are you|what are you|introduce yourself|tell me about yourself)\\b").containsMatchIn(text)) {
-            return "I'm Mr-Red, your on-device personal assistant. I can help with conversation and the Android features connected in this app, including device status, alarms and reminders. I'm composed, observant and occasionally dry-witted; I'll be clear about what I can and cannot access."
-        }
-        if (Regex("\\b(email|emails|mail|inbox)\\b").containsMatchIn(text) &&
-            Regex("\\b(any|check|show|read|new|unread|latest|have|got|see|look|my)\\b").containsMatchIn(text)) {
-            return "I can't read your email inbox in this build because no email account connection or inbox-reading tool is configured. I can open Gmail on your phone, but I can't see your messages or verify whether you have new mail."
-        }
-        return null
-    }
-
-    private fun completeLocalReply(prompt: String, reply: String) {
-        _messages.value = _messages.value +
-            ChatMessage(MessageRole.User, prompt) +
-            ChatMessage(MessageRole.Assistant, reply)
-        _generationError.value = null
-        ActivityLogger.record(getApplication(), "ANSWER", "generated", reply)
-        synchronized(conversationHistory) {
-            conversationHistory += prompt to reply
-            while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
-            persistConversationHistoryLocked()
-        }
-        EventMemoryStore.recordConversationExchange(getApplication(), prompt, reply)
-    }
 
     private fun executeRoutedDeviceRequest(prompt: String, call: ToolCall) {
         val userMessage = ChatMessage(MessageRole.User, prompt)
