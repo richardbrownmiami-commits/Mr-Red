@@ -44,4 +44,31 @@ class PromptCacheTest {
         assertTrue(system.contains("matching string args"))
         assertTrue(system.contains("events, facts, conversation_turns"))
     }
+    @Test
+    fun requestProtocolNormalizerAcceptsPipeAndSlashDelimiters() {
+        assertEquals("CHAT|Hello.", PromptCache.normalizeRequestProtocol("CHAT|Hello."))
+        assertEquals("CHAT|Hello.", PromptCache.normalizeRequestProtocol("CHAT/Hello."))
+        assertEquals(
+            "SQL|events|{\"query\":\"SELECT id FROM events LIMIT 5\",\"args\":[]}",
+            PromptCache.normalizeRequestProtocol("SQL/events/{\"query\":\"SELECT id FROM events LIMIT 5\",\"args\":[]}")
+        )
+        assertEquals("TOOL_CALL|device_vitals|{}", PromptCache.normalizeRequestProtocol("TOOL_CALL/device_vitals/{}"))
+    }
+
+    @Test
+    fun requestProtocolNormalizerRemovesCodeFenceButRejectsPlainProse() {
+        assertEquals("CHAT|Hello.", PromptCache.normalizeRequestProtocol("```text\\nCHAT/Hello.\\n```"))
+        assertEquals(null, PromptCache.normalizeRequestProtocol("Hello, how can I help?"))
+        assertEquals(null, PromptCache.normalizeRequestProtocol("NO_TOOL"))
+    }
+
+    @Test
+    fun systemDefinesNonConflictingStageContracts() {
+        val system = PromptCache.STABLE_SYSTEM
+        assertTrue(system.contains("STAGE=REQUEST"))
+        assertTrue(system.contains("STAGE=SQL"))
+        assertTrue(system.contains("STAGE=INTENT"))
+        assertTrue(system.contains("Do not mix contracts"))
+    }
+
 }
