@@ -572,12 +572,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 runtime.resetStopRequest()
                 val request = if (correction.isBlank()) sqlUser else
                     "$sqlUser\nREJECTION=${correction.take(80)}. Return corrected SELECT only."
-                val sql = runPlanner("SQL", request, plannerOutputLimit)
+                val sqlOutput = runPlanner("SQL", request, plannerOutputLimit)
                 try {
+                    val sqlRequest = JSONObject(sqlOutput)
+                    val sql = sqlRequest.getString("query")
+                    val argsJson = sqlRequest.optJSONArray("args") ?: JSONArray()
+                    require(argsJson.length() <= 12) { "Too many SQL parameters." }
+                    val args = Array(argsJson.length()) { index -> argsJson.getString(index) }
                     tableEvidence = EventMemoryStore.executeModelReadOnlyQuery(
                         getApplication(),
                         sql,
-                        requiredTable = table
+                        requiredTable = table,
+                        bindArgs = args
                     )
                     break
                 } catch (error: Exception) {
