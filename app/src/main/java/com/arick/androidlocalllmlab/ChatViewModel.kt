@@ -888,7 +888,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 val argsStart = jsonText.indexOf('{')
                                 val argsEnd = jsonText.lastIndexOf('}')
                                 require(argsStart >= 0 && argsEnd >= argsStart) { "GGUF returned invalid tool arguments." }
-                                handoffTool = ToolCall(name, JSONObject(jsonText.substring(argsStart, argsEnd + 1)))
+                                val arguments = JSONObject(jsonText.substring(argsStart, argsEnd + 1))
+                                require(hasValidToolArguments(name, arguments)) {
+                                    "GGUF supplied missing or invalid arguments for $name."
+                                }
+                                handoffTool = ToolCall(name, arguments)
                                 " "
                             }
                             else -> throw IllegalArgumentException(
@@ -931,6 +935,32 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     executeRoutedDeviceRequest(prompt, call)
                 }
             }
+        }
+    }
+
+    private fun hasValidToolArguments(name: String, args: JSONObject): Boolean {
+        fun requiredText(key: String, maxLength: Int): Boolean {
+            val value = args.optString(key, "").trim()
+            return value.isNotEmpty() && value.length <= maxLength
+        }
+        return when (name) {
+            "device_vitals", "dismiss_alarm", "cancel_reminders", "list_scheduled_tasks",
+            "open_app_notification_settings", "open_notification_access" -> true
+            "open_settings" -> args.optString("page").lowercase(java.util.Locale.ROOT) in
+                setOf("wifi", "bluetooth", "battery", "display", "system")
+            "open_app" -> requiredText("app_name", 60)
+            "make_call" -> requiredText("phone_number", 30)
+            "set_timer" -> args.optInt("seconds", -1) in 1..86_400
+            "set_alarm" -> args.has("hour") && args.has("minute") &&
+                args.optInt("hour", -1) in 0..23 && args.optInt("minute", -1) in 0..59 &&
+                (!args.has("message") || args.isNull("message") ||
+                    (args.opt("message") is String && args.optString("message").length <= 60))
+            "schedule_reminder" -> requiredText("message", 500) &&
+                args.optInt("interval_minutes", -1) in 1..525_600 &&
+                args.opt("recurring") is Boolean
+            "get_news", "web_search" -> requiredText("query", 240)
+            "get_weather" -> requiredText("city", 40)
+            else -> false
         }
     }
 
