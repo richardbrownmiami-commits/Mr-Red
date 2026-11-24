@@ -70,12 +70,6 @@ data class ChatMessage(
 
 data class AgentTraceItem(val text: String)
 
-private data class PendingDatabaseChoice(
-    val table: String,
-    val column: String,
-    val value: String
-)
-
 data class MemorySnapshot(
     val javaUsedBytes: Long,
     val javaMaxBytes: Long,
@@ -111,9 +105,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // Completed turns are persisted privately and restored when the app process restarts.
     // The native KV cache is separate and is rebuilt from the transcript after restart.
     private val conversationHistory = mutableListOf<Pair<String, String>>()
-    private var pendingDatabaseQuestion: String? = null
-    private var pendingDatabaseTables: List<String> = emptyList()
-    private var pendingDatabaseChoices: List<PendingDatabaseChoice> = emptyList()
     private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
     private val maxStoredTurns = 40
 
@@ -399,7 +390,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _samplerRetrievedMemory.value = ""
         _samplerFormattedPrompt.value = ""
         _samplerPromptTokenCount.value = 0
-        _samplerStatus.value = "GGUF is planning a database query…"
+        _samplerStatus.value = "Sending the question directly to GGUF…"
         _samplerGenerating.value = true
         val inferenceConfig = _inferenceConfig.value
 
@@ -411,45 +402,40 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val answer = withContext(Dispatchers.Default) {
                     nativeInferenceMutex.withLock {
                         runtime.resetStopRequest()
-                        val readyState = _uiState.value as? ChatUiState.Ready
+                        val ready = _uiState.value as? ChatUiState.Ready
                             ?: error("The model is no longer ready.")
-                        val contextCapacity = readyState.nCtx.coerceAtLeast(128)
-                        val effectiveMaxTokens = inferenceConfig.maxTokens.coerceAtMost(
-                            (contextCapacity / 3).coerceAtLeast(64)
+                        val contextCapacity = ready.nCtx.coerceAtLeast(128)
+                        val maxOutput = inferenceConfig.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
+                        val promptBudget = minOf(
+                            PromptCache.PROMPT_CAP,
+                            (contextCapacity - maxOutput - 32).coerceAtLeast(1)
                         )
-                        val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
-
-                        // Use the same model-generated SQL path as normal chat; no parallel keyword planner.
-                        val retrievedMemory = retrieveDatabaseEvidence(
-                            question = prompt,
-                            contextWindowTokens = readyState.nCtx,
-                            inferenceConfig = inferenceConfig
-                        )
-                        _samplerRetrievedMemory.value = retrievedMemory
-                        val answerPromptBudget = minOf(PromptCache.PROMPT_CAP, promptBudget)
-                        val promptMessages = if (retrievedMemory.startsWith("NO_DATABASE_LOOKUP.")) {
-                            buildPromptMessages(prompt, "", answerPromptBudget)
-                        } else {
-                            buildDatabaseAnswerMessages(prompt, retrievedMemory, answerPromptBudget)
-                        }
-                        _samplerStatus.value = "Prompt built; running GGUF inference…"
-
-                        runtime.generate(
-                            messages = promptMessages,
-                            inferenceConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens),
-                            contextWindowTokens = readyState.nCtx,
-                            onPrompt = { formattedPrompt, tokenCount ->
-                                require(tokenCount <= answerPromptBudget) { "Formatted answer prompt is $tokenCount tokens; the limit is $answerPromptBudget." }
-                                _samplerFormattedPrompt.value = formattedPrompt
-                                _samplerPromptTokenCount.value = tokenCount
-                                templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
+                        var firstThinking = false
+                        val firstResponse = runtime.generate(
+                            messages = PromptCache.stage("CHAT", "QUESTION=$prompt"),
+                            inferenceConfig = inferenceConfig.copy(maxTokens = maxOutput),
+                            contextWindowTokens = contextCapacity,
+                            onPrompt = { formatted, tokens ->
+                                require(tokens in 1..promptBudget) {
+                                    "Formatted sampler prompt is $tokens tokens; limit is $promptBudget."
+                                }
+                                _samplerFormattedPrompt.value = formatted
+                                _samplerPromptTokenCount.value = tokens
+                                firstThinking = formatted.trimEnd().endsWith("<think>")
                             },
                             onToken = { piece ->
                                 rawResponse += piece
-                                val parts = splitAssistantResponse(rawResponse, templateStartsThinking)
-                                _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
-                                    if (index == _samplerMessages.value.lastIndex) message.copy(content = parts.answer, reasoningContent = parts.reasoning)
-                                    else message
+                                val visible = splitAssistantResponse(rawResponse, firstThinking)
+                                val candidate = visible.answer.trimStart()
+                                val possibleToolMarker = candidate.isEmpty() ||
+                                    "TOOL+".startsWith(candidate.take(5)) ||
+                                    candidate.startsWith("TOOL+")
+                                if (!possibleToolMarker) {
+                                    _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
+                                        if (index == _samplerMessages.value.lastIndex) {
+                                            message.copy(content = visible.answer, reasoningContent = visible.reasoning)
+                                        } else message
+                                    }
                                 }
                             },
                             onMetrics = { metrics ->
@@ -459,6 +445,46 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                             }
                         )
+                        val firstParts = splitAssistantResponse(firstResponse, firstThinking)
+                        if (!firstParts.answer.trim().startsWith("TOOL+")) {
+                            _samplerRetrievedMemory.value = "No database request was made."
+                            templateStartsThinking = firstThinking
+                            firstResponse
+                        } else {
+                            val evidence = executeToolPlusRequest(firstParts.answer.trim())
+                            _samplerRetrievedMemory.value = evidence
+                            _samplerStatus.value = "GGUF requested stored data; executing validated read-only SQL…"
+                            rawResponse = ""
+                            runtime.resetStopRequest()
+                            runtime.generate(
+                                messages = buildDatabaseAnswerMessages(prompt, evidence, promptBudget),
+                                inferenceConfig = inferenceConfig.copy(maxTokens = maxOutput),
+                                contextWindowTokens = contextCapacity,
+                                onPrompt = { formatted, tokens ->
+                                    require(tokens in 1..promptBudget) {
+                                        "Formatted sampler result prompt is $tokens tokens; limit is $promptBudget."
+                                    }
+                                    _samplerFormattedPrompt.value = formatted
+                                    _samplerPromptTokenCount.value = tokens
+                                    templateStartsThinking = formatted.trimEnd().endsWith("<think>")
+                                },
+                                onToken = { piece ->
+                                    rawResponse += piece
+                                    val parts = splitAssistantResponse(rawResponse, templateStartsThinking)
+                                    _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
+                                        if (index == _samplerMessages.value.lastIndex) {
+                                            message.copy(content = parts.answer, reasoningContent = parts.reasoning)
+                                        } else message
+                                    }
+                                },
+                                onMetrics = { metrics ->
+                                    _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
+                                        if (index == _samplerMessages.value.lastIndex) message.copy(generationMetrics = metrics)
+                                        else message
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
                 if (answer.isBlank()) error("The model returned no content.")
@@ -471,7 +497,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         modelInputTokenCount = _samplerPromptTokenCount.value
                     ) else message
                 }
-                _samplerStatus.value = "Test complete. Database retrieval and prompt are shown below."
+                _samplerStatus.value = if (_samplerRetrievedMemory.value == "No database request was made.") {
+                    "Test complete. GGUF answered without a database lookup."
+                } else {
+                    "Test complete. GGUF requested data using TOOL+; validated results are shown below."
+                }
             } catch (error: Throwable) {
                 val failure = error.message ?: "Sampler inference failed."
                 _samplerStatus.value = "Test failed: $failure"
@@ -499,161 +529,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _samplerStatus.value = "Sampler cleared. The database was not changed."
     }
 
-    private fun retrieveDatabaseEvidence(
-        question: String,
-        contextWindowTokens: Int,
-        inferenceConfig: InferenceConfig
-    ): String {
-        var effectiveQuestion = question
-        var requiredFilter: DatabaseQueryFilter? = null
-        val pendingQuestion = pendingDatabaseQuestion
-        if (pendingQuestion != null) {
-            val selection = question.trim().lowercase(java.util.Locale.ROOT)
-            val selectedTable = pendingDatabaseTables.firstOrNull { table ->
-                selection == table || selection == table.replace('_', ' ') ||
-                    selection.contains(table.replace('_', ' '))
+    private fun executeToolPlusRequest(modelAnswer: String): String {
+        val requestBody = modelAnswer.trim().removePrefix("TOOL+").trim()
+        return runCatching {
+            val jsonStart = requestBody.indexOf('{')
+            val jsonEnd = requestBody.lastIndexOf('}')
+            require(jsonStart >= 0 && jsonEnd >= jsonStart) {
+                "TOOL+ must be followed by a JSON object."
             }
-            val matchingValueChoices = pendingDatabaseChoices.filter { choice ->
-                val value = choice.value.lowercase(java.util.Locale.ROOT)
-                selection == value || value.startsWith(selection) || selection.contains(value) ||
-                    value.split(Regex("[^\\p{L}\\p{N}]+")).any { it == selection }
-            }
-            if (selectedTable == null && matchingValueChoices.size > 1) {
-                val options = matchingValueChoices.take(6).joinToString(" / ") { choice ->
-                    "${choice.column}: ${choice.value}"
-                }
-                return "CLARIFICATION_REQUEST: More than one stored value matches '$question'. Which exact value do you mean: $options?"
-            }
-            val selectedValueChoice = matchingValueChoices.singleOrNull()
-            val selected = selectedTable ?: selectedValueChoice?.table
-            when {
-                selection in setOf("all", "everything", "all of them", "search all", "search across all of them", "all tables") -> {
-                    effectiveQuestion = "$pendingQuestion. User clarification: search across all available data."
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-                selected != null -> {
-                    effectiveQuestion = if (selectedValueChoice != null) {
-                        requiredFilter = DatabaseQueryFilter(selected, selectedValueChoice.column, selectedValueChoice.value)
-                        "$pendingQuestion. User selected the stored value for column ${selectedValueChoice.column}; Kotlin will bind the exact value as a SQL parameter."
-                    } else {
-                        "$pendingQuestion. User clarification selected database table: $selected."
-                    }
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-                else -> {
-                    pendingDatabaseQuestion = null
-                    pendingDatabaseTables = emptyList()
-                    pendingDatabaseChoices = emptyList()
-                }
-            }
-        }
-
-        val plannerOutputLimit = minOf(128, (contextWindowTokens / 4).coerceAtLeast(32))
-        val plannerPromptLimit = minOf(
-            PromptCache.PROMPT_CAP,
-            (contextWindowTokens - plannerOutputLimit - 32).coerceAtLeast(1)
-        )
-        val nowMillis = System.currentTimeMillis()
-        val zone = java.time.ZoneId.systemDefault().id
-        // Use SQLite as the source of truth so follow-ups still resolve after process restart.
-        // Fall back to the in-memory transcript only if the persisted turn is not yet available.
-        val persistedPreviousTurn = runCatching {
-            EventMemoryStore.recentConversationExchanges(getApplication(), limit = 1).lastOrNull()
-        }.getOrNull()
-        val previousTurnPair = persistedPreviousTurn ?: synchronized(conversationHistory) {
-            conversationHistory.lastOrNull()
-        }
-        val previousTurn = previousTurnPair?.let { (priorQuestion, priorAnswer) ->
-            "PREVIOUS_QUESTION=${priorQuestion.take(150)} PREVIOUS_ANSWER=${priorAnswer.take(180)}"
-        }.orEmpty()
-
-        fun runPlanner(stage: String, user: String, outputLimit: Int): String {
-            val messages = PromptCache.stage(stage, user)
-            // Enforce the actual llama.cpp chat-template token count in onPrompt below.
-            // Raw role/content estimates are not authoritative for this model.
-            var actualPromptTokens = 0
-            var startsThinking = false
-            val response = runtime.generate(
-                messages = messages,
-                inferenceConfig = inferenceConfig.copy(maxTokens = outputLimit),
-                contextWindowTokens = contextWindowTokens,
-                onPrompt = { formattedPrompt, count ->
-                    actualPromptTokens = count
-                    startsThinking = formattedPrompt.trimEnd().endsWith("<think>")
-                    require(count in 1..plannerPromptLimit) {
-                        "Formatted database-planning prompt is $count tokens; limit is $plannerPromptLimit."
-                    }
-                },
-                onToken = {},
-                onMetrics = {}
+            val request = JSONObject(requestBody.substring(jsonStart, jsonEnd + 1))
+            val table = request.getString("table").lowercase(java.util.Locale.ROOT)
+            val sql = request.getString("sql")
+            EventMemoryStore.executeModelReadOnlyQuery(
+                context = getApplication(),
+                sql = sql,
+                requiredTable = table,
+                maxRows = 100,
+                maxChars = 18_000
             )
-            require(actualPromptTokens in 1..plannerPromptLimit) {
-                "The runtime did not confirm a valid formatted planner token count."
-            }
-            val parsed = splitAssistantResponse(response, startsThinking)
-            return (parsed.answer.ifBlank {
-                if (response.contains("<think>") || response.contains("</think>")) "" else response
-            }).trim()
+        }.getOrElse { error ->
+            "DATABASE REQUEST REJECTED: ${error.message ?: error.javaClass.simpleName}. " +
+                "No database changes were made. Explain the retrieval failure without inventing records."
         }
-
-        // GGUF decides whether this is a database request and which tables are relevant.
-        // Kotlin validates only the model's table labels; it does not infer intent from keywords.
-        val intentUser = "NOW_MS=$nowMillis TZ=$zone QUESTION=$effectiveQuestion" +
-            if (previousTurn.isBlank()) "" else "\n$previousTurn"
-        val intent = runPlanner("INTENT", intentUser, 24)
-            .trim().removeSurrounding("\u0060").trim().removeSuffix(".").removeSuffix(";").trim()
-        if (intent.equals("NO_QUERY", ignoreCase = true)) {
-            return "NO_DATABASE_LOOKUP. Answer normally without claiming stored records were checked."
-        }
-        val allowedTables = setOf("events", "facts", "conversation_turns")
-        val intentLabels = intent.split(Regex("[,\\s]+")).map { it.trim().trim(',', '.', ';').lowercase(java.util.Locale.ROOT) }
-        val selectedTables = intentLabels.filter { it in allowedTables }.distinct()
-        require(selectedTables.isNotEmpty() && intentLabels.all { it in allowedTables }) {
-            "The model returned an invalid database intent decision. Expected NO_QUERY or table names; received: ${intent.take(100)}"
-        }
-
-        val combinedEvidence = StringBuilder()
-        val failures = mutableListOf<String>()
-        for (table in selectedTables) {
-            val filterForTable = requiredFilter?.takeIf { it.table == table }
-            val filterHint = filterForTable?.let { " FILTER_COLUMN=${it.column}." }.orEmpty()
-            val sqlUser = "TABLE=$table$filterHint NOW_MS=$nowMillis TZ=$zone QUESTION=$effectiveQuestion" +
-                if (previousTurn.isBlank()) "" else "\n$previousTurn"
-            var correction = ""
-            var tableEvidence: String? = null
-            for (attempt in 0..1) {
-                runtime.resetStopRequest()
-                val request = if (correction.isBlank()) sqlUser else
-                    "$sqlUser\nREJECTION=${correction.take(80)}. Return corrected SELECT only."
-                val sql = runPlanner("SQL", request, plannerOutputLimit)
-                try {
-                    tableEvidence = EventMemoryStore.executeModelReadOnlyQuery(
-                        getApplication(),
-                        sql,
-                        requiredTable = table,
-                        requiredFilter = filterForTable
-                    )
-                    break
-                } catch (error: Exception) {
-                    correction = error.message ?: error.javaClass.simpleName
-                    if (attempt == 1) failures += "$table: ${correction.take(160)}"
-                }
-            }
-            if (tableEvidence != null && combinedEvidence.length < 17_000) {
-                combinedEvidence.append("[DATABASE TABLE: ").append(table).append("]\n")
-                    .append(tableEvidence.take((17_000 - combinedEvidence.length).coerceAtLeast(0)))
-                    .append("\n")
-            }
-        }
-        if (failures.isNotEmpty()) {
-            combinedEvidence.append("[Some table queries failed: ").append(failures.joinToString("; ")).append("]\n")
-        }
-        if (combinedEvidence.isNotEmpty()) return combinedEvidence.toString().take(18_000)
-        return "DATABASE QUERY FAILED: no table returned evidence. Do not invent results."
     }
 
     private fun buildDatabaseAnswerMessages(
@@ -897,27 +794,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             // The JSON and SQL are untrusted. Kotlin validates the request
                             // and executes only one read-only SELECT against the named table.
-                            val requestBody = modelAnswer.removePrefix("TOOL+").trim()
-                            val databaseResult = runCatching {
-                                val jsonStart = requestBody.indexOf('{')
-                                val jsonEnd = requestBody.lastIndexOf('}')
-                                require(jsonStart >= 0 && jsonEnd >= jsonStart) {
-                                    "TOOL+ must be followed by a JSON object."
-                                }
-                                val request = JSONObject(requestBody.substring(jsonStart, jsonEnd + 1))
-                                val table = request.getString("table").lowercase(java.util.Locale.ROOT)
-                                val sql = request.getString("sql")
-                                EventMemoryStore.executeModelReadOnlyQuery(
-                                    context = getApplication(),
-                                    sql = sql,
-                                    requiredTable = table,
-                                    maxRows = 100,
-                                    maxChars = 18_000
-                                )
-                            }.getOrElse { error ->
-                                "DATABASE REQUEST REJECTED: ${error.message ?: error.javaClass.simpleName}. " +
-                                    "No database changes were made. Explain the retrieval failure without inventing records."
-                            }
+                            val databaseResult = executeToolPlusRequest(modelAnswer)
                             ActivityLogger.record(
                                 getApplication(), "INFERENCE", "tool_plus_executed",
                                 "GGUF requested a validated read-only database operation"
