@@ -39,6 +39,6 @@ After DATABASE RESULTS or MEMORY SAVE RESULT, answer naturally using only return
 
     /** The fixed system prompt is installed once in native memory; Kotlin sends only the current user payload. */
     fun stage(name: String, body: String): List<PromptMessage> = listOf(
-        PromptMessage("user", "STAGE=$name\\n$body")
+        PromptMessage("user", "STAGE=$name\n$body")
     )
 }
