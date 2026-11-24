@@ -721,14 +721,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
 
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
-        EventMemoryStore.captureExplicitFact(getApplication(), prompt)
-
-        localConversationReply(prompt)?.let { reply ->
-            completeLocalReply(prompt, reply)
-            return
-        }
-
         if (_uiState.value !is ChatUiState.Ready) {
+            localConversationReply(prompt)?.let { reply ->
+                completeLocalReply(prompt, reply)
+                return
+            }
             // Preserve the no-model fallback for basic device actions.
             DeviceIntentRouter.route(prompt)?.let { call ->
                 executeRoutedDeviceRequest(prompt, call)
@@ -823,8 +820,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun sendModelRequest(prompt: String) {
         ActivityLogger.record(getApplication(), "INFERENCE", "request_started", "Question submitted; message content omitted")
         val inferenceConfig = _inferenceConfig.value
-        val userMessage = ChatMessage(MessageRole.User, prompt)
-        _messages.value = _messages.value + userMessage + ChatMessage(MessageRole.Assistant, "")
+        _messages.value = _messages.value +
+            ChatMessage(MessageRole.User, prompt) +
+            ChatMessage(MessageRole.Assistant, "")
         _generationError.value = null
         _promptTokenCount.value = 0
         _generationProgress.value = "Preparing current question…"
@@ -836,83 +834,134 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var rawResponse = ""
             var templateStartsThinking = false
             try {
-                // Let a system-prefix warmup finish rather than aborting it and
-                // paying the full prompt-prefill cost again for this request.
                 memoryWarmupJob?.join()
                 val answer = withContext(Dispatchers.Default) {
                     nativeInferenceMutex.withLock {
-                    runtime.resetStopRequest()
-                    // Run model-generated SQL planning followed by a separate natural-language answer pass.
-                    val readyState = _uiState.value as? ChatUiState.Ready
-                    val contextCapacity = (readyState?.nCtx ?: 512).coerceAtLeast(128)
-                    // Small context windows must reserve room for memory as well as output.
-                    // The previous full output reservation left only ~224 prompt tokens at
-                    // nCtx=512, causing the memory builder to shrink its summary to nothing.
-                    val effectiveMaxTokens = inferenceConfig.maxTokens.coerceAtMost(
-                        (contextCapacity / 3).coerceAtLeast(64)
-                    )
-                    val generationConfig = inferenceConfig.copy(maxTokens = effectiveMaxTokens)
-                    val promptBudget = (contextCapacity - effectiveMaxTokens - 32).coerceAtLeast(1)
-                    // GGUF decides whether to query SQLite and generates the SELECT.
-                    // Kotlin validates and executes it read-only, then returns plain-text rows.
-                    val databaseEvidence = retrieveDatabaseEvidence(
-                        question = prompt,
-                        contextWindowTokens = readyState?.nCtx ?: contextCapacity,
-                        inferenceConfig = generationConfig
-                    )
-                    val answerPromptBudget = minOf(PromptCache.PROMPT_CAP, promptBudget)
-                    val promptMessages = if (databaseEvidence.startsWith("NO_DATABASE_LOOKUP.")) {
-                        buildPromptMessages(prompt, "", answerPromptBudget)
-                    } else {
-                        buildDatabaseAnswerMessages(prompt, databaseEvidence, answerPromptBudget)
-                    }
-                    ActivityLogger.record(
-                        getApplication(), "INFERENCE", "prompt_composition",
-                        "database_evidence_chars=${databaseEvidence.length} " +
-                            "database_evidence_tokens=${runtime.tokenize(databaseEvidence).size} " +
-                            "context=${contextCapacity} prompt_budget=${answerPromptBudget} output_limit=${effectiveMaxTokens}"
-                    )
-                    runtime.resetStopRequest()
-                    runtime.generate(
-                        messages = promptMessages,
-                        inferenceConfig = generationConfig,
-                        contextWindowTokens = readyState?.nCtx ?: 0,
-                        onPrompt = { formattedPrompt, tokenCount ->
-                            require(tokenCount <= answerPromptBudget) { "Formatted answer prompt is $tokenCount tokens; the limit is $answerPromptBudget." }
-                            _promptTokenCount.value = tokenCount
-                            _generationProgress.value = "Prefilling $tokenCount tokens…"
-                            templateStartsThinking = formattedPrompt.trimEnd().endsWith("<think>")
-                            updateLatestAssistantModelInput(formattedPrompt, tokenCount)
-                        },
-                        onToken = { piece ->
-                            rawResponse += piece
-                            _generationProgress.value = "Generating response…"
-                            replaceLatestAssistantMessage(
-                                splitAssistantResponse(rawResponse, templateStartsThinking),
-                                null
+                        val ready = _uiState.value as? ChatUiState.Ready
+                        val contextCapacity = (ready?.nCtx ?: 512).coerceAtLeast(128)
+                        val maxOutput = inferenceConfig.maxTokens.coerceAtMost((contextCapacity / 3).coerceAtLeast(64))
+                        val generationConfig = inferenceConfig.copy(maxTokens = maxOutput)
+                        val promptBudget = minOf(
+                            PromptCache.PROMPT_CAP,
+                            (contextCapacity - maxOutput - 32).coerceAtLeast(1)
+                        )
+
+                        // GGUF receives the chat message first. No SQLite read occurs unless
+                        // its response begins with the explicit TOOL+ protocol marker.
+                        var firstPromptTokens = 0
+                        var firstStartsThinking = false
+                        runtime.resetStopRequest()
+                        val firstResponse = runtime.generate(
+                            messages = PromptCache.stage("CHAT", "QUESTION=$prompt"),
+                            inferenceConfig = generationConfig,
+                            contextWindowTokens = contextCapacity,
+                            onPrompt = { formatted, tokenCount ->
+                                firstPromptTokens = tokenCount
+                                require(tokenCount in 1..promptBudget) {
+                                    "Formatted chat prompt is $tokenCount tokens; limit is $promptBudget."
+                                }
+                                _promptTokenCount.value = tokenCount
+                                _generationProgress.value = "Prefilling $tokenCount tokens…"
+                                firstStartsThinking = formatted.trimEnd().endsWith("<think>")
+                                updateLatestAssistantModelInput(formatted, tokenCount)
+                            },
+                            onToken = { piece ->
+                                rawResponse += piece
+                                _generationProgress.value = "Generating response…"
+                                val candidate = splitAssistantResponse(rawResponse, firstStartsThinking).answer.trimStart()
+                                val possibleToolMarker = candidate.isEmpty() ||
+                                    "TOOL+".startsWith(candidate.take(5)) ||
+                                    candidate.startsWith("TOOL+")
+                                if (!possibleToolMarker) {
+                                    replaceLatestAssistantMessage(
+                                        splitAssistantResponse(rawResponse, firstStartsThinking),
+                                        null
+                                    )
+                                }
+                            },
+                            onMetrics = { metrics ->
+                                _generationMetrics.value = metrics
+                                updateLatestAssistantGenerationMetrics(metrics)
+                                _memorySnapshots.value = _memorySnapshots.value.copy(
+                                    afterGeneration = takeMemorySnapshot(),
+                                    afterModelReleased = null
+                                )
+                            }
+                        )
+                        check(firstPromptTokens > 0) { "The runtime did not confirm the formatted chat prompt token count." }
+                        val firstParts = splitAssistantResponse(firstResponse, firstStartsThinking)
+                        val modelAnswer = firstParts.answer.trim()
+                        if (!modelAnswer.startsWith("TOOL+")) {
+                            templateStartsThinking = firstStartsThinking
+                            firstResponse
+                        } else {
+                            // The JSON and SQL are untrusted. Kotlin validates the request
+                            // and executes only one read-only SELECT against the named table.
+                            val requestBody = modelAnswer.removePrefix("TOOL+").trim()
+                            val databaseResult = runCatching {
+                                val jsonStart = requestBody.indexOf('{')
+                                val jsonEnd = requestBody.lastIndexOf('}')
+                                require(jsonStart >= 0 && jsonEnd >= jsonStart) {
+                                    "TOOL+ must be followed by a JSON object."
+                                }
+                                val request = JSONObject(requestBody.substring(jsonStart, jsonEnd + 1))
+                                val table = request.getString("table").lowercase(java.util.Locale.ROOT)
+                                val sql = request.getString("sql")
+                                EventMemoryStore.executeModelReadOnlyQuery(
+                                    context = getApplication(),
+                                    sql = sql,
+                                    requiredTable = table,
+                                    maxRows = 100,
+                                    maxChars = 18_000
+                                )
+                            }.getOrElse { error ->
+                                "DATABASE REQUEST REJECTED: ${error.message ?: error.javaClass.simpleName}. " +
+                                    "No database changes were made. Explain the retrieval failure without inventing records."
+                            }
+                            ActivityLogger.record(
+                                getApplication(), "INFERENCE", "tool_plus_executed",
+                                "GGUF requested a validated read-only database operation"
                             )
-                        },
-                        onMetrics = { metrics ->
-                            _generationMetrics.value = metrics
-                            updateLatestAssistantGenerationMetrics(metrics)
-                            _memorySnapshots.value = _memorySnapshots.value.copy(
-                                afterGeneration = takeMemorySnapshot(),
-                                afterModelReleased = null
+                            val answerMessages = buildDatabaseAnswerMessages(prompt, databaseResult, promptBudget)
+                            rawResponse = ""
+                            templateStartsThinking = false
+                            runtime.resetStopRequest()
+                            runtime.generate(
+                                messages = answerMessages,
+                                inferenceConfig = generationConfig,
+                                contextWindowTokens = contextCapacity,
+                                onPrompt = { formatted, tokenCount ->
+                                    require(tokenCount in 1..promptBudget) {
+                                        "Formatted database-result prompt is $tokenCount tokens; limit is $promptBudget."
+                                    }
+                                    _promptTokenCount.value = tokenCount
+                                    _generationProgress.value = "Writing answer from stored data…"
+                                    templateStartsThinking = formatted.trimEnd().endsWith("<think>")
+                                    updateLatestAssistantModelInput(formatted, tokenCount)
+                                },
+                                onToken = { piece ->
+                                    rawResponse += piece
+                                    replaceLatestAssistantMessage(
+                                        splitAssistantResponse(rawResponse, templateStartsThinking),
+                                        null
+                                    )
+                                },
+                                onMetrics = { metrics ->
+                                    _generationMetrics.value = metrics
+                                    updateLatestAssistantGenerationMetrics(metrics)
+                                    _memorySnapshots.value = _memorySnapshots.value.copy(
+                                        afterGeneration = takeMemorySnapshot(),
+                                        afterModelReleased = null
+                                    )
+                                }
                             )
                         }
-                    )
                     }
                 }
-                if (answer.isBlank() && !_isStopRequested.value) {
-                    error("Model returned no content")
-                }
-                if (answer.isNotBlank()) {
-                    replaceLatestAssistantMessage(
-                        splitAssistantResponse(answer, templateStartsThinking),
-                        null
-                    )
-                }
-                val finalAnswer = splitAssistantResponse(answer, templateStartsThinking).answer
+                if (answer.isBlank() && !_isStopRequested.value) error("Model returned no content")
+                val finalParts = splitAssistantResponse(answer, templateStartsThinking)
+                val finalAnswer = finalParts.answer.trim()
+                if (finalAnswer.isNotBlank()) replaceLatestAssistantMessage(finalParts, null)
                 ActivityLogger.record(getApplication(), "ANSWER", "generated", finalAnswer)
                 synchronized(conversationHistory) {
                     conversationHistory += prompt to finalAnswer
