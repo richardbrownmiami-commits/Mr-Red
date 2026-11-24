@@ -822,7 +822,7 @@ object EventMemoryStore {
         maxChars: Int = 18_000
     ): String {
         awaitPendingWrites()
-        val statement = sql.trim().removeSuffix(";").trim()
+        val statement = sql.trim()
         require(statement.isNotBlank()) { "The model returned an empty SQL query." }
         require(statement.length <= 8_000) { "SQL query is too long." }
         require(!Regex("\\bSELECT\\s+\\*", RegexOption.IGNORE_CASE).containsMatchIn(statement)) {
