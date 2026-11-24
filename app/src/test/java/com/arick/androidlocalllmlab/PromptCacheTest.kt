@@ -9,11 +9,11 @@ class PromptCacheTest {
     @Test
     fun fixedSystemPromptOwnsRoutingAndMemoryDecisions() {
         val system = PromptCache.STABLE_SYSTEM
-        assertTrue(system.contains("Each new user message arrives directly from the app"))
+        assertTrue(system.contains("Every new user message is sent directly to you"))
         assertTrue(system.contains("CHAT|"))
         assertTrue(system.contains("SQL|"))
         assertTrue(system.contains("TOOL_CALL|"))
-        assertTrue(system.contains("PERSISTENT SQLITE MEMORY"))
+        assertTrue(system.contains("SQLITE MEMORY"))
         assertTrue(system.contains("conversation_turns"))
         assertTrue(system.contains("DATABASE_RESULT_HANDOFF"))
         assertTrue(system.contains("TOOL_RESULT_HANDOFF"))
