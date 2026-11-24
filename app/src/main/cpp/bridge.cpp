@@ -94,6 +94,7 @@ namespace {
 
         void unloadModel() {
             releaseContext();
+            cachedSystemPrompt_.clear();
             if (model_ == nullptr) {
                 return;
             }
@@ -362,6 +363,15 @@ namespace {
                 return 0;
             }
 
+            const auto systemMessage = std::find_if(
+                    history.begin(), history.end(),
+                    [](const ChatMessage &message) { return message.role == "system"; });
+            if (systemMessage == history.end() || systemMessage->content.empty()) {
+                appendDiagnostic("warm_prompt_failed reason=missing_system_message");
+                return 0;
+            }
+            cachedSystemPrompt_ = systemMessage->content;
+
             using WarmClock = std::chrono::steady_clock;
             const auto warmStartedAt = WarmClock::now();
             const std::string prompt = formatChatPrompt(history, false);
@@ -423,7 +433,8 @@ namespace {
                 const std::function<bool(const std::string &)> &onToken,
                 const std::function<void(int, int, int64_t, int64_t, int64_t, int64_t)> &onMetrics
         ) {
-            if (model_ == nullptr || context_ == nullptr || history.empty() || maxTokens <= 0) {
+            if (model_ == nullptr || context_ == nullptr || history.empty() ||
+                cachedSystemPrompt_.empty() || maxTokens <= 0) {
                 return {};
             }
 
@@ -431,10 +442,21 @@ namespace {
                 return {};
             }
 
+            // Kotlin sends only the new user message. The fixed system prompt is retained
+            // natively from the one-time warmup and prepended here before chat templating.
+            std::vector<ChatMessage> requestHistory;
+            const bool requestHasSystem = std::any_of(
+                    history.begin(), history.end(),
+                    [](const ChatMessage &message) { return message.role == "system"; });
+            if (!requestHasSystem) {
+                requestHistory.push_back({"system", cachedSystemPrompt_});
+            }
+            requestHistory.insert(requestHistory.end(), history.begin(), history.end());
+
             using Clock = std::chrono::steady_clock;
             const auto generationStartedAt = Clock::now();
-            const std::string prompt = formatChatPrompt(history);
-            appendDiagnostic("generation_started messages=" + std::to_string(history.size()) + " max_tokens=" + std::to_string(maxTokens));
+            const std::string prompt = formatChatPrompt(requestHistory);
+            appendDiagnostic("generation_started messages=" + std::to_string(requestHistory.size()) + " max_tokens=" + std::to_string(maxTokens));
             if (prompt.empty()) {
                 return {};
             }
@@ -740,7 +762,9 @@ namespace {
         llama_model *model_ = nullptr;
         llama_context *context_ = nullptr;
         llama_pos nextPosition_ = 0;
-        // Kotlin 消息是事实来源；该前缀仅用于判断 Context 中哪些 Token 可安全复用。
+        // The stable system prompt is installed once during model warmup. Kotlin sends
+        // only each new user/result message; native code retains the fixed prefix.
+        std::string cachedSystemPrompt_;
         std::vector<llama_token> cachedTokens_;
         std::atomic_bool stopRequested_ = false;
     };
