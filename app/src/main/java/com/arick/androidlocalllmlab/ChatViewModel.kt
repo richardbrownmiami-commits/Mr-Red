@@ -821,14 +821,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                         }
                                     }
                                 }
-                                val evidence = withContext(Dispatchers.IO) {
-                                    EventMemoryStore.executeModelReadOnlyQuery(
-                                        getApplication(),
-                                        sql,
-                                        requiredTable = table,
-                                        bindArgs = args
-                                    )
-                                }
+                                val evidence = EventMemoryStore.executeModelReadOnlyQuery(
+                                    getApplication(),
+                                    sql,
+                                    requiredTable = table,
+                                    bindArgs = args
+                                )
                                 _generationProgress.value = "GGUF is interpreting the stored records…"
                                 val answerMessages = PromptCache.stage(
                                     "ANSWER",
