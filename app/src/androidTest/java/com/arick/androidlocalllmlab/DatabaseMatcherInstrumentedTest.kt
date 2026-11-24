@@ -133,7 +133,7 @@ class DatabaseMatcherInstrumentedTest {
             "SELECT * FROM events LIMIT 5",
             "SELECT id FROM events JOIN facts ON events.id = facts.id LIMIT 5",
             "SELECT id FROM events UNION SELECT id FROM facts",
-            "SELECT id FROM events;",
+            "SELECT id FROM events; DELETE FROM events",
             "SELECT id FROM events -- comment",
             "SELECT id FROM events /* comment */ LIMIT 5",
             "SELECT name FROM sqlite_master LIMIT 5",
@@ -154,11 +154,11 @@ class DatabaseMatcherInstrumentedTest {
 
         val evidence = EventMemoryStore.executeModelReadOnlyQuery(
             context = context,
-            sql = "SELECT id, source, title FROM events ORDER BY occurred_at DESC LIMIT 5",
+            sql = "SELECT id, source, title FROM events ORDER BY occurred_at DESC LIMIT 5;",
             requiredTable = "events"
         )
         assertTrue(
-            "A normal explicit-column SELECT should execute read-only",
+            "A normal explicit-column SELECT with one trailing semicolon should execute read-only",
             evidence.startsWith("ROWS:") || evidence.startsWith("Query completed. No matching records")
         )
     }

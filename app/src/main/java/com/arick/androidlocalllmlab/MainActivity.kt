@@ -346,6 +346,7 @@ private fun ChatPage(
     val isStopRequested by viewModel.isStopRequested.collectAsState()
     val generationProgress by viewModel.generationProgress.collectAsState()
     val generationError by viewModel.generationError.collectAsState()
+    val modelContextWarning by viewModel.modelContextWarning.collectAsState()
     val cpuThreads by viewModel.cpuThreads.collectAsState()
     val activityContext = LocalContext.current
     val activityScope = rememberCoroutineScope()
@@ -395,6 +396,18 @@ private fun ChatPage(
         )
 
         HorizontalDivider(color = AppColors.CardBorder, thickness = 1.dp)
+
+        modelContextWarning?.let { warning ->
+            Text(
+                text = warning,
+                color = Color(0xFFFFB74D),
+                fontSize = 11.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0x1AFFB74D), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
 
         Box(
             modifier = Modifier
