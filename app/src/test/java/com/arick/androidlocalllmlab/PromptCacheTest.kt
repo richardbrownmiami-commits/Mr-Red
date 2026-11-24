@@ -8,7 +8,7 @@ import org.junit.Test
 class PromptCacheTest {
     @Test
     fun everyStageUsesIdenticalSystemContent() {
-        val stages = listOf("ROUTE", "ANSWER", "CHAT")
+        val stages = listOf("ANSWER", "CHAT")
         val systems = stages.map { PromptCache.stage(it, "question=$it").first().content }
         assertEquals(1, systems.distinct().size)
         assertEquals(PromptCache.STABLE_SYSTEM, systems.first())

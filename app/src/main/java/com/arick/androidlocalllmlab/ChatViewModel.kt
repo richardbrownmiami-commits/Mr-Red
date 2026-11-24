@@ -431,6 +431,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                     "tool+".startsWith(candidate.take(5), ignoreCase = true) ||
                                     candidate.startsWith("tool+", ignoreCase = true) ||
                                     "TOOL_CALL|".startsWith(candidate, ignoreCase = true) ||
+                                    candidate.startsWith("TOOL_CALL|", ignoreCase = true) ||
+                                    "TOOL_CALL|".startsWith(candidate, ignoreCase = true) ||
                                     candidate.startsWith("TOOL_CALL|", ignoreCase = true)
                                 if (!possibleToolMarker) {
                                     _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
