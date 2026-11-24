@@ -1081,7 +1081,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (middle > 0 && middle < currentQuestion.length &&
                     currentQuestion[middle - 1].isHighSurrogate() &&
                     currentQuestion[middle].isLowSurrogate()
-                ) middle--
+                ) middle++
                 val candidate = currentQuestion.substring(0, middle)
                 if (count(messagesFor(context, candidate)) <= budget) {
                     bestQuestion = candidate
