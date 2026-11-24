@@ -717,8 +717,37 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val jsonEnd = jsonText.lastIndexOf('}')
         if (jsonStart < 0 || jsonEnd < jsonStart) return null
         val arguments = runCatching { org.json.JSONObject(jsonText.substring(jsonStart, jsonEnd + 1)) }.getOrNull() ?: return null
+        if (!hasValidToolArguments(name, arguments)) {
+            ActivityLogger.record(getApplication(), "INFERENCE", "tool_arguments_invalid", "tool=$name")
+            return null
+        }
         ActivityLogger.record(getApplication(), "INFERENCE", "tool_arguments", "tool=$name input_tokens=$actualTokens")
         return ToolCall(name, arguments)
+    }
+
+    private fun hasValidToolArguments(name: String, args: org.json.JSONObject): Boolean {
+        fun requiredText(key: String, maxLength: Int): Boolean {
+            val value = args.optString(key, "").trim()
+            return value.isNotEmpty() && value.length <= maxLength
+        }
+        return when (name) {
+            "device_vitals", "dismiss_alarm", "cancel_reminders", "list_scheduled_tasks",
+            "open_app_notification_settings", "open_notification_access" -> true
+            "open_settings" -> args.optString("page").lowercase(java.util.Locale.ROOT) in
+                setOf("wifi", "bluetooth", "battery", "display", "system")
+            "open_app" -> requiredText("app_name", 60)
+            "make_call" -> requiredText("phone_number", 30)
+            "set_timer" -> args.optInt("seconds", -1) > 0
+            "set_alarm" -> args.has("hour") && args.has("minute") &&
+                args.optInt("hour", -1) in 0..23 && args.optInt("minute", -1) in 0..59 &&
+                (!args.has("message") || args.isNull("message") ||
+                    (args.opt("message") is String && args.optString("message").length <= 60))
+            "schedule_reminder" -> requiredText("message", 500) &&
+                args.optInt("interval_minutes", -1) > 0 && args.opt("recurring") is Boolean
+            "get_news", "web_search" -> requiredText("query", 240)
+            "get_weather" -> requiredText("city", 40)
+            else -> false
+        }
     }
 
     private fun sendModelRequest(prompt: String, databaseEvidence: String? = null) {
