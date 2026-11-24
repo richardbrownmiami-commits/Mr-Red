@@ -34,7 +34,11 @@ Database schema: events(id,event_type,action,source,detail,occurred_at,package_n
             .trim()
         for (name in listOf("CHAT", "SQL", "TOOL_CALL")) {
             if (output.startsWith("$name|") || output.startsWith("$name/")) {
-                return "$name|" + output.substring(name.length + 1).trim()
+                val payload = output.substring(name.length + 1).trim()
+                if (name == "CHAT") return "CHAT|$payload"
+                val boundary = payload.indexOfFirst { it == '|' || it == '/' }
+                if (boundary <= 0) return "$name|$payload"
+                return "$name|${payload.substring(0, boundary).trim()}|${payload.substring(boundary + 1).trim()}"
             }
         }
         return null
