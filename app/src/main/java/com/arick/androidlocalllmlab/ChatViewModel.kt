@@ -745,8 +745,24 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             "The runtime did not confirm the formatted request token count."
                         }
                         val parsed = splitAssistantResponse(protocolResponse, templateStartsThinking)
-                        val protocol = (parsed.answer.ifBlank { protocolResponse }).trim()
-                            .removePrefix("```").removeSuffix("```").trim()
+                        val rawProtocol = parsed.answer.ifBlank { protocolResponse }
+                        val protocol = PromptCache.normalizeRequestProtocol(rawProtocol)
+                            ?: run {
+                                val safePrefix = rawProtocol.trim().takeWhile {
+                                    it.isLetter() || it == '_' || it == '|' || it == '/'
+                                }.take(16)
+                                ActivityLogger.record(
+                                    getApplication(), "INFERENCE", "request_protocol_rejected",
+                                    "output_chars=${rawProtocol.length} prefix=${safePrefix.ifBlank { "none" }}"
+                                )
+                                throw IllegalArgumentException(
+                                    "GGUF returned an invalid request. Expected CHAT|, SQL|, or TOOL_CALL|."
+                                )
+                            }
+                        ActivityLogger.record(
+                            getApplication(), "INFERENCE", "request_protocol_detected",
+                            "route=${protocol.substringBefore('|')} output_chars=${rawProtocol.length}"
+                        )
 
                         when {
                             protocol.startsWith("CHAT|") -> protocol.removePrefix("CHAT|").trim()
