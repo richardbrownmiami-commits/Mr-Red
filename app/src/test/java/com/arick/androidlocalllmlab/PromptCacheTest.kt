@@ -40,5 +40,11 @@ class PromptCacheTest {
         assertTrue(system.contains("operation"))
         assertTrue(system.contains("queries"))
         assertTrue(system.contains("save_fact"))
+        assertTrue(system.contains("DATABASE TOOL PROTOCOL"))
+        assertTrue(system.contains("literal characters tool+"))
+        assertTrue(system.contains("Any notifications?"))
+        assertTrue(system.contains("event_type="))
+        assertTrue(system.contains("action="))
+        assertTrue(system.contains("Never fabricate values or query SQLite for live vitals"))
     }
 }
