@@ -24,7 +24,7 @@ class PromptCacheTest {
             assertFalse("Dynamic marker found: $marker", system.contains(marker))
         }
         assertFalse(Regex("\\b\\d{10,13}\\b").containsMatchIn(system))
-        assertTrue("Stable prefix should stay comfortably below roughly 500 tokens", system.split(Regex("\\s+")).size < 300)
+        assertTrue("Stable prefix should stay compact (under 300 whitespace-delimited words)", system.split(Regex("\\s+")).size < 300)
     }
 
     @Test
