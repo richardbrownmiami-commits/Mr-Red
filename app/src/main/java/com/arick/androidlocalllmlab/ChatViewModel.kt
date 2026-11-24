@@ -310,7 +310,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 nativeInferenceMutex.withLock {
                     runtime.resetStopRequest()
-                    runtime.warmPrompt(listOf(PromptMessage("system", PromptCache.STABLE_SYSTEM)))
+                    val prefixTokens = runtime.warmPrompt(
+                        listOf(PromptMessage("system", PromptCache.STABLE_SYSTEM))
+                    )
+                    check(prefixTokens > 0) { "The shared system prefix could not be tokenized and warmed." }
+                    ActivityLogger.record(
+                        getApplication(), "MODEL", "prompt_prefix_warmed",
+                        "tokens=$prefixTokens"
+                    )
                 }
             }.onFailure {
                 ActivityLogger.record(
@@ -556,9 +563,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         fun runPlanner(stage: String, user: String, outputLimit: Int): String {
             val messages = PromptCache.stage(stage, user)
-            // Validate the complete stage prompt using llama.cpp's actual chat-template token count.
-            // in onPrompt below. A raw role/content estimate can reject valid prompts or
-            // undercount model-specific chat-template tokens.
+            // Enforce the actual llama.cpp chat-template token count in onPrompt below.
+            // Raw role/content estimates are not authoritative for this model.
             var actualPromptTokens = 0
             var startsThinking = false
             val response = runtime.generate(
@@ -1049,7 +1055,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (count(messages) > budget) {
             require(count(messagesFor("")) <= budget) {
-                "The shared system prefix exceeds the available model-input budget."
+                "The shared system prefix and current question exceed the available model-input budget."
             }
             throw IllegalArgumentException("The complete model input exceeds the ${budget}-token limit; shorten the question.")
         }
