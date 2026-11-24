@@ -102,8 +102,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val modelFileImporter = ModelFileImporter(application)
     private val selectedModelStore = SelectedModelStore(application)
 
-    // Completed turns are persisted privately and restored when the app process restarts.
-    // The native KV cache is separate and is rebuilt from the transcript after restart.
+    // Completed turns are persisted in SQLite for GGUF to query when it decides history is needed.
+    // The UI transcript is restored locally but is never injected into model input automatically.
     private val conversationHistory = mutableListOf<Pair<String, String>>()
     private val historyPreferences = application.getSharedPreferences("mr_red_chat_history", android.content.Context.MODE_PRIVATE)
     private val maxStoredTurns = 40
@@ -176,7 +176,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         ActivityLogger.record(application, "APP", "view_model_created", "Chat runtime initialized")
-        ActivityLogger.setMemoryChangeListener { scheduleMemoryWarmup() }
         // Retire legacy chat, personal-memory, persona and summary stores from older installs.
         application.deleteDatabase("mr_red_conversation.db")
         application.getSharedPreferences("mr_red_persona", android.content.Context.MODE_PRIVATE)
@@ -288,7 +287,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val modelName = withContext(Dispatchers.Default) {
             runtime.modelMetadata("general.name")
         }
-        // The conversation transcript is restored from app-private storage; native KV state is not.
+        // Conversation history remains in SQLite for model-requested lookup; only the fixed system prompt is warmed natively.
         _promptTokenCount.value = 0
         _generationProgress.value = null
         _generationMetrics.value = null
@@ -371,11 +370,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
-    /**
-     * Runs a question through the real Kotlin retrieval and prompt-construction path,
-     * then the loaded GGUF model. The sampler is read-only: it does not add test turns
-     * to chat history, capture facts, execute Android tools, or mutate the memory DB.
-     */
+    /** Read-only protocol test: GGUF decides whether a validated SQLite lookup is needed. */
     fun sendSamplerQuestion(question: String) {
         val prompt = question.trim()
         if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
@@ -512,7 +507,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
-        ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
         if (_uiState.value !is ChatUiState.Ready) {
             _generationError.value = "Load a GGUF model before sending a question."
             return
@@ -704,9 +698,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** The stable system prefix is warmed once after model preparation, not after every answer. */
-    private fun scheduleMemoryWarmup() = Unit
-
     private fun executeRoutedDeviceRequest(prompt: String, call: ToolCall) {
         val userMessage = ChatMessage(MessageRole.User, prompt)
         val startedAt = System.nanoTime()
@@ -741,9 +732,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     "result_${call.name}",
                     toolContent
                 )
-                val requiresNaturalAnswer =
-                    call.name in setOf("web_search", "get_news", "get_weather") &&
-                        _uiState.value is ChatUiState.Ready
+                val requiresNaturalAnswer = _uiState.value is ChatUiState.Ready
                 val content = if (requiresNaturalAnswer) {
                     val ready = _uiState.value as? ChatUiState.Ready
                         ?: error("Load a GGUF model before asking Mr-Red to interpret notification data.")
@@ -775,9 +764,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             inferenceConfig = _inferenceConfig.value.copy(maxTokens = maxOutput),
                             contextWindowTokens = ready.nCtx,
                             onPrompt = { formatted, tokens ->
-                                val toolAnswerPromptLimit = minOf(promptBudget, PromptCache.PROMPT_CAP)
-                                require(tokens in 1..toolAnswerPromptLimit) {
-                                    "Formatted tool-answer prompt is $tokens tokens; the limit is $toolAnswerPromptLimit."
+                                require(tokens in 1..promptBudget) {
+                                    "Formatted tool-answer prompt is $tokens tokens; the limit is $promptBudget."
                                 }
                                 startsThinking = formatted.trimEnd().endsWith("<think>")
                                 updateLatestAssistantModelInput(formatted, tokens)
@@ -830,7 +818,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 _generationProgress.value = null
                 _isGenerating.value = false
-                scheduleMemoryWarmup()
             }
         }
     }
