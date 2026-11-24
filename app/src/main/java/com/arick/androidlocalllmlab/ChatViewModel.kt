@@ -428,8 +428,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 val visible = splitAssistantResponse(rawResponse, firstThinking)
                                 val candidate = visible.answer.trimStart()
                                 val possibleToolMarker = candidate.isEmpty() ||
-                                    "TOOL+".startsWith(candidate.take(5)) ||
-                                    candidate.startsWith("TOOL+")
+                                    "tool+".startsWith(candidate.take(5), ignoreCase = true) ||
+                                    candidate.startsWith("tool+", ignoreCase = true)
                                 if (!possibleToolMarker) {
                                     _samplerMessages.value = _samplerMessages.value.mapIndexed { index, message ->
                                         if (index == _samplerMessages.value.lastIndex) {
@@ -446,7 +446,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         )
                         val firstParts = splitAssistantResponse(firstResponse, firstThinking)
-                        if (!firstParts.answer.trim().startsWith("TOOL+")) {
+                        if (!firstParts.answer.trim().startsWith("tool+", ignoreCase = true)) {
                             _samplerRetrievedMemory.value = "No database request was made."
                             templateStartsThinking = firstThinking
                             firstResponse
@@ -530,7 +530,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun executeToolPlusRequest(modelAnswer: String): String {
-        val requestBody = modelAnswer.trim().removePrefix("TOOL+").trim()
+        val requestBody = modelAnswer.trim().drop(5).trim()
         return runCatching {
             val jsonStart = requestBody.indexOf('{')
             val jsonEnd = requestBody.lastIndexOf('}')
@@ -757,8 +757,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                                 _generationProgress.value = "Generating response…"
                                 val candidate = splitAssistantResponse(rawResponse, firstStartsThinking).answer.trimStart()
                                 val possibleToolMarker = candidate.isEmpty() ||
-                                    "TOOL+".startsWith(candidate.take(5)) ||
-                                    candidate.startsWith("TOOL+")
+                                    "tool+".startsWith(candidate.take(5), ignoreCase = true) ||
+                                    candidate.startsWith("tool+", ignoreCase = true)
                                 if (!possibleToolMarker) {
                                     replaceLatestAssistantMessage(
                                         splitAssistantResponse(rawResponse, firstStartsThinking),
@@ -778,7 +778,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         check(firstPromptTokens > 0) { "The runtime did not confirm the formatted chat prompt token count." }
                         val firstParts = splitAssistantResponse(firstResponse, firstStartsThinking)
                         val modelAnswer = firstParts.answer.trim()
-                        if (!modelAnswer.startsWith("TOOL+")) {
+                        if (!modelAnswer.startsWith("tool+", ignoreCase = true)) {
                             templateStartsThinking = firstStartsThinking
                             firstResponse
                         } else {

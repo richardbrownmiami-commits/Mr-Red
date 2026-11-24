@@ -33,7 +33,7 @@ class PromptCacheTest {
         assertTrue(system.contains("feminine, composed, perceptive, quietly witty"))
         assertTrue(system.contains("Identify only as Mr-Red"))
         assertTrue(system.contains("Never invent facts, access, or results; report actions only after success"))
-        assertTrue(system.contains("TOOL+"))
-        assertTrue(system.contains("Never output TOOL+ for general knowledge"))
+        assertTrue(system.contains("tool+"))
+        assertTrue(system.contains("Never output tool+ for general knowledge"))
     }
 }
