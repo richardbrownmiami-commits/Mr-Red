@@ -27,6 +27,6 @@ conversation_turns(id,question,answer,created_at,fingerprint) earlier questions 
     /** Builds the identical system prefix for every stage; only the stage body varies. */
     fun stage(name: String, body: String): List<PromptMessage> = listOf(
         PromptMessage("system", STABLE_SYSTEM),
-        PromptMessage("user", "STAGE=$name\\n$body")
+        PromptMessage("user", "STAGE=$name\n$body")
     )
 }

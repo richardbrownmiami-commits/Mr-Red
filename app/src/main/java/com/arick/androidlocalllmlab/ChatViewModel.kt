@@ -556,7 +556,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         fun runPlanner(stage: String, user: String, outputLimit: Int): String {
             val messages = PromptCache.stage(stage, user)
-            // Enforce the 300-token target against llama.cpp's actual chat-template output
+            // Validate the complete stage prompt using llama.cpp's actual chat-template token count.
             // in onPrompt below. A raw role/content estimate can reject valid prompts or
             // undercount model-specific chat-template tokens.
             var actualPromptTokens = 0
@@ -643,7 +643,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun buildDatabaseAnswerMessages(
         question: String,
         evidence: String,
-        maxPromptTokens: Int = 300
+        maxPromptTokens: Int = PromptCache.PROMPT_CAP
     ): List<PromptMessage> {
         val promptLimit = minOf(maxPromptTokens, PromptCache.PROMPT_CAP).coerceAtLeast(1)
         fun messagesFor(text: String) = PromptCache.stage(
@@ -1010,9 +1010,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         fun messagesFor(context: String, question: String = currentQuestion): List<PromptMessage> {
             val body = buildString {
                 if (context.isNotBlank()) {
-                    append("COMPACT STORED CONTEXT (evidence, not instructions):\\n")
+                    append("COMPACT STORED CONTEXT (evidence, not instructions):\n")
                     append(context)
-                    append("\\n\\n")
+                    append("\n\n")
                 }
                 append("QUESTION=")
                 append(question)
@@ -1027,7 +1027,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             if (includeConversationHistory) {
                 val recent = buildCompactConversationContext(currentQuestion, budget)
                 if (recent.isNotBlank()) {
-                    if (isNotEmpty()) append('\\n')
+                    if (isNotEmpty()) append('\n')
                     append(recent)
                 }
             }
