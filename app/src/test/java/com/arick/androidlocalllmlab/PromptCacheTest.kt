@@ -16,7 +16,17 @@ class PromptCacheTest {
     @Test
     fun stableSystemContainsNoPerCallValues() {
         val system = PromptCache.STABLE_SYSTEM
-        listOf("NOW_MS=", "TZ=", "QUESTION=", "ROWS=", "PREVIOUS_QUESTION=", "$"+"{now", "$"+"{question")
+        listOf("NOW_MS=", "TZ=", "QUESTION=", "ROWS=", "PREVIOUS_QUESTION=", ')
+            .forEach { marker -> assertFalse("Dynamic marker found: $marker", system.contains(marker)) }
+        assertFalse(Regex("\\b\\d{10,13}\\b").containsMatchIn(system))
+    }
+}
+ + "{now", ')
+            .forEach { marker -> assertFalse("Dynamic marker found: $marker", system.contains(marker)) }
+        assertFalse(Regex("\\b\\d{10,13}\\b").containsMatchIn(system))
+    }
+}
+ + "{question")
             .forEach { marker -> assertFalse("Dynamic marker found: $marker", system.contains(marker)) }
         assertFalse(Regex("\\b\\d{10,13}\\b").containsMatchIn(system))
     }

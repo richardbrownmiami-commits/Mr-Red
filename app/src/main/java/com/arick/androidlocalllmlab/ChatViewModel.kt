@@ -1141,8 +1141,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             inferenceConfig = _inferenceConfig.value.copy(maxTokens = maxOutput),
                             contextWindowTokens = ready.nCtx,
                             onPrompt = { formatted, tokens ->
-                                require(tokens in 1..PromptCache.PROMPT_CAP) {
-                                    "Formatted tool-answer prompt is $tokens tokens; the limit is ${PromptCache.PROMPT_CAP}."
+                                val toolAnswerPromptLimit = minOf(promptBudget, PromptCache.PROMPT_CAP)
+                                require(tokens in 1..toolAnswerPromptLimit) {
+                                    "Formatted tool-answer prompt is $tokens tokens; the limit is $toolAnswerPromptLimit."
                                 }
                                 startsThinking = formatted.trimEnd().endsWith("<think>")
                                 updateLatestAssistantModelInput(formatted, tokens)
