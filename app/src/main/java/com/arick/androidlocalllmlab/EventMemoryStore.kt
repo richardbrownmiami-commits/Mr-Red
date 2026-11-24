@@ -39,6 +39,8 @@ data class StoredConversationRecord(
     val createdAtMillis: Long
 )
 
+data class DatabaseQueryFilter(val table: String, val column: String, val value: String)
+
 object EventMemoryStore {
     private const val DATABASE_NAME = "mr_red_memory.db"
     private const val DATABASE_VERSION = 3
@@ -99,22 +101,6 @@ object EventMemoryStore {
         helper ?: synchronized(this) {
             helper ?: MemoryDatabase(context.applicationContext).also { helper = it }
         }
-
-    /** Match a question against the live schema and bounded samples of stored categorical values. */
-    fun matchDatabaseQuestion(
-        context: Context,
-        question: String,
-        preferredTable: String? = null,
-        searchAll: Boolean = false
-    ): DatabaseMatchResult {
-        awaitPendingWrites()
-        return DatabaseMatcher.match(
-            database(context.applicationContext).readableDatabase,
-            question,
-            preferredTable,
-            searchAll
-        )
-    }
 
     fun recordEvent(
         context: Context,
