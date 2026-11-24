@@ -127,4 +127,40 @@ class DatabaseMatcherInstrumentedTest {
         assertFalse(result.isDatabaseIntent)
         assertTrue(result.candidates.isEmpty())
     }
+    @Test
+    fun modelSqlValidatorRejectsUnsafeStatementsAndAcceptsReadOnlySelect() {
+        val invalidQueries = listOf(
+            "SELECT * FROM events LIMIT 5",
+            "SELECT id FROM events JOIN facts ON events.id = facts.id LIMIT 5",
+            "SELECT id FROM events UNION SELECT id FROM facts",
+            "SELECT id FROM events; DELETE FROM events",
+            "SELECT id FROM events -- comment",
+            "SELECT id FROM events /* comment */ LIMIT 5",
+            "SELECT name FROM sqlite_master LIMIT 5",
+            "SELECT id FROM scheduled_tasks LIMIT 5"
+        )
+        invalidQueries.forEach { sql ->
+            var rejected = false
+            try {
+                EventMemoryStore.executeModelReadOnlyQuery(
+                    context = context,
+                    sql = sql
+                )
+            } catch (_: IllegalArgumentException) {
+                rejected = true
+            }
+            assertTrue("Unsafe SQL must be rejected: $sql", rejected)
+        }
+
+        val evidence = EventMemoryStore.executeModelReadOnlyQuery(
+            context = context,
+            sql = "SELECT id, source, title FROM events ORDER BY occurred_at DESC LIMIT 5;",
+            requiredTable = "events"
+        )
+        assertTrue(
+            "A normal explicit-column SELECT with one trailing semicolon should execute read-only",
+            evidence.startsWith("ROWS:") || evidence.startsWith("Query completed. No matching records")
+        )
+    }
+
 }
