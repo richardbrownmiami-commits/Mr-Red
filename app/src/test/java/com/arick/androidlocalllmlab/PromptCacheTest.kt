@@ -8,7 +8,7 @@ import org.junit.Test
 class PromptCacheTest {
     @Test
     fun everyStageUsesIdenticalSystemContent() {
-        val stages = listOf("ROUTE", "INTENT", "SQL", "ANSWER", "CHAT")
+        val stages = listOf("REQUEST", "ROUTE", "INTENT", "SQL", "ANSWER", "CHAT")
         val systems = stages.map { PromptCache.stage(it, "question=$it").first().content }
         assertEquals(1, systems.distinct().size)
         assertEquals(PromptCache.STABLE_SYSTEM, systems.first())
@@ -33,5 +33,15 @@ class PromptCacheTest {
         assertTrue(system.contains("feminine, composed, perceptive, quietly witty"))
         assertTrue(system.contains("Identify only as Mr-Red"))
         assertTrue(system.contains("Never invent facts, access, or results; report actions only after success"))
+    }
+
+    @Test
+    fun requestStageDefinesModelOwnedRoutingAndBoundSql() {
+        val system = PromptCache.stage("REQUEST", "question").first().content
+        assertTrue(system.contains("CHAT|"))
+        assertTrue(system.contains("SQL|<table>|"))
+        assertTrue(system.contains("TOOL_CALL|"))
+        assertTrue(system.contains("matching string args"))
+        assertTrue(system.contains("events, facts, conversation_turns"))
     }
 }
