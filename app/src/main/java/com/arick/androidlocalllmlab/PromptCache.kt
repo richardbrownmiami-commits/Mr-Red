@@ -41,4 +41,24 @@ OUTPUT RULE:
 For a normal user message, output exactly one of CHAT|<answer>, SQL|<table>|<JSON>, or TOOL_CALL|<tool>|<JSON>, with no preamble or markdown fence. For either result handoff, output only the natural-language answer. Never expose internal protocol text to the user.
 """.trimIndent()
 
+    /**
+     * Normalize the model's structured handoff prefix without interpreting arbitrary prose.
+     * Both pipe and slash separators are accepted for small instruct-model compatibility.
+     */
+    fun normalizeRequestProtocol(raw: String): String? {
+        val output = raw.trim()
+            .replace(Regex("^\\u0060\\u0060\\u0060(?:[A-Za-z0-9_-]+)?\\s*"), "")
+            .replace(Regex("\\s*\\u0060\\u0060\\u0060$"), "")
+            .trim()
+        for (name in listOf("CHAT", "SQL", "TOOL_CALL")) {
+            if (output.startsWith("$name|") || output.startsWith("$name/")) {
+                val payload = output.substring(name.length + 1).trim()
+                if (name == "CHAT") return "CHAT|$payload"
+                val boundary = payload.indexOfFirst { it == '|' || it == '/' }
+                if (boundary <= 0) return "$name|$payload"
+                return "$name|${payload.substring(0, boundary).trim()}|${payload.substring(boundary + 1).trim()}"
+            }
+        }
+        return null
+    }
 }
