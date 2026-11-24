@@ -876,7 +876,7 @@ object EventMemoryStore {
         }
         if (bindArgs != null) {
             require(requiredFilter == null) { "Use either explicit query parameters or a selected-value filter, not both." }
-            require(bindArgs.size <= 12 && bindArgs.all { it.length <= 1000 && !it.contains('\\u0000') }) {
+            require(bindArgs.size <= 12 && bindArgs.all { it.length <= 1000 && !it.contains('\u0000') }) {
                 "SQL query parameters are invalid or too numerous."
             }
             require(statement.count { it == '?' } == bindArgs.size) {
