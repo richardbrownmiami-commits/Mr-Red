@@ -85,6 +85,6 @@ Follow only the requested STAGE. Never mix stage formats.
 
     fun stage(name: String, body: String): List<PromptMessage> = listOf(
         PromptMessage("system", STABLE_SYSTEM),
-        PromptMessage("user", "STAGE=$name\\n$body")
+        PromptMessage("user", "STAGE=$name\n$body")
     )
 }
