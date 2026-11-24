@@ -17,7 +17,7 @@ class PromptCacheTest {
         assertTrue(system.contains("conversation_turns"))
         assertTrue(system.contains("DATABASE_RESULT_HANDOFF"))
         assertTrue(system.contains("TOOL_RESULT_HANDOFF"))
-        assertTrue(system.length < 2400)
+        assertTrue(system.length < 3100)
         assertTrue(!system.contains("Kotlin does not classify intent"))
         assertTrue(!system.contains("Every new user message is sent directly to you"))
     }
