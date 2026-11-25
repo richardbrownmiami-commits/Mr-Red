@@ -177,14 +177,6 @@ object EventMemoryStore {
         }
     }
 
-    /**
-     * Store only explicit, non-sensitive user-stated facts. Do not infer facts from assistant
-     * replies or ordinary questions. Sensitive categories are deliberately excluded.
-     */
-    /**
-     * Persists a fact only after GGUF explicitly requests the save_fact tool operation.
-     * Kotlin validates the payload and sensitive-topic policy; it does not infer save intent.
-     */
     fun clearEventHistory(context: Context) {
         val appContext = context.applicationContext
         writer.execute {
@@ -192,7 +184,7 @@ object EventMemoryStore {
         }
     }
 
-    /** Returns recently learned explicit facts for on-device display in the Memory Hub. */
+    /** Read-only event records for the database browser. */
     fun browseEvents(
         context: Context,
         section: String,
@@ -240,7 +232,7 @@ object EventMemoryStore {
         return rows
     }
 
-    /** Read-only search over the existing dedicated conversation history table. */
+    /** Counts for the event database browser. */
     fun databaseBrowserCounts(context: Context): Map<String, Int> {
         awaitPendingWrites()
         val db = database(context.applicationContext).readableDatabase
@@ -292,46 +284,13 @@ object EventMemoryStore {
             db.execSQL("CREATE INDEX idx_events_key ON events(package_name, event_key)")
             db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at) WHERE event_type = 'NOTIFICATION' AND action = 'posted'")
             db.execSQL("CREATE INDEX idx_events_active ON events(event_type, is_active, occurred_at DESC)")
-            db.execSQL(
-                """CREATE TABLE facts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    fact TEXT NOT NULL,
-                    source_text TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    fingerprint TEXT NOT NULL UNIQUE
-                )""".trimIndent()
-            )
-            db.execSQL("CREATE INDEX idx_facts_updated ON facts(updated_at DESC)")
-            db.execSQL(
-                """CREATE TABLE conversation_turns (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    question TEXT NOT NULL,
-                    answer TEXT NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    fingerprint TEXT NOT NULL UNIQUE
-                )""".trimIndent()
-            )
-            db.execSQL("CREATE INDEX idx_conversation_turns_created ON conversation_turns(created_at DESC)")
+
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
             if (oldVersion < 2) {
                 db.execSQL("DROP INDEX IF EXISTS idx_notification_unique")
                 db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at) WHERE event_type = 'NOTIFICATION' AND action = 'posted'")
-            }
-            if (oldVersion < 3) {
-                db.execSQL(
-                    """CREATE TABLE conversation_turns (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        question TEXT NOT NULL,
-                        answer TEXT NOT NULL,
-                        created_at INTEGER NOT NULL,
-                        fingerprint TEXT NOT NULL UNIQUE
-                    )""".trimIndent()
-                )
-                db.execSQL("CREATE INDEX idx_conversation_turns_created ON conversation_turns(created_at DESC)")
             }
         }
     }
