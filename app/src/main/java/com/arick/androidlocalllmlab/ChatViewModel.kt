@@ -307,26 +307,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             getApplication(), "MODEL", "runtime_ready",
             "name=$modelName description=$modelDescription n_ctx=${preparationMetrics.actualNctx} cpu_threads=${_cpuThreads.value}"
         )
-        memoryWarmupJob = viewModelScope.launch(Dispatchers.Default) {
-            runCatching {
-                nativeInferenceMutex.withLock {
-                    runtime.resetStopRequest()
-                    val prefixTokens = runtime.warmPrompt(
-                        listOf(PromptMessage("system", PromptCache.STABLE_SYSTEM))
-                    )
-                    check(prefixTokens > 0) { "The shared system prefix could not be tokenized and warmed." }
-                    ActivityLogger.record(
-                        getApplication(), "MODEL", "prompt_prefix_warmed",
-                        "tokens=$prefixTokens"
-                    )
-                }
-            }.onFailure {
-                ActivityLogger.record(
-                    getApplication(), "ERROR", "prompt_prefix_warmup_failed",
-                    it.javaClass.simpleName
-                )
-            }
-        }
+        scheduleStablePromptWarmup()
     }
 
     private fun restoreConversationHistory() {
@@ -1021,7 +1002,35 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         return messages
     }
 
-    /** The stable system prefix is warmed once after model preparation, not after every answer. */
+    /** Rebuild the fixed system prefix after any operation that clears/recreates the native KV cache. */
+    private fun scheduleStablePromptWarmup() {
+        memoryWarmupJob?.cancel()
+        memoryWarmupJob = viewModelScope.launch(Dispatchers.Default) {
+            runCatching {
+                nativeInferenceMutex.withLock { warmStablePromptLocked() }
+            }.onFailure {
+                ActivityLogger.record(
+                    getApplication(), "ERROR", "prompt_prefix_warmup_failed",
+                    it.javaClass.simpleName
+                )
+            }
+        }
+    }
+
+    /** Caller must hold nativeInferenceMutex. */
+    private fun warmStablePromptLocked() {
+        runtime.resetStopRequest()
+        val prefixTokens = runtime.warmPrompt(
+            listOf(PromptMessage("system", PromptCache.STABLE_SYSTEM))
+        )
+        check(prefixTokens > 0) { "The shared system prefix could not be tokenized and warmed." }
+        ActivityLogger.record(
+            getApplication(), "MODEL", "prompt_prefix_warmed",
+            "tokens=$prefixTokens"
+        )
+    }
+
+    /** No per-turn warmup: preserving the current KV cache is essential for reuse. */
     private fun scheduleMemoryWarmup() = Unit
 
     private fun executeRoutedDeviceRequest(prompt: String, call: ToolCall) {
@@ -1280,7 +1289,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = ChatUiState.Preparing("Rebuilding context…")
                 memoryWarmupJob?.cancel()
                 val actualNctx = withContext(Dispatchers.Default) {
-                    nativeInferenceMutex.withLock { runtime.recreateContext(requestedNctx) }
+                    nativeInferenceMutex.withLock {
+                        val created = runtime.recreateContext(requestedNctx)
+                        if (created > 0) warmStablePromptLocked()
+                        created
+                    }
                 }
                 check(actualNctx > 0) { "Context allocation failed" }
 
@@ -1450,7 +1463,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         EventMemoryStore.clearConversationHistory(getApplication())
         viewModelScope.launch {
             withContext(Dispatchers.Default) {
-                nativeInferenceMutex.withLock { runtime.resetContext() }
+                nativeInferenceMutex.withLock {
+                    runtime.resetContext()
+                    warmStablePromptLocked()
+                }
             }
         }
         clearLastPromptState()
@@ -1469,7 +1485,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         memoryWarmupJob?.cancel()
         viewModelScope.launch {
             withContext(Dispatchers.Default) {
-                nativeInferenceMutex.withLock { runtime.resetContext() }
+                nativeInferenceMutex.withLock {
+                    runtime.resetContext()
+                    warmStablePromptLocked()
+                }
             }
             synchronized(conversationHistory) {
                 conversationHistory.clear()
