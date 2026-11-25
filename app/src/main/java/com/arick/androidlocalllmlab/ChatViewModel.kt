@@ -709,7 +709,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         // Pattern 1: [SEARCH: query]
-        val searchMatch = Regex("\[SEARCH:\\s*([^\]]+)\]", RegexOption.IGNORE_CASE).find(output)
+        val searchMatch = Regex("""\[SEARCH:\s*([^\]]+)\]""", RegexOption.IGNORE_CASE).find(output)
         if (searchMatch != null) {
             val query = searchMatch.groupValues[1].trim()
             if (query.isNotEmpty()) {
@@ -718,7 +718,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Pattern 2: TOOL_CALL[:|]name[|JSON] or TOOL_CALL[:|]nameJSON
-        val callRegex = Regex("TOOL_CALL[:|]\\s*([a-zA-Z0-9_]+)", RegexOption.IGNORE_CASE)
+        val callRegex = Regex("""TOOL_CALL[:|]\s*([a-zA-Z0-9_]+)""", RegexOption.IGNORE_CASE)
         val match = callRegex.find(output) ?: return null
         val name = match.groupValues[1].lowercase(java.util.Locale.ROOT)
         if (name !in allowed) return null
