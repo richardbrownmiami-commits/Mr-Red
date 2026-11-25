@@ -56,7 +56,7 @@ object ActivityLogger {
 
     fun diagnosticReport(context: Context): String = runCatching {
         val app = context.applicationContext
-        val memory = (app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).memoryInfo
+        val memory = ActivityManager.MemoryInfo().also { (app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(it) }
         buildString {
             appendLine("===== MR-RED DEVICE DIAGNOSTICS =====")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
