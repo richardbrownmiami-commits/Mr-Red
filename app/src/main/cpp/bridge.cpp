@@ -359,12 +359,16 @@ namespace {
         // message can be appended while preserving the exact cached token prefix.
         int warmPrompt(const std::vector<ChatMessage> &history) {
             if (model_ == nullptr || context_ == nullptr || history.size() != 1 ||
-                history.front().role != "system" || history.front().content.empty() ||
-                stopRequested_.load()) {
+                history.front().role != "system" || history.front().content.empty()) {
                 return 0;
             }
-            // Keep the fixed system prompt in native memory across KV/context resets.
+            // Install the stable prompt even if the user cancels prefill. The next
+            // request can then reset the stop flag and perform a cold full prefill.
             cachedSystemPrompt_ = history.front().content;
+            if (stopRequested_.load()) {
+                appendDiagnostic("warm_prompt_skipped reason=stop_requested");
+                return 0;
+            }
 
             using WarmClock = std::chrono::steady_clock;
             const auto warmStartedAt = WarmClock::now();
