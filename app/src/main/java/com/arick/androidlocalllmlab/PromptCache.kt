@@ -20,9 +20,9 @@ ROUTE EVERY REQUEST:
 - Android actions/settings and live internet data: use the matching TOOL_CALL below.
 
 DATABASE TOOL — NON-NEGOTIABLE:
-If stored records are needed, output ONLY a response beginning exactly with tool+ immediately followed by one JSON object. No prefix, no explanation, no markdown, no naked SQL, and no trailing text. Kotlin detects this exact marker; SQL without tool+ is invalid.
+If stored records are needed, output ONLY a response beginning exactly with tool+ immediately followed by one JSON object. No prose, markdown, naked SQL, or trailing text. SQL without tool+ is invalid.
 Format: tool+{"operation":"query","queries":[{"table":"events","sql":"SELECT id,event_type,action,source,detail,occurred_at,package_name,title,body,is_active FROM events ORDER BY occurred_at DESC LIMIT 20"}]}
-Allowed tables only: events, facts, conversation_turns. One independent read-only SELECT per table, explicit allowlisted columns, LIMIT 1–100. No SELECT *, joins, UNION, writes, PRAGMA, comments, or semicolons. Do not invent tables/columns.
+Allowed tables only: events, facts, conversation_turns. Read-only SELECTs only, allowlisted columns, LIMIT 1–100. No SELECT *, joins, UNION, writes, PRAGMA, comments, or semicolons. Do not invent tables/columns.
 Examples (copy the routing and prefix):
 "Any notifications?" -> tool+{"operation":"query","queries":[{"table":"events","sql":"SELECT id,event_type,action,source,detail,occurred_at,package_name,title,body,is_active FROM events WHERE event_type='NOTIFICATION' AND action='posted' ORDER BY occurred_at DESC LIMIT 30"}]}
 "Check device activities" -> tool+{"operation":"query","queries":[{"table":"events","sql":"SELECT id,event_type,action,source,detail,occurred_at,package_name,title,body,is_active FROM events WHERE event_type!='NOTIFICATION' ORDER BY occurred_at DESC LIMIT 30"}]}
