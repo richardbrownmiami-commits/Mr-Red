@@ -117,18 +117,6 @@ class ToolRegistry(
         return safe.toString().take(800)
     }
 
-    fun modelInstruction(): String = definitionsByName.values.joinToString("\n") { tool ->
-        val parameters = tool.parameterSchema.joinToString("; ") { parameter ->
-            buildString {
-                append("${parameter.name}: ${parameter.description}")
-                parameter.allowedValues.takeIf { it.isNotEmpty() }?.let {
-                    append(", allowed values: ${it.joinToString(" or ")}")
-                }
-                parameter.maxLength?.let { append(", max $it chars") }
-            }
-        }
-        "- ${tool.name}: ${tool.description}. Arguments: $parameters"
-    }
 }
 
 class AndroidToolExecutor(private val context: Context) {
@@ -275,7 +263,6 @@ class AndroidToolExecutor(private val context: Context) {
     fun execute(call: ToolCall, onProgress: (String) -> Unit = {}): ToolResult =
         registry.execute(call, onProgress)
 
-    fun modelInstruction(): String = registry.modelInstruction()
 
     fun openSettings(arguments: JSONObject): ToolResult {
         val page = arguments.optString("page", "system").lowercase()

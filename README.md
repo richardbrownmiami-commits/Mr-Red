@@ -1,29 +1,23 @@
-# Mr-Red — Offline AI & Device Automation Agent for Android (ARMv7 32-bit)
+# Mr-Red — Android Device Controls
 
-Mr-Red is an offline Android LLM lab and device automation agent specifically ported and optimized for **32-bit ARMv7 (`armeabi-v7a`)** devices running **Android 11 (API 30+)** such as the Redmi 9.
+Mr-Red is an Android application for direct device actions, notification capture, scheduled alarms and reminders, online information tools, and a private on-device activity database.
+
+## Features
+
+- Open Android settings pages and launch installed applications.
+- Open the phone dialer and draft SMS messages.
+- Set timers, alarms, one-time reminders, and recurring reminders.
+- Capture notification posts and removals with Android Notification Listener access.
+- Read device battery, storage, and memory status.
+- Retrieve weather, news headlines, and web search results.
+- Browse the local event database and review diagnostics in the activity screen.
 
 ## Architecture
 
-- **In-App LLM Runtime**: Direct JNI bridge (`native_llm`) to pinned `llama.cpp` with ARMv7 NEON hardware acceleration (`-mfpu=neon-vfpv4 -mfloat-abi=softfp`).
-- **32-Bit Address Space Hardening**:
-  - Conservative KV cache: default `n_ctx = 512` (options 256, 512, 1024, 2048).
-  - Scratch memory caps: `n_batch = 64`, `n_ubatch = 32`, `no_perf = true`.
-  - Memory-mapped GGUF loading (`use_mmap = true`, `use_mlock = false`).
-- **Tool Calling & Device Automation**:
-  - `open_settings`: Quick access to WiFi, Bluetooth, Battery, Display, and System settings.
-  - `open_app`: Fuzzy launcher for installed packages (WhatsApp, YouTube, Chrome, Maps, Camera, etc.).
-  - `send_message`: WhatsApp direct link draft & SMS composer.
-  - `make_call`: Phone dialer launcher.
-  - `set_timer`: Countdown timer launcher.
-  - `device_vitals`: Real-time battery %, available storage, and free/total RAM.
-  - `get_weather`: Open-Meteo weather forecasts.
-  - `web_search`: Tavily API search with DuckDuckGo fallback.
+The app uses Kotlin and Jetpack Compose. Device actions are executed directly by the Android tool executor. There is no embedded language model, llama.cpp runtime, JNI bridge, GGUF model loader, or native C++ build.
 
-## Build Requirements
+## Build
 
-- JDK 17
-- Android SDK (API 35, minSdk 30)
-- Android NDK 26.3.11579264
-- CMake 3.22.1
+Requirements: JDK 17, Android SDK Platform 35, Android Build Tools 35.0.0, and Gradle 8.10.2.
 
-Run `./gradlew assembleRelease` to generate `app/build/outputs/apk/release/Mr-Red-release-armeabi-v7a.apk`.
+Run `gradle :app:assembleRelease` to build the release APK.

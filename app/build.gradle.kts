@@ -27,7 +27,6 @@ val hasReleaseSigning = signingPropertiesFile.isFile
 
 android {
     namespace = "com.arick.androidlocalllmlab"
-    ndkVersion = "27.0.12077973"
 
     compileSdk = 35
 
@@ -38,30 +37,7 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
         buildConfigField("String", "TAVILY_API_KEY", "\"$tavilyApiKey\"")
-        ndk {
-            abiFilters.clear()
-            abiFilters.add("armeabi-v7a")
-        }
-        externalNativeBuild {
-            cmake {
-                cppFlags += "-std=c++17"
-            }
-        }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
-
-    packaging {
-        jniLibs {
-            excludes += listOf(
-                "lib/arm64-v8a/**",
-                "lib/x86/**",
-                "lib/x86_64/**"
-            )
-            useLegacyPackaging = true
-        }
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
     }
 
     externalNativeBuild {
@@ -107,18 +83,6 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
-    }
-}
-
-tasks.matching { it.name == "assembleRelease" }.configureEach {
-    doLast {
-        val buildDir = project.layout.buildDirectory.asFile.get()
-        buildDir.walkTopDown().forEach { file ->
-            if (file.isFile && file.extension == "so" && !file.absolutePath.contains("armeabi-v7a")) {
-                println("Removing non-armeabi-v7a native lib: ${file.absolutePath}")
-                file.delete()
-            }
-        }
     }
 }
 

@@ -15,12 +15,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      NDK_VERSION: "27.0.12077973"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up JDK 20
+      - name: Set up JDK
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -28,23 +26,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: "platform-tools"
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
           cmdline-tools-version: "12266719"
           accept-android-sdk-licenses: true
-      - name: Install Android NDK and CMake
-        run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          for attempt in 1 2 3; do
-            if sdkmanager "platforms;android-30" "build-tools;35.0.0" "ndk;${NDK_VERSION}" "cmake;3.31.6"; then
-              break
-            fi
-            echo "Android SDK package install attempt ${attempt} failed; clearing partial NDK download and retrying."
-            rm -rf "$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" "$ANDROID_SDK_ROOT/temp"
-            if [ "$attempt" -eq 3 ]; then exit 1; fi
-            sleep 10
-          done
-          test -d "$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}"
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -57,35 +41,21 @@ jobs:
         run: |
           gradle --no-daemon :app:assembleRelease --stacktrace
           mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Mr-Red.apk
-      - name: Verify native libraries before packaging
-        run: |
-          set -e
-          FOUND=0
-          while IFS= read -r -d '' f; do
-            FOUND=1
-            file "$f"
-            if file "$f" | grep -Eq 'ELF 64-bit|aarch64|x86-64'; then
-              echo "FAIL: 64-bit native library detected: $f"
-              exit 1
-            fi
-          done < <(find app/build -type f -name '*.so' -print0)
-          if [ "$FOUND" -eq 0 ]; then echo "FAIL: no native .so files found"; exit 1; fi
-          echo "Native library audit passed: no 64-bit ELF libraries found."
-      - name: Verify release APK ABI
+      - name: Verify APK has no native LLM payload
         run: |
           APK="app/build/outputs/apk/release/Mr-Red.apk"
           test -f "$APK"
-          unzip -l "$APK" | grep -E 'lib/.*/.*\.so$' || true
-          if unzip -l "$APK" | grep -E 'lib/(arm64-v8a|x86|x86_64)/'; then exit 1; fi
-          if ! unzip -l "$APK" | grep -E 'lib/armeabi-v7a/.*\.so$'; then exit 1; fi
-          echo "ABI verification passed: armeabi-v7a only."
+          if unzip -l "$APK" | grep -E '\.so$|\.gguf$'; then
+            echo "Unexpected native library or model payload found in APK"
+            exit 1
+          fi
+          echo "APK contains no native libraries or bundled GGUF model."
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Mr-Red-release-armeabi-v7a
+          name: Mr-Red-release
           path: app/build/outputs/apk/release/Mr-Red.apk
           if-no-files-found: error
-
       - name: Publish APK to GitHub Releases
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
