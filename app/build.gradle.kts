@@ -89,8 +89,6 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")

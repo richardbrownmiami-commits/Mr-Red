@@ -30,8 +30,6 @@ data class StoredEventRecord(
     val isActive: Boolean
 )
 
-data class DatabaseQueryFilter(val table: String, val column: String, val value: String)
-
 object EventMemoryStore {
     private const val DATABASE_NAME = "mr_red_memory.db"
     private const val DATABASE_VERSION = 4
