@@ -131,15 +131,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _promptTokenCount = MutableStateFlow(0)
     val promptTokenCount: StateFlow<Int> = _promptTokenCount.asStateFlow()
 
-    // Default context window sizing.
-    private val _requestedNctx = MutableStateFlow(1048)
+    private val runtimePreferences = application.getSharedPreferences("local_llm_preferences", android.content.Context.MODE_PRIVATE)
+
+    // Persist the requested context window across ViewModel/process recreation.
+    private val _requestedNctx = MutableStateFlow(
+        runtimePreferences.getInt("context_window_tokens", 1048).coerceAtLeast(128)
+    )
     val requestedNctx: StateFlow<Int> = _requestedNctx.asStateFlow()
 
     // CPU threads bounded by available processor cores.
     private val _cpuThreads = MutableStateFlow(DEFAULT_CPU_THREADS)
     val cpuThreads: StateFlow<Int> = _cpuThreads.asStateFlow()
-
-    private val runtimePreferences = application.getSharedPreferences("local_llm_preferences", android.content.Context.MODE_PRIVATE)
 
     private val _useMmap = MutableStateFlow(runtimePreferences.getBoolean("use_mmap", true))
     val useMmap: StateFlow<Boolean> = _useMmap.asStateFlow()
@@ -1284,8 +1286,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         val currentState = _uiState.value as? ChatUiState.Ready
         if (currentState == null) {
-            // Save requested n_ctx for subsequent model loads.
+            // Save requested n_ctx for subsequent model loads and process restarts.
             _requestedNctx.value = requestedNctx
+            runtimePreferences.edit().putInt("context_window_tokens", requestedNctx).apply()
             return
         }
         if (currentState.nCtx == requestedNctx) {
@@ -1306,6 +1309,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 check(actualNctx > 0) { "Context allocation failed" }
 
                 _requestedNctx.value = requestedNctx
+                runtimePreferences.edit().putInt("context_window_tokens", requestedNctx).apply()
                 ActivityLogger.record(getApplication(), "SETTINGS", "context_window_changed", "Context window set to $actualNctx tokens")
                 // Adjust output reservation when n_ctx shrinks.
                 val safeMaxTokens = defaultMaxTokensFor(actualNctx)
