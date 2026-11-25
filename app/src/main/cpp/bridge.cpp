@@ -439,19 +439,28 @@ namespace {
                 return {};
             }
 
-            if (cachedSystemPrompt_.empty()) {
-                appendDiagnostic("generation_failed reason=system_prompt_not_warmed");
-                return {};
-            }
             std::vector<ChatMessage> effectiveHistory;
             effectiveHistory.reserve(history.size() + 1);
-            effectiveHistory.push_back({"system", cachedSystemPrompt_});
+
+            std::string activeSystemPrompt = cachedSystemPrompt_;
+            if (activeSystemPrompt.empty()) {
+                for (const ChatMessage &message : history) {
+                    if (message.role == "system" && !message.content.empty()) {
+                        activeSystemPrompt = message.content;
+                        break;
+                    }
+                }
+            }
+            if (!activeSystemPrompt.empty()) {
+                effectiveHistory.push_back({"system", activeSystemPrompt});
+            }
             for (const ChatMessage &message : history) {
                 if (message.role != "system") {
                     effectiveHistory.push_back(message);
                 }
             }
-            if (effectiveHistory.size() <= 1) {
+            if (effectiveHistory.empty()) {
+                appendDiagnostic("generation_failed reason=empty_effective_history");
                 return {};
             }
 

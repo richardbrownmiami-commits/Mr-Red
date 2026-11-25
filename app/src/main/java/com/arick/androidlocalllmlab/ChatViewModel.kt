@@ -641,9 +641,57 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         return messagesFor(best)
     }
 
+    private fun localConversationReply(prompt: String): String? {
+        val text = prompt.trim().lowercase(java.util.Locale.US)
+        if (text.matches(Regex("^[.!?,;:]+$"))) {
+            return "I'm here. What would you like to do?"
+        }
+        if (Regex("\\b(do you have memory|have you got memory|do you remember me)\\b").containsMatchIn(text)) {
+            val turns = synchronized(conversationHistory) { conversationHistory.size }
+            return "Yes. Mr-Red has local memory: up to 40 completed chat exchanges are saved on this device, alongside the app's activity log. Currently saved chat exchanges: $turns."
+        }
+        if (Regex("\\b(what you said|what did you say|repeat that|what was your last answer)\\b").containsMatchIn(text)) {
+            val previousAnswer = synchronized(conversationHistory) { conversationHistory.lastOrNull()?.second }
+            return previousAnswer ?: "I don't have an earlier completed answer available in the saved chat history."
+        }
+        if (Regex("\\b(who are you|what are you|introduce yourself|tell me about yourself)\\b").containsMatchIn(text)) {
+            return "I'm Mr-Red, your on-device personal assistant. I can help with conversation and the Android features connected in this app, including device vitals, alarms, reminders, settings, and web search."
+        }
+        if (Regex("\\b(email|emails|mail|inbox)\\b").containsMatchIn(text) &&
+            Regex("\\b(any|check|show|read|new|unread|latest|have|got|see|look|my)\\b").containsMatchIn(text)) {
+            return "I can't read your email inbox directly because no email account connection is configured. I can open Gmail on your phone, but I can't read your messages."
+        }
+        return null
+    }
+
+    private fun completeLocalReply(prompt: String, reply: String) {
+        val userMessage = ChatMessage(MessageRole.User, prompt)
+        val assistantMessage = ChatMessage(MessageRole.Assistant, reply)
+        _messages.value = _messages.value + userMessage + assistantMessage
+        _generationError.value = null
+        ActivityLogger.record(getApplication(), "ANSWER", "local_reply", reply)
+        synchronized(conversationHistory) {
+            conversationHistory += prompt to reply
+            while (conversationHistory.size > maxStoredTurns) conversationHistory.removeAt(0)
+            persistConversationHistoryLocked()
+        }
+        EventMemoryStore.recordConversationExchange(getApplication(), prompt, reply)
+    }
+
     fun send(prompt: String) {
         if (prompt.isBlank() || _isGenerating.value || _samplerGenerating.value) return
         ActivityLogger.record(getApplication(), "QUESTION", "asked", prompt)
+
+        localConversationReply(prompt)?.let { reply ->
+            completeLocalReply(prompt, reply)
+            return
+        }
+
+        DeviceIntentRouter.route(prompt)?.let { call ->
+            executeRoutedDeviceRequest(prompt, call)
+            return
+        }
+
         if (_uiState.value !is ChatUiState.Ready) {
             _generationError.value = "Load a GGUF model before sending a question."
             return
@@ -653,25 +701,38 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun parseModelToolCall(rawAnswer: String): ToolCall? {
         val output = rawAnswer.trim()
-        val markerIndex = output.indexOf("TOOL_CALL|", ignoreCase = true)
-        if (markerIndex < 0) return null
-        val payload = output.substring(markerIndex + "TOOL_CALL|".length)
-        val separator = payload.indexOf('|')
-        if (separator <= 0) return null
-        val name = payload.substring(0, separator).trim().lowercase(java.util.Locale.ROOT)
         val allowed = setOf(
             "device_vitals", "open_settings", "open_app", "make_call", "set_timer", "set_alarm",
             "dismiss_alarm", "schedule_reminder", "cancel_reminders", "list_scheduled_tasks",
-            "open_app_notification_settings", "open_notification_access", "get_news", "get_weather", "web_search"
+            "open_app_notification_settings", "open_notification_access", "get_news", "get_weather", "web_search",
+            "get_notifications"
         )
+
+        // Pattern 1: [SEARCH: query]
+        val searchMatch = Regex("\[SEARCH:\\s*([^\]]+)\]", RegexOption.IGNORE_CASE).find(output)
+        if (searchMatch != null) {
+            val query = searchMatch.groupValues[1].trim()
+            if (query.isNotEmpty()) {
+                return ToolCall("web_search", JSONObject().put("query", query))
+            }
+        }
+
+        // Pattern 2: TOOL_CALL[:|]name[|JSON] or TOOL_CALL[:|]nameJSON
+        val callRegex = Regex("TOOL_CALL[:|]\\s*([a-zA-Z0-9_]+)", RegexOption.IGNORE_CASE)
+        val match = callRegex.find(output) ?: return null
+        val name = match.groupValues[1].lowercase(java.util.Locale.ROOT)
         if (name !in allowed) return null
-        val jsonText = payload.substring(separator + 1)
-        val jsonStart = jsonText.indexOf('{')
-        val jsonEnd = jsonText.lastIndexOf('}')
-        if (jsonStart < 0 || jsonEnd < jsonStart) return null
-        val arguments = runCatching {
-            JSONObject(jsonText.substring(jsonStart, jsonEnd + 1))
-        }.getOrNull() ?: return null
+
+        val afterMarker = output.substring(match.range.last + 1).trim()
+        val jsonStart = afterMarker.indexOf('{')
+        val jsonEnd = afterMarker.lastIndexOf('}')
+        val arguments = if (jsonStart in 0..jsonEnd) {
+            runCatching {
+                JSONObject(afterMarker.substring(jsonStart, jsonEnd + 1))
+            }.getOrNull() ?: JSONObject()
+        } else {
+            JSONObject()
+        }
         return ToolCall(name, arguments)
     }
 
@@ -715,8 +776,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             contextWindowTokens = contextCapacity,
                             onPrompt = { formatted, tokenCount ->
                                 firstPromptTokens = tokenCount
-                                require(tokenCount in 1..promptBudget) {
-                                    "Formatted chat prompt is $tokenCount tokens; limit is $promptBudget."
+                                if (tokenCount > contextCapacity - 16) {
+                                    throw IllegalArgumentException("Formatted chat prompt is $tokenCount tokens; context capacity is $contextCapacity.")
                                 }
                                 _promptTokenCount.value = tokenCount
                                 _generationProgress.value = "Prefilling $tokenCount tokens…"
@@ -802,18 +863,20 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 val generatedAnswer = splitAssistantResponse(answer, templateStartsThinking).answer.trim()
-                if (generatedAnswer.startsWith("TOOL_CALL|", ignoreCase = true)) {
-                    val call = parseModelToolCall(generatedAnswer)
-                    if (call != null) {
-                        // The device-tool executor owns this UI turn and appends its own messages.
-                        _messages.value = _messages.value.dropLast(2)
-                        _isGenerating.value = false
-                        executeRoutedDeviceRequest(prompt, call)
-                        return@launch
-                    }
-                    error("GGUF returned an invalid device-tool request.")
+                val parsedCall = parseModelToolCall(generatedAnswer)
+                if (parsedCall != null) {
+                    // The device-tool executor owns this UI turn and appends its own messages.
+                    _messages.value = _messages.value.dropLast(2)
+                    _isGenerating.value = false
+                    executeRoutedDeviceRequest(prompt, parsedCall)
+                    return@launch
                 }
-                if (answer.isBlank() && !_isStopRequested.value) error("Model returned no content")
+                if (answer.isBlank() && !_isStopRequested.value) {
+                    val fallbackMsg = "Mr-Red did not return any content. Please check model settings or context window."
+                    replaceLatestAssistantMessage(AssistantResponseParts("", fallbackMsg), null)
+                    _generationError.value = fallbackMsg
+                    return@launch
+                }
                 val finalParts = splitAssistantResponse(answer, templateStartsThinking)
                 val finalAnswer = finalParts.answer.trim()
                 if (finalAnswer.isNotBlank()) replaceLatestAssistantMessage(finalParts, null)
@@ -1078,7 +1141,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     toolContent
                 )
                 val requiresNaturalAnswer =
-                    call.name in setOf("web_search", "get_news", "get_weather") &&
+                    call.name in setOf("web_search", "get_news", "get_weather", "get_notifications") &&
                         _uiState.value is ChatUiState.Ready
                 val content = if (requiresNaturalAnswer) {
                     val ready = _uiState.value as? ChatUiState.Ready
@@ -1113,9 +1176,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             inferenceConfig = _inferenceConfig.value.copy(maxTokens = maxOutput),
                             contextWindowTokens = ready.nCtx,
                             onPrompt = { formatted, tokens ->
-                                val toolAnswerPromptLimit = minOf(promptBudget, PromptCache.PROMPT_CAP)
-                                require(tokens in 1..toolAnswerPromptLimit) {
-                                    "Formatted tool-answer prompt is $tokens tokens; the limit is $toolAnswerPromptLimit."
+                                if (tokens > ready.nCtx - 16) {
+                                    throw IllegalArgumentException("Formatted tool-answer prompt is $tokens tokens; context capacity is ${ready.nCtx}.")
                                 }
                                 startsThinking = formatted.trimEnd().endsWith("<think>")
                                 updateLatestAssistantModelInput(formatted, tokens)

@@ -232,6 +232,12 @@ class AndroidToolExecutor(private val context: Context) {
                 override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = openNotificationAccess()
             },
             object : ToolDefinition {
+                override val name = "get_notifications"
+                override val description = "Retrieve recent active or posted notifications on this phone"
+                override val parameterSchema: List<ToolParameterSchema> = emptyList()
+                override fun execute(arguments: JSONObject, onProgress: (String) -> Unit) = getRecentNotifications()
+            },
+            object : ToolDefinition {
                 override val name = "get_news"
                 override val description = "Fetch current news headlines for a topic from free Google News RSS"
                 override val parameterSchema = listOf(ToolParameterSchema("query", "News topic; leave blank for top stories", maxLength = 120))
@@ -466,6 +472,28 @@ class AndroidToolExecutor(private val context: Context) {
         }
         sb.append("\nYou can view and manage all of them on the Tasks tab.")
         return ToolResult.Success(sb.toString().trim())
+    }
+
+    private fun getRecentNotifications(): ToolResult {
+        if (!isNotificationAccessEnabled()) {
+            return ToolResult.Failure("Notification access is not enabled. Please open notification access in settings to grant permission.")
+        }
+        val recent = MrRedNotificationListenerService.recentNotifications(context, sinceMillis = System.currentTimeMillis() - 3600_000L)
+        if (recent.isNotEmpty()) {
+            val formatted = recent.take(10).joinToString("\n") { notif ->
+                val app = notif.app.ifBlank { notif.packageName }
+                "- [$app] ${notif.title}: ${notif.text}".trim()
+            }
+            return ToolResult.Success("Active / recent notifications:\n$formatted")
+        }
+        val events = EventMemoryStore.browseEvents(context, "notifications", limit = 10)
+        if (events.isNotEmpty()) {
+            val formatted = events.joinToString("\n") { ev ->
+                "- [${ev.source.ifBlank { "Notification" }}] ${ev.title.orEmpty()}: ${ev.body.orEmpty()}".trim()
+            }
+            return ToolResult.Success("Recent notifications:\n$formatted")
+        }
+        return ToolResult.Success("No recent notifications recorded in the last hour.")
     }
 
     private fun openNotificationAccess(): ToolResult = runCatching {
