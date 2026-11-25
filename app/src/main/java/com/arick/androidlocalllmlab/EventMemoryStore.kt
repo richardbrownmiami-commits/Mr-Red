@@ -4,7 +4,6 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
-import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -30,13 +29,6 @@ data class StoredEventRecord(
     val body: String,
     val importance: String,
     val isActive: Boolean
-)
-
-data class StoredConversationRecord(
-    val id: Long,
-    val question: String,
-    val answer: String,
-    val createdAtMillis: Long
 )
 
 data class DatabaseQueryFilter(val table: String, val column: String, val value: String)
@@ -201,7 +193,7 @@ object EventMemoryStore {
         }
     }
 
-    /** Returns recently learned explicit facts for on-device display in the Memory Hub. */
+    /** Read-only event browser used by the database screen. */
     fun browseEvents(
         context: Context,
         section: String,
@@ -250,35 +242,6 @@ object EventMemoryStore {
     }
 
     /** Read-only search over the existing dedicated conversation history table. */
-    fun browseConversations(
-        context: Context,
-        query: String = "",
-        limit: Int = 500
-    ): List<StoredConversationRecord> {
-        awaitPendingWrites()
-        val needle = query.trim()
-        val where = if (needle.isBlank()) "" else "WHERE question LIKE ? OR answer LIKE ?"
-        val args = if (needle.isBlank()) {
-            arrayOf(limit.coerceIn(1, 1000).toString())
-        } else {
-            arrayOf("%$needle%", "%$needle%", limit.coerceIn(1, 1000).toString())
-        }
-        val rows = mutableListOf<StoredConversationRecord>()
-        database(context.applicationContext).readableDatabase.rawQuery(
-            "SELECT id, question, answer, created_at FROM conversation_turns $where ORDER BY created_at DESC, id DESC LIMIT ?",
-            args
-        ).use { cursor ->
-            while (cursor.moveToNext()) rows += StoredConversationRecord(
-                id = cursor.getLong(0),
-                question = cursor.getString(1),
-                answer = cursor.getString(2),
-                createdAtMillis = cursor.getLong(3)
-            )
-        }
-        return rows
-    }
-
-    /** Counts reflect the actual existing tables and event categories. */
     fun databaseBrowserCounts(context: Context): Map<String, Int> {
         awaitPendingWrites()
         val db = database(context.applicationContext).readableDatabase
@@ -289,7 +252,6 @@ object EventMemoryStore {
             "notifications" to count("SELECT COUNT(*) FROM events WHERE event_type = 'NOTIFICATION' AND action = 'posted'"),
             "actions" to count("SELECT COUNT(*) FROM events WHERE event_type = 'DEVICE' OR (event_type = 'ERROR' AND action = 'device_action_failed')"),
             "activities" to count("SELECT COUNT(*) FROM events WHERE event_type <> 'NOTIFICATION' AND event_type <> 'DEVICE' AND NOT (event_type = 'ERROR' AND action = 'device_action_failed')"),
-            "chat" to count("SELECT COUNT(*) FROM conversation_turns")
         )
     }
 
@@ -303,91 +265,6 @@ object EventMemoryStore {
         return mapOf(
             "events" to count("events"),
             "notifications" to count("events", "event_type = 'NOTIFICATION' AND action = 'posted'"),
-            "facts" to count("facts"),
             "active_notifications" to count("events", "event_type = 'NOTIFICATION' AND action = 'posted' AND is_active = 1")
         )
     }
-
-    private fun containsSensitiveTopic(value: String): Boolean {
-        val lower = value.lowercase()
-        val blocked = listOf(
-            "medical", "diagnosis", "disease", "medication", "pregnan", "sexual",
-            "religion", "religious", "political party", "vote for", "ethnicity",
-            "race", "sexual orientation", "union membership"
-        )
-        return blocked.any(lower::contains)
-    }
-
-    private fun sha256(value: String): String =
-        MessageDigest.getInstance("SHA-256")
-            .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
-
-    private class MemoryDatabase(context: Context) :
-        SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
-
-        override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL(
-                """CREATE TABLE events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event_type TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    source TEXT NOT NULL DEFAULT '',
-                    detail TEXT NOT NULL DEFAULT '',
-                    occurred_at INTEGER NOT NULL,
-                    package_name TEXT NOT NULL DEFAULT '',
-                    event_key TEXT NOT NULL DEFAULT '',
-                    title TEXT NOT NULL DEFAULT '',
-                    body TEXT NOT NULL DEFAULT '',
-                    importance TEXT NOT NULL DEFAULT '',
-                    is_active INTEGER NOT NULL DEFAULT 0
-                )""".trimIndent()
-            )
-            db.execSQL("CREATE INDEX idx_events_type_time ON events(event_type, occurred_at DESC)")
-            db.execSQL("CREATE INDEX idx_events_key ON events(package_name, event_key)")
-            db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at) WHERE event_type = 'NOTIFICATION' AND action = 'posted'")
-            db.execSQL("CREATE INDEX idx_events_active ON events(event_type, is_active, occurred_at DESC)")
-            db.execSQL(
-                """CREATE TABLE facts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    fact TEXT NOT NULL,
-                    source_text TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    fingerprint TEXT NOT NULL UNIQUE
-                )""".trimIndent()
-            )
-            db.execSQL("CREATE INDEX idx_facts_updated ON facts(updated_at DESC)")
-            db.execSQL(
-                """CREATE TABLE conversation_turns (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    question TEXT NOT NULL,
-                    answer TEXT NOT NULL,
-                    created_at INTEGER NOT NULL,
-                    fingerprint TEXT NOT NULL UNIQUE
-                )""".trimIndent()
-            )
-            db.execSQL("CREATE INDEX idx_conversation_turns_created ON conversation_turns(created_at DESC)")
-        }
-
-        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            if (oldVersion < 2) {
-                db.execSQL("DROP INDEX IF EXISTS idx_notification_unique")
-                db.execSQL("CREATE UNIQUE INDEX idx_notification_unique ON events(package_name, event_key, occurred_at) WHERE event_type = 'NOTIFICATION' AND action = 'posted'")
-            }
-            if (oldVersion < 3) {
-                db.execSQL(
-                    """CREATE TABLE conversation_turns (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        question TEXT NOT NULL,
-                        answer TEXT NOT NULL,
-                        created_at INTEGER NOT NULL,
-                        fingerprint TEXT NOT NULL UNIQUE
-                    )""".trimIndent()
-                )
-                db.execSQL("CREATE INDEX idx_conversation_turns_created ON conversation_turns(created_at DESC)")
-            }
-        }
-    }
-}

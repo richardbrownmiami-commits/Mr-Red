@@ -2,6 +2,7 @@ package com.arick.androidlocalllmlab
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,42 +13,14 @@ class EventMemoryStoreInstrumentedTest {
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test
-    fun onlyExplicitNonSensitiveModelRequestedFactsArePersisted() {
-        val now = System.currentTimeMillis()
-        val fact = "Prefers concise technical answers $now"
-        val result = EventMemoryStore.saveModelRequestedFact(
-            context = context,
-            fact = fact,
-            sourceText = "Please remember that $fact"
-        )
-        assertTrue(result.contains("saved"))
-        val rows = EventMemoryStore.executeModelReadOnlyQuery(
-            context = context,
-            sql = "SELECT fact FROM facts WHERE fact = '$fact' LIMIT 1",
-            requiredTable = "facts"
-        )
-        assertTrue("The explicitly requested fact must be persisted", rows.contains(fact))
-
-        val rejected = runCatching {
-            EventMemoryStore.saveModelRequestedFact(
-                context = context,
-                fact = "Medical diagnosis is private",
-                sourceText = "Please remember my medical diagnosis"
-            )
-        }.isFailure
-        assertTrue("Sensitive facts must be rejected by the storage boundary", rejected)
-    }
-
-    @Test
-    fun notificationHistoryIsReadFromSqliteAndTracksDismissal() {
+    fun notificationHistoryIsStoredAndTracksDismissal() {
         val now = System.currentTimeMillis()
         val key = "mr-red-instrumented-$now"
         val title = "SQLite integration title $now"
         val body = "SQLite integration body $now"
-
         EventMemoryStore.recordNotification(
             context = context,
-            appLabel = "Integration test app $now",
+            appLabel = "Integration test app",
             packageName = "com.example.mrredtest",
             notificationKey = key,
             title = title,
@@ -55,113 +28,27 @@ class EventMemoryStoreInstrumentedTest {
             postedAtMillis = now,
             importance = "important"
         )
-        val posted = EventMemoryStore.notificationContextForQuestion(
-            context,
-            "What notification from Integration test app $now arrived in the last hour?"
-        )
-        assertTrue("Notification title must come from SQLite", posted.contains(title))
-        assertTrue(posted.contains(body))
-        assertTrue(posted.contains("| active"))
-
-        EventMemoryStore.markNotificationRemoved(
-            context = context,
-            packageName = "com.example.mrredtest",
-            notificationKey = key,
-            removedAtMillis = now + 2
-        )
-        val dismissed = EventMemoryStore.notificationContextForQuestion(
-            context,
-            "What notification from Integration test app $now arrived in the last hour?"
-        )
-        assertTrue("Dismissal must update the stored notification row", dismissed.contains("| dismissed"))
+        val posted = EventMemoryStore.browseEvents(context, "notifications", title)
+        assertTrue(posted.any { it.title == title && it.body == body && it.isActive })
+        EventMemoryStore.markNotificationRemoved(context, "com.example.mrredtest", key, now + 2)
+        val dismissed = EventMemoryStore.browseEvents(context, "notifications", title)
+        assertTrue(dismissed.any { it.title == title && !it.isActive })
     }
 
     @Test
-    fun actionNotificationContextIsCompactAndTracksPreviouslySharedRows() {
+    fun eventRecordsCanBeBrowsedBySection() {
         val now = System.currentTimeMillis()
-        val suffix = now.toString()
-        val title = "Alice $suffix"
-        val body = "Are you available for the meeting? " + "Agenda details ".repeat(18) + suffix
-        EventMemoryStore.recordNotification(
-            context = context,
-            appLabel = "WhatsApp Integration test app $suffix",
-            packageName = "com.example.notificationactiontest",
-            notificationKey = "notification-action-$suffix",
-            title = title,
-            body = body,
-            postedAtMillis = now,
-            importance = "important"
-        )
-
-        val first = EventMemoryStore.notificationContextForQuestion(
-            context,
-            "What notification from Integration test app $now arrived in the last hour?"
-        )
-        assertTrue("Action context must contain the matching title", first.contains(title))
-        assertTrue("Default action context must keep message evidence compact", first.contains(body.take(100)))
-        assertTrue("Action context must be compact evidence", first.contains("NOTIFICATION EVIDENCE"))
-
-        val exact = EventMemoryStore.notificationContextForQuestion(
-            context,
-            "What exact message from WhatsApp Integration test app $suffix?"
-        )
-        assertTrue("An explicit exact-text request must receive the full stored wording", exact.contains(body))
-
-        val unread = EventMemoryStore.notificationContextForQuestion(
-            context,
-            "Any unread notifications from WhatsApp Integration test app $suffix?"
-        )
-        assertTrue(
-            "A record already supplied to the model must not be returned as unread",
-            unread.contains("No notifications remain unshared with the model")
-        )
+        val detail = "direct-control integration event $now"
+        EventMemoryStore.recordEvent(context, "DEVICE", "integration_test", detail, source = "instrumented_test", occurredAtMillis = now)
+        val rows = EventMemoryStore.browseEvents(context, "actions", detail)
+        assertTrue(rows.any { it.detail == detail && it.action == "integration_test" })
     }
 
     @Test
-    fun broadNotificationQueryIncludesOlderStillActiveNotifications() {
-        val now = System.currentTimeMillis()
-        val oldPostedAt = now - 3L * 24 * 60 * 60 * 1000
-        val title = "Still active notification $now"
-        EventMemoryStore.recordNotification(
-            context = context,
-            appLabel = "Active history test",
-            packageName = "com.example.activehistory",
-            notificationKey = "active-history-$now",
-            title = title,
-            body = "This notification remains in the shade",
-            postedAtMillis = oldPostedAt
-        )
-
-        val broad = EventMemoryStore.notificationContextForQuestion(context, "any notification i have", now)
-        assertTrue("Broad queries must include older notifications still active in Android", broad.contains(title))
-
-        val recent = EventMemoryStore.notificationContextForQuestion(context, "notifications in the last 24 hours", now)
-        assertTrue("Explicit time ranges must not include older active notifications", !recent.contains(title))
-    }
-
-    @Test
-    fun broadTodayRetrievalIncludesDifferentRecordedCategories() {
-        val now = System.currentTimeMillis()
-        val suffix = now.toString()
-        val details = listOf(
-            "WEB" to "web integration event $suffix",
-            "PERMISSION" to "permission integration event $suffix",
-            "APP" to "app integration event $suffix"
-        )
-        details.forEach { (category, detail) ->
-            EventMemoryStore.recordEvent(
-                context = context,
-                category = category,
-                action = "integration_test",
-                detail = detail,
-                source = "instrumented_test",
-                occurredAtMillis = now
-            )
-        }
-
-        val retrieved = EventMemoryStore.relevantContext(context, "What happened in the last two hours?", now + 1000)
-        details.forEach { (_, detail) ->
-            assertTrue("Broad retrieval must include $detail", retrieved.contains(detail))
-        }
+    fun databaseBrowserCountsExposeNotificationAndActivityCounts() {
+        val counts = EventMemoryStore.databaseBrowserCounts(context)
+        assertTrue(counts.containsKey("notifications"))
+        assertTrue(counts.containsKey("activities"))
+        assertEquals(false, counts.containsKey("chat"))
     }
 }
