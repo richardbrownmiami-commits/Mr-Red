@@ -1023,11 +1023,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val prefixTokens = runtime.warmPrompt(
             listOf(PromptMessage("system", PromptCache.STABLE_SYSTEM))
         )
-        check(prefixTokens > 0) { "The shared system prefix could not be tokenized and warmed." }
-        ActivityLogger.record(
-            getApplication(), "MODEL", "prompt_prefix_warmed",
-            "tokens=$prefixTokens"
-        )
+        if (prefixTokens > 0) {
+            ActivityLogger.record(
+                getApplication(), "MODEL", "prompt_prefix_warmed",
+                "tokens=$prefixTokens"
+            )
+        } else {
+            // A cancelled/failed warmup must not make the entire chat unusable.
+            // Native generation can still prefill the stable prefix with the first turn.
+            ActivityLogger.record(
+                getApplication(), "MODEL", "prompt_prefix_warmup_skipped",
+                "Generation will use a cold prompt prefill"
+            )
+        }
     }
 
     /** No per-turn warmup: preserving the current KV cache is essential for reuse. */
