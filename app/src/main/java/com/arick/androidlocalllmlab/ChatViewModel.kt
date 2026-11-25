@@ -1461,7 +1461,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _messages.value = emptyList()
         synchronized(conversationHistory) { conversationHistory.clear(); persistConversationHistoryLocked() }
         EventMemoryStore.clearConversationHistory(getApplication())
-        viewModelScope.launch {
+        memoryWarmupJob = viewModelScope.launch {
             withContext(Dispatchers.Default) {
                 nativeInferenceMutex.withLock {
                     runtime.resetContext()
@@ -1483,7 +1483,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         memoryWarmupJob?.cancel()
-        viewModelScope.launch {
+        memoryWarmupJob = viewModelScope.launch {
             withContext(Dispatchers.Default) {
                 nativeInferenceMutex.withLock {
                     runtime.resetContext()
