@@ -4,7 +4,6 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
-import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -14,8 +13,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Persistent, app-private event memory. Collection is asynchronous so notification callbacks
  * and Compose/UI logging never perform SQLite I/O on the main thread.
  *
- * Original notification bodies and conversation text stay on-device. Prompt selection is a
- * separate concern; this store does not automatically inject its contents into the model.
+ * Original notification bodies remain in app-private storage and are visible only through the local database browser.
  */
 /** Read-only row models exposed to the on-device database browser. */
 data class StoredEventRecord(
@@ -36,7 +34,7 @@ data class DatabaseQueryFilter(val table: String, val column: String, val value:
 
 object EventMemoryStore {
     private const val DATABASE_NAME = "mr_red_memory.db"
-    private const val DATABASE_VERSION = 3
+    private const val DATABASE_VERSION = 4
     private const val EVENT_RETENTION_DAYS = 90
     private const val RETENTION_INTERVAL_MILLIS = 24L * 60 * 60 * 1000
 
@@ -269,21 +267,6 @@ object EventMemoryStore {
             "active_notifications" to count("events", "event_type = 'NOTIFICATION' AND action = 'posted' AND is_active = 1")
         )
     }
-
-    private fun containsSensitiveTopic(value: String): Boolean {
-        val lower = value.lowercase()
-        val blocked = listOf(
-            "medical", "diagnosis", "disease", "medication", "pregnan", "sexual",
-            "religion", "religious", "political party", "vote for", "ethnicity",
-            "race", "sexual orientation", "union membership"
-        )
-        return blocked.any(lower::contains)
-    }
-
-    private fun sha256(value: String): String =
-        MessageDigest.getInstance("SHA-256")
-            .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
 
     private class MemoryDatabase(context: Context) :
         SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
