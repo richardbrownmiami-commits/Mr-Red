@@ -17,7 +17,7 @@ private val AppColorScheme = darkColorScheme(
 )
 
 @Composable
-fun AndroidLocalLlmLabTheme(content: @Composable () -> Unit) {
+fun MrRedTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = AppColorScheme,
         typography = Typography,
