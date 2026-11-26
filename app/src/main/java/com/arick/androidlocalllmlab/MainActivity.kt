@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
         ScheduledTasksStore.init(applicationContext)
         ActivityLogger.record(applicationContext, "APP", "started", "Mr-Red device controls opened")
         setContent {
-            com.arick.androidlocalllmlab.ui.theme.AndroidLocalLlmLabTheme {
+            com.arick.androidlocalllmlab.ui.theme.MrRedTheme {
                 MrRedApp()
             }
         }
