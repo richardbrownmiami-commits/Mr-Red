@@ -3,6 +3,7 @@ package com.arick.androidlocalllmlab
 internal object NativeLlmBridge {
     init { System.loadLibrary("mrred_llm") }
     external fun load(modelPath: String, contextSize: Int): Boolean
+    external fun primeSystemPrompt(prompt: String): Boolean
     external fun generate(prompt: String, maxTokens: Int): String
     external fun clearConversation()
     external fun unload()
