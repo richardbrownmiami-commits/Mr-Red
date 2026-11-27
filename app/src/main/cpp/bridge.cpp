@@ -11,7 +11,7 @@ static std::mutex guard;
 static std::vector<llama_token> cached_tokens;
 static uint32_t context_size = 0;
 
-static bool decode_tokens(const std::vector<llama_token> & tokens, size_t start) {
+static bool decode_tokens(const std::vector<llama_token> & tokens, size_t start, size_t base_position) {
     while (start < tokens.size()) {
         const size_t count = std::min<size_t>(32, tokens.size() - start);
         llama_batch batch = llama_batch_init((int32_t) count, 0, 1);
@@ -19,7 +19,7 @@ static bool decode_tokens(const std::vector<llama_token> & tokens, size_t start)
         for (size_t i = 0; i < count; ++i) {
             const size_t pos = start + i;
             batch.token[i] = tokens[pos];
-            batch.pos[i] = (llama_pos) pos;
+            batch.pos[i] = (llama_pos) (base_position + pos);
             batch.n_seq_id[i] = 1;
             batch.seq_id[i][0] = 0;
             batch.logits[i] = (pos + 1 == tokens.size());
@@ -57,6 +57,30 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_load(JNIEnv * env, jobject, js
     return JNI_TRUE;
 }
 
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_arick_androidlocalllmlab_NativeLlmBridge_primeSystemPrompt(JNIEnv * env, jobject, jstring prompt) {
+    std::lock_guard<std::mutex> lock(guard);
+    if (!ctx || !cached_tokens.empty()) return JNI_FALSE;
+    const char * chars = env->GetStringUTFChars(prompt, nullptr);
+    const std::string input(chars);
+    env->ReleaseStringUTFChars(prompt, chars);
+    const auto * vocab = llama_model_get_vocab(model);
+    int32_t needed = llama_tokenize(vocab, input.c_str(), (int32_t) input.size(), nullptr, 0, true, true);
+    if (needed < 0) needed = -needed;
+    std::vector<llama_token> tokens((size_t) needed + 1);
+    int32_t count = llama_tokenize(vocab, input.c_str(), (int32_t) input.size(), tokens.data(), (int32_t) tokens.size(), true, true);
+    if (count < 0) return JNI_FALSE;
+    tokens.resize((size_t) count);
+    if (tokens.size() >= context_size || !decode_tokens(tokens, 0, 0)) {
+        llama_kv_self_clear(ctx);
+        cached_tokens.clear();
+        return JNI_FALSE;
+    }
+    cached_tokens = std::move(tokens);
+    return JNI_TRUE;
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_arick_androidlocalllmlab_NativeLlmBridge_generate(JNIEnv * env, jobject, jstring prompt, jint maxTokens) {
     std::lock_guard<std::mutex> lock(guard);
@@ -74,32 +98,19 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_generate(JNIEnv * env, jobject
     if (token_count < 0) return env->NewStringUTF("Prompt tokenization failed");
     prompt_tokens.resize((size_t) token_count);
 
-    // Reuse the exact common prefix already resident in llama.cpp's KV cache.
-    size_t common = 0;
-    while (common < prompt_tokens.size() && common < cached_tokens.size() &&
-           prompt_tokens[common] == cached_tokens[common]) ++common;
-
-    if (common < cached_tokens.size()) {
-        if (!llama_kv_self_seq_rm(ctx, 0, (llama_pos) common, -1))
-            return env->NewStringUTF("Could not rewind KV cache");
-        cached_tokens.resize(common);
-    }
-
+    // The system prompt is primed once. Each request appends only its new turn
+    // to the existing KV sequence; no prompt-prefix token matching is performed.
+    const size_t base_position = cached_tokens.size();
     const size_t reserve = (size_t) std::max(1, maxTokens);
-    if (prompt_tokens.size() + reserve > context_size) {
-        llama_kv_self_clear(ctx);
-        cached_tokens.clear();
-        if (prompt_tokens.size() + reserve > context_size)
-            return env->NewStringUTF("Prompt exceeds model context. Reduce conversation history or increase context size.");
-        common = 0;
-    }
+    if (base_position + prompt_tokens.size() + reserve > context_size)
+        return env->NewStringUTF("Context is full. Clear the conversation or reload with a larger context size.");
 
-    if (common < prompt_tokens.size()) {
-        if (!decode_tokens(prompt_tokens, common)) {
+    if (!prompt_tokens.empty()) {
+        if (!decode_tokens(prompt_tokens, 0, base_position)) {
             llama_kv_self_clear(ctx); cached_tokens.clear();
-            return env->NewStringUTF("Prompt decode failed; KV cache was reset");
+            return env->NewStringUTF("Input decode failed; KV cache was reset");
         }
-        cached_tokens = prompt_tokens;
+        cached_tokens.insert(cached_tokens.end(), prompt_tokens.begin(), prompt_tokens.end());
     }
 
     auto * sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
