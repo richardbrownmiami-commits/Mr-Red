@@ -75,7 +75,7 @@ Ask a brief clarification when required arguments are missing. Do not call tools
         return finalAnswer
     }
 
-    fun clearConversation() {
+    suspend fun clearConversation() {
         history.clear()
         // A new system prompt will be evaluated only after the native KV cache is reset.
         runtime.clearConversationCache()
