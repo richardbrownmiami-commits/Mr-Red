@@ -10,6 +10,7 @@ import org.json.JSONObject
 class ToolCallingAgent(context: Context, private val runtime: LocalLlmRuntime) {
     private val executor = AndroidToolExecutor(context.applicationContext)
     private val history = mutableListOf<Pair<String, String>>()
+    private var systemPromptPrimed = false
 
     private val systemPrompt = """
 You are Mr-Red, a private on-device Android assistant. Be accurate, concise, and honest.
@@ -49,8 +50,14 @@ Ask a brief clarification when required arguments are missing. Do not call tools
     }
 
     suspend fun respond(userText: String): String {
+        if (!systemPromptPrimed) {
+            check(runtime.primeSystemPrompt("### SYSTEM\\n$systemPrompt\\n")) {
+                "Could not initialize the system prompt in the model KV cache"
+            }
+            systemPromptPrimed = true
+        }
         history += "user" to userText
-        val first = runtime.answer(buildPrompt())
+        val first = runtime.answer(buildTurnPrompt("user", userText))
         val call = parseToolCall(first)
         if (call == null) {
             history += "assistant" to first
@@ -70,15 +77,15 @@ Ask a brief clarification when required arguments are missing. Do not call tools
             is ToolResult.Failure -> "Tool error: " + result.message
         }
         history += "tool" to toolText
-        val finalAnswer = runtime.answer(buildPrompt())
+        val finalAnswer = runtime.answer(buildTurnPrompt("tool", toolText))
         history += "assistant" to finalAnswer
         return finalAnswer
     }
 
     suspend fun clearConversation() {
         history.clear()
-        // A new system prompt will be evaluated only after the native KV cache is reset.
         runtime.clearConversationCache()
+        systemPromptPrimed = false
     }
 
     private fun parseToolCall(raw: String): ToolCall? {
