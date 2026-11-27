@@ -12,6 +12,11 @@ class LocalLlmRuntime {
         loaded
     }
 
+    suspend fun primeSystemPrompt(prompt: String): Boolean = withContext(Dispatchers.IO) {
+        check(loaded) { "Load a GGUF model first" }
+        NativeLlmBridge.primeSystemPrompt(prompt)
+    }
+
     suspend fun answer(prompt: String, maxTokens: Int = 256): String = withContext(Dispatchers.IO) {
         check(loaded) { "Load a GGUF model first" }
         NativeLlmBridge.generate(prompt, maxTokens)
