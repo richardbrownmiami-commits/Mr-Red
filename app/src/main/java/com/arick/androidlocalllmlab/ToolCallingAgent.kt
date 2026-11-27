@@ -1,0 +1,5 @@
+package com.arick.androidlocalllmlab
+import android.content.Context
+import org.json.JSONObject
+class ToolCallingAgent(context:Context,private val runtime:LocalLlmRuntime) { private val executor=AndroidToolExecutor(context.applicationContext)
+ suspend fun respond(userText:String):String { val first=runtime.answer("""You are Mr-Red. If a tool is needed, output ONLY JSON: {"tool":"tool_name","arguments":{}}. Otherwise answer directly. User: $userText""");val obj=try{JSONObject(first.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim())}catch(_:Exception){return first};val name=obj.optString("tool");if(name.isBlank())return first;val args=obj.optJSONObject("arguments")?:JSONObject();val result=executor.execute(ToolCall(name,args));val txt=when(result){is ToolResult.Success->result.content;is ToolResult.Failure->"Tool error: "+result.message};return runtime.answer("Tool result: $txt\nAnswer the user based on this result.") } }
