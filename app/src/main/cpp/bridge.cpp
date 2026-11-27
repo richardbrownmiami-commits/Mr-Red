@@ -1,0 +1,13 @@
+#include <jni.h>
+#include "llama.h"
+#include <string>
+#include <mutex>
+#include <vector>
+static llama_model* model=nullptr; static llama_context* ctx=nullptr; static std::mutex guard;
+extern "C" JNIEXPORT jboolean JNICALL Java_com_arick_androidlocalllmlab_NativeLlmBridge_load(JNIEnv* e,jobject,jstring path,jint contextSize){
+ std::lock_guard<std::mutex> l(guard); if(ctx||model)return JNI_FALSE; const char* p=e->GetStringUTFChars(path,nullptr); llama_backend_init(); auto mp=llama_model_default_params(); model=llama_model_load_from_file(p,mp);e->ReleaseStringUTFChars(path,p);if(!model){llama_backend_free();return JNI_FALSE;}auto cp=llama_context_default_params();cp.n_ctx=contextSize;cp.n_batch=32;ctx=llama_init_from_model(model,cp);if(!ctx){llama_model_free(model);model=nullptr;llama_backend_free();return JNI_FALSE;}return JNI_TRUE;
+}
+extern "C" JNIEXPORT jstring JNICALL Java_com_arick_androidlocalllmlab_NativeLlmBridge_generate(JNIEnv* e,jobject,jstring prompt,jint maxTokens){
+ std::lock_guard<std::mutex> l(guard);if(!ctx)return e->NewStringUTF("Model is not loaded");const char* s=e->GetStringUTFChars(prompt,nullptr);std::string input(s);e->ReleaseStringUTFChars(prompt,s);auto vocab=llama_model_get_vocab(model);int n=llama_tokenize(vocab,input.c_str(),input.size(),nullptr,0,true,true);if(n<0)n=-n;std::vector<llama_token> toks(n+8);n=llama_tokenize(vocab,input.c_str(),input.size(),toks.data(),toks.size(),true,true);if(n<0)n=-n;toks.resize(n);llama_batch batch=llama_batch_init(n,0,1);batch.n_tokens=n;for(int i=0;i<n;i++){batch.token[i]=toks[i];batch.pos[i]=i;batch.n_seq_id[i]=1;batch.seq_id[i][0]=0;batch.logits[i]=(i==n-1);}if(llama_decode(ctx,batch)!=0){llama_batch_free(batch);return e->NewStringUTF("Prompt decode failed");}llama_batch_free(batch);auto sampler=llama_sampler_chain_init(llama_sampler_chain_default_params());llama_sampler_chain_add(sampler,llama_sampler_init_greedy());std::string out;for(int i=0;i<maxTokens;i++){auto t=llama_sampler_sample(sampler,ctx,-1);if(t==llama_vocab_eos(vocab))break;char piece[256];int z=llama_token_to_piece(vocab,t,piece,sizeof(piece),0,true);if(z>0)out.append(piece,z);llama_batch b=llama_batch_init(1,0,1);b.n_tokens=1;b.token[0]=t;b.pos[0]=n+i;b.n_seq_id[0]=1;b.seq_id[0][0]=0;b.logits[0]=true;if(llama_decode(ctx,b)!=0){llama_batch_free(b);break;}llama_batch_free(b);}llama_sampler_free(sampler);return e->NewStringUTF(out.c_str());
+}
+extern "C" JNIEXPORT void JNICALL Java_com_arick_androidlocalllmlab_NativeLlmBridge_unload(JNIEnv*,jobject){std::lock_guard<std::mutex> l(guard);if(ctx){llama_free(ctx);ctx=nullptr;}if(model){llama_model_free(model);model=nullptr;}llama_backend_free();}
