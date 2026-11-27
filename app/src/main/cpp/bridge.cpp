@@ -138,3 +138,10 @@ Java_com_arick_androidlocalllmlab_NativeLlmBridge_unload(JNIEnv *, jobject) {
     context_size = 0;
     llama_backend_free();
 }
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_arick_androidlocalllmlab_NativeLlmBridge_clearConversation(JNIEnv *, jobject) {
+    std::lock_guard<std::mutex> lock(guard);
+    if (ctx) llama_kv_self_clear(ctx);
+    cached_tokens.clear();
+}
