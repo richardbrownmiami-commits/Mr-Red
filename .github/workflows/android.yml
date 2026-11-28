@@ -2,7 +2,9 @@ name: Build Mr-Red Android APK
 
 on:
   push:
-    branches: [ main, 'integration/opendroid-armv7-api30', 'integration/opendroid-agent-loop' ]
+    branches: [ main, 'integration/opendroid-armv7-api30', 'integration/opendroid-agent-loop', 'feature/new-local-llama-tool-agent' ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -29,10 +31,10 @@ jobs:
           packages: "platform-tools"
           cmdline-tools-version: "12266719"
           accept-android-sdk-licenses: true
-      - name: Install Android SDK platform and build tools
+      - name: Install Android SDK platform, build tools, and NDK
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -41,19 +43,17 @@ jobs:
         run: python3 tools/prepare_build.py
       - name: Run unit tests and compile instrumentation tests
         run: gradle --no-daemon :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --stacktrace
-      - name: Build release APK
+      - name: Build release APK with llama.cpp
         run: |
           gradle --no-daemon :app:assembleRelease --stacktrace
           mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Mr-Red.apk
-      - name: Verify APK has no native LLM payload
+      - name: Verify APK and ARMv7 native library
         run: |
           APK="app/build/outputs/apk/release/Mr-Red.apk"
           test -f "$APK"
-          if unzip -l "$APK" | grep -E '\.so$|\.gguf$'; then
-            echo "Unexpected native library or model payload found in APK"
-            exit 1
-          fi
-          echo "APK contains no native libraries or bundled GGUF model."
+          unzip -t "$APK"
+          unzip -l "$APK" | grep -E 'lib/armeabi-v7a/libmrred_llm.so'
+          echo "APK integrity and ARMv7 llama JNI library verified."
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
