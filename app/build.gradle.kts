@@ -8,9 +8,7 @@ plugins {
 
 val localProperties = Properties().apply {
     val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.isFile) {
-        localPropertiesFile.inputStream().use(::load)
-    }
+    if (localPropertiesFile.isFile) localPropertiesFile.inputStream().use(::load)
 }
 val tavilyApiKey = localProperties.getProperty("tavily.api.key", "")
     .replace("\\", "\\\\")
@@ -19,15 +17,12 @@ val appVersionName = "1.0.0"
 val appVersionCode = 1000
 val signingPropertiesFile = rootProject.file("key.properties")
 val signingProperties = Properties().apply {
-    if (signingPropertiesFile.isFile) {
-        signingPropertiesFile.inputStream().use(::load)
-    }
+    if (signingPropertiesFile.isFile) signingPropertiesFile.inputStream().use(::load)
 }
 val hasReleaseSigning = signingPropertiesFile.isFile
 
 android {
     namespace = "com.arick.androidlocalllmlab"
-
     compileSdk = 35
 
     defaultConfig {
@@ -38,6 +33,22 @@ android {
         versionName = appVersionName
         buildConfigField("String", "TAVILY_API_KEY", "\"$tavilyApiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += "armeabi-v7a"
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_PLATFORM=android-30", "-DANDROID_STL=c++_shared")
+                cppFlags += listOf("-O2")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     signingConfigs {
@@ -50,30 +61,19 @@ android {
             }
         }
     }
-
     buildTypes {
         release {
-            signingConfig = if (hasReleaseSigning) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    kotlinOptions { jvmTarget = "17" }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
     androidTestImplementation(platform(libs.androidx.compose.bom))
