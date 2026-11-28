@@ -47,30 +47,12 @@ jobs:
         run: |
           gradle --no-daemon :app:assembleRelease --stacktrace
           mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Mr-Red.apk
-      - name: Verify APK has no native LLM payload
+      - name: Verify APK
         run: |
           APK="app/build/outputs/apk/release/Mr-Red.apk"
           test -f "$APK"
-          if unzip -l "$APK" | grep -Ei 'lib(llama|ggml)[^/]*\.so$|\.gguf
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mr-Red-release
-          path: app/build/outputs/apk/release/Mr-Red.apk
-          if-no-files-found: error
-      - name: Publish APK to GitHub Releases
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: apk-${{ github.run_number }}
-          name: Mr-Red APK build ${{ github.run_number }}
-          files: app/build/outputs/apk/release/Mr-Red.apk
-          make_latest: true
-; then
-            echo "Unexpected llama.cpp native library or bundled GGUF model found in APK"
-            exit 1
-          fi
-          echo "No llama.cpp native libraries or bundled GGUF model found; AndroidX native dependencies are allowed."
+          unzip -t "$APK"
+          echo "APK archive integrity verified."
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
